@@ -60,3 +60,6 @@ logs/
 
 # Docker
 .dockerignore
+
+# Private local-only work
+private/

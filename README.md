@@ -40,6 +40,20 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for:
 - TimescaleDB configuration
 - Docker setup
 
+## Data Analysis
+
+Extract deep insights from your Irish Rail dataset with the consolidated docs in `docs/analysis/`.
+
+Local-only exploratory scripts live in `private/analysis/` and are intentionally ignored by git.
+
+### Analysis documents
+
+- `docs/analysis/README.md` - index for the reduced analysis doc set
+- `docs/analysis/overview.md` - main summary and recommendations
+- `docs/analysis/bottleneck.md` - Galway-Athenry bottleneck deep dive
+- `docs/analysis/operations.md` - action plan, alerting, and predictive follow-up
+- `DATA_SOURCES.md` - API caveats and weaker-coverage areas
+
 ## Testing
 
 See [TESTING.md](TESTING.md) for:
