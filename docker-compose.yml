@@ -22,7 +22,7 @@ services:
       dockerfile: Dockerfile
     container_name: irish_rail_daemon
     environment:
-      DATABASE_URL: postgresql://irish_data:secure_password@db:9898/ireland_public
+      DATABASE_URL: postgresql://irish_data:secure_password@db:5432/ireland_public
       POSTGRES_USER: irish_data
       POSTGRES_PASSWORD: secure_password
       POSTGRES_DB: ireland_public
