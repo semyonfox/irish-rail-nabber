@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS stations (
 );
 
 CREATE INDEX IF NOT EXISTS idx_stations_desc ON stations(station_desc);
+CREATE INDEX IF NOT EXISTS idx_stations_code ON stations(station_code);
 
 -- ============================================================================
 -- TIME-SERIES TABLES (Hypertables for compression)
@@ -47,24 +48,31 @@ ALTER TABLE train_snapshots SET (
 );
 
 SELECT add_compression_policy('train_snapshots', INTERVAL '7 days', if_not_exists => TRUE);
-SELECT add_retention_policy('train_snapshots', INTERVAL '90 days', if_not_exists => TRUE);
 
 CREATE INDEX IF NOT EXISTS idx_train_snapshots_code ON train_snapshots(train_code, fetched_at DESC);
 
--- Station board events (arrivals/departures)
+-- Station board events (arrivals/departures - expanded for full analytics)
 CREATE TABLE IF NOT EXISTS station_events (
     id BIGSERIAL,
     train_code TEXT NOT NULL,
     station_code TEXT REFERENCES stations(station_code),
+    origin TEXT,
+    destination TEXT,
+    train_type TEXT,
+    direction TEXT,
+    status TEXT,
     scheduled_arrival TIME,
     scheduled_departure TIME,
-    actual_arrival TIME,
-    actual_departure TIME,
-    status TEXT,
+    expected_arrival TIME,
+    expected_departure TIME,
     late_minutes INT,
-    position_desc TEXT,
+    last_location TEXT,
+    due_in INT,
     location_type CHAR(1),
-    recorded_at TIMESTAMP,
+    auto_arrival BOOLEAN,
+    auto_departure BOOLEAN,
+    server_time TIMESTAMPTZ,
+    query_time TIME,
     fetched_at TIMESTAMP NOT NULL,
     PRIMARY KEY (id, fetched_at)
 );
@@ -78,25 +86,50 @@ ALTER TABLE station_events SET (
 );
 
 SELECT add_compression_policy('station_events', INTERVAL '7 days', if_not_exists => TRUE);
-SELECT add_retention_policy('station_events', INTERVAL '90 days', if_not_exists => TRUE);
 
 CREATE INDEX IF NOT EXISTS idx_station_events_train ON station_events(train_code, fetched_at DESC);
 CREATE INDEX IF NOT EXISTS idx_station_events_station ON station_events(station_code, fetched_at DESC);
+CREATE INDEX IF NOT EXISTS idx_station_events_origin ON station_events(origin);
+CREATE INDEX IF NOT EXISTS idx_station_events_destination ON station_events(destination);
+CREATE INDEX IF NOT EXISTS idx_station_events_type ON station_events(train_type);
 
--- Train routes (journey definition)
-CREATE TABLE IF NOT EXISTS train_routes (
-    id BIGSERIAL PRIMARY KEY,
+-- Train movements (full journey with stops - from getTrainMovementsXML)
+-- Each row is a stop on the train's route
+CREATE TABLE IF NOT EXISTS train_movements (
+    id BIGSERIAL,
     train_code TEXT NOT NULL,
-    train_date DATE,
-    station_code TEXT REFERENCES stations(station_code),
-    location_order INT,
+    train_date DATE NOT NULL,
+    location_code TEXT,
+    location_full_name TEXT,
+    location_order INT NOT NULL,
     location_type CHAR(1),
+    train_origin TEXT,
+    train_destination TEXT,
     scheduled_arrival TIME,
     scheduled_departure TIME,
-    UNIQUE(train_code, train_date, station_code)
+    expected_arrival TIME,
+    expected_departure TIME,
+    actual_arrival TIME,
+    actual_departure TIME,
+    auto_arrival BOOLEAN,
+    auto_departure BOOLEAN,
+    stop_type CHAR(1),
+    fetched_at TIMESTAMP NOT NULL,
+    PRIMARY KEY (id, fetched_at)
 );
 
-CREATE INDEX IF NOT EXISTS idx_train_routes_code ON train_routes(train_code, train_date);
+SELECT create_hypertable('train_movements', 'fetched_at', if_not_exists => TRUE);
+
+ALTER TABLE train_movements SET (
+    timescaledb.compress,
+    timescaledb.compress_orderby = 'fetched_at DESC, train_code, train_date',
+    timescaledb.compress_chunk_time_interval = '7 days'
+);
+
+SELECT add_compression_policy('train_movements', INTERVAL '7 days', if_not_exists => TRUE);
+
+CREATE INDEX IF NOT EXISTS idx_train_movements_code ON train_movements(train_code, train_date, fetched_at DESC);
+CREATE INDEX IF NOT EXISTS idx_train_movements_location ON train_movements(location_code, fetched_at DESC);
 
 -- Fetch metadata
 CREATE TABLE IF NOT EXISTS fetch_history (
@@ -127,8 +160,8 @@ CREATE TABLE IF NOT EXISTS fetch_schedules (
 
 INSERT INTO fetch_schedules (endpoint, interval_seconds) VALUES
     ('getAllStationsXML', 86400),
-    ('getCurrentTrainsXML', 30),
-    ('getStationDataByCodeXML', 30)
+    ('getCurrentTrainsXML', 3),
+    ('getStationDataByCodeXML', 3)
 ON CONFLICT DO NOTHING;
 
 -- ============================================================================
