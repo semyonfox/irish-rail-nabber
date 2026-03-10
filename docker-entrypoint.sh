@@ -3,11 +3,16 @@ set -e
 
 # Wait for database to be ready
 echo "Waiting for TimescaleDB to be ready..."
-until psql -h "db" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT 1" 2>/dev/null; do
+until psql -h "db" -U "$POSTGRES_USER" -d "postgres" -c "SELECT 1" 2>/dev/null; do
   sleep 1
 done
 
-echo "Database is ready. Initializing schema..."
+echo "Database is ready. Creating and initializing schema..."
+psql -h "db" -U "$POSTGRES_USER" -d "postgres" << SQL
+SELECT 'Creating database ${POSTGRES_DB}...' as status;
+CREATE DATABASE "${POSTGRES_DB}";
+SQL
+
 psql -h "db" -U "$POSTGRES_USER" -d "$POSTGRES_DB" < schema.sql
 
 echo "Schema initialized. Starting daemon..."
