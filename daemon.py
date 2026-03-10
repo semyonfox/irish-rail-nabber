@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 import asyncio
-import psycopg
-import aiohttp
-import xml.etree.ElementTree as ET
-from datetime import datetime, timedelta
 import logging
 import os
-from typing import Optional, List, Dict
+import xml.etree.ElementTree as ET
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional
+
+import aiohttp
+import psycopg
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -21,17 +22,14 @@ class IrishRailDaemon:
         self.db_url = db_url
         self.pool: Optional[psycopg.AsyncConnectionPool] = None
         self.session: Optional[aiohttp.ClientSession] = None
-        # Polling intervals (hardcoded based on testing)
-        # API updates trains/boards ~3.5s, only store on change
-        self.trains_interval: int = 3  # seconds
-        self.boards_interval: int = 3  # seconds
-        self.stations_interval: int = 86400  # seconds (once daily, rarely changes)
-        # Track previous state to avoid duplicate records
+        self.trains_interval: int = 3
+        self.boards_interval: int = 3
+        self.stations_interval: int = 86400
         self.prev_trains_hash: Optional[int] = None
         self.prev_boards_hash: Optional[int] = None
 
     async def init(self):
-        """Initialize database and HTTP session"""
+        """Set up database pool and HTTP session"""
         self.pool = await psycopg.AsyncConnectionPool.create(
             self.db_url, min_size=2, max_size=10, command_timeout=30
         )
@@ -39,7 +37,7 @@ class IrishRailDaemon:
         logger.info("Daemon initialized")
 
     async def close(self):
-        """Cleanup resources"""
+        """Clean up connections"""
         if self.session:
             await self.session.close()
         if self.pool:
@@ -49,7 +47,7 @@ class IrishRailDaemon:
     async def fetch_api(
         self, endpoint: str, params: Dict = None, timeout: int = 15
     ) -> Optional[str]:
-        """Fetch XML from API with retry logic"""
+        """Hit Irish Rail API with retry backoff (3 attempts)"""
         url = f"{BASE_URL}/{endpoint}"
 
         for attempt in range(3):
@@ -85,7 +83,7 @@ class IrishRailDaemon:
         error: str = None,
         duration_ms: int = 0,
     ):
-        """Log fetch to database"""
+        """Log fetch attempt to database (for monitoring)"""
         async with self.pool.connection() as conn:
             await conn.execute(
                 """INSERT INTO fetch_history (endpoint, record_count, status, error_msg, duration_ms, fetched_at)
@@ -95,14 +93,14 @@ class IrishRailDaemon:
             await conn.commit()
 
     async def parse_xml(self, xml_str: str) -> ET.Element:
-        """Parse XML, removing namespaces"""
+        """Strip namespaces and parse XML"""
         xml_content = xml_str.replace("xmlns=", "xmlnamespace=")
         return ET.fromstring(xml_content)
 
     async def extract_text(
         self, element: Optional[ET.Element], tag: str, default: str = ""
     ) -> str:
-        """Safely extract text from XML element"""
+        """Pull text from XML element, return default if missing"""
         if element is None:
             return default
         child = element.find(tag)
@@ -115,7 +113,7 @@ class IrishRailDaemon:
     # ========================================================================
 
     async def fetch_stations(self):
-        """Fetch all stations (runs once daily)"""
+        """Load all 171 Irish Rail stations into database (once daily)"""
         start = datetime.now()
         xml = await self.fetch_api("getAllStationsXML")
 
@@ -173,7 +171,7 @@ class IrishRailDaemon:
             await self.record_fetch("getAllStationsXML", 0, "failed", str(e))
 
     async def fetch_trains(self):
-        """Fetch current live trains (3s interval)"""
+        """Capture live train positions (every 3s, deduplicated)"""
         start = datetime.now()
         xml = await self.fetch_api("getCurrentTrainsXML")
 
@@ -184,7 +182,6 @@ class IrishRailDaemon:
         try:
             root = await self.parse_xml(xml)
 
-            # Hash the response to detect if data changed
             trains_data = []
             for train in root:
                 try:
@@ -198,7 +195,6 @@ class IrishRailDaemon:
 
             trains_hash = hash(tuple(sorted(trains_data)))
 
-            # Skip if data hasn't changed
             if trains_hash == self.prev_trains_hash:
                 duration = int((datetime.now() - start).total_seconds() * 1000)
                 await self.record_fetch(
@@ -220,7 +216,7 @@ class IrishRailDaemon:
                         lon_str = await self.extract_text(train, "TrainLongitude", "0")
 
                         await conn.execute(
-                            """INSERT INTO train_snapshots 
+                            """INSERT INTO train_snapshots
                                (train_code, train_status, latitude, longitude, train_date, direction, public_message, train_type, fetched_at)
                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())""",
                             (
@@ -251,7 +247,7 @@ class IrishRailDaemon:
             await self.record_fetch("getCurrentTrainsXML", 0, "failed", str(e))
 
     async def fetch_station_board(self, station_code: str) -> int:
-        """Fetch board for single station"""
+        """Get upcoming trains at one station"""
         xml = await self.fetch_api(
             "getStationDataByCodeXML", {"StationCode": station_code}
         )
@@ -320,7 +316,7 @@ class IrishRailDaemon:
             return 0
 
     async def fetch_all_station_boards(self):
-        """Fetch boards for all stations (3s interval)"""
+        """Poll all 171 stations for arrivals/departures (every 3s, deduplicated)"""
         start = datetime.now()
 
         async with self.pool.connection() as conn:
@@ -329,7 +325,6 @@ class IrishRailDaemon:
             )
             station_codes = [row[0] async for row in rows]
 
-        # Fetch all boards and hash to detect changes
         boards_data = []
         board_counts = []
 
@@ -341,7 +336,6 @@ class IrishRailDaemon:
 
         boards_hash = hash(tuple(sorted(boards_data)))
 
-        # Skip if data hasn't changed
         if boards_hash == self.prev_boards_hash:
             duration = int((datetime.now() - start).total_seconds() * 1000)
             await self.record_fetch(
@@ -367,7 +361,7 @@ class IrishRailDaemon:
         )
 
     async def _fetch_station_board_count(self, station_code: str) -> int:
-        """Get board count for a station without storing"""
+        """Count trains at a station without storing"""
         xml = await self.fetch_api(
             "getStationDataByCodeXML", {"StationCode": station_code}
         )
@@ -381,7 +375,7 @@ class IrishRailDaemon:
             return 0
 
     async def fetch_all_train_movements(self):
-        """Fetch movements for all live trains"""
+        """Track full journey paths for all live trains (every 60s)"""
         start = datetime.now()
 
         # Get all live trains
@@ -414,7 +408,7 @@ class IrishRailDaemon:
             await self.record_fetch("getTrainMovementsXML", 0, "failed", str(e))
 
     async def fetch_train_movements(self, train_code: str, train_date: str):
-        """Fetch full journey for a train (getTrainMovementsXML)"""
+        """Get all stops for a single train's complete journey"""
         xml = await self.fetch_api(
             "getTrainMovementsXML", {"TrainId": train_code, "TrainDate": train_date}
         )
@@ -491,7 +485,7 @@ class IrishRailDaemon:
     # ========================================================================
 
     async def schedule_task(self, name: str, func, interval_seconds: int):
-        """Run task at fixed interval"""
+        """Repeatedly call a function at fixed intervals"""
         logger.info(f"Starting {name} every {interval_seconds}s")
 
         while True:
@@ -503,20 +497,13 @@ class IrishRailDaemon:
             await asyncio.sleep(interval_seconds)
 
     async def run(self):
-        """Start daemon"""
+        """Start the daemon: init stations, then spawn 4 background tasks"""
         await self.init()
 
         try:
-            # Initialize stations once (3-letter codes don't change)
             logger.info("Initializing stations...")
             await self.fetch_stations()
 
-            # Hardcoded polling intervals (based on testing)
-            # - Trains: 3s (API updates ~3.5s, live positions)
-            # - Boards: 3s (API updates ~3.5s, arrival/departure status)
-            # - Movements: 60s (track journey progress, actual times)
-            # - Stations: 24h (never change, one fetch per day)
-            # Data stored only when content changes (deduplication)
             tasks = [
                 asyncio.create_task(self.schedule_task("trains", self.fetch_trains, 3)),
                 asyncio.create_task(
