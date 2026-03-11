@@ -1,25 +1,28 @@
 # Irish Rail Analysis Overview
 
-Updated March 10, 2026  
-Primary dataset: 1,024,976 station events, 257 trains, 171 monitored stations  
+**Last Updated: March 11, 2026 20:48 UTC**  
+**Primary dataset: 260,137 station events, 171 monitored stations (live 21-minute collection)**  
+Previous full analysis: March 10, 2026 (1,024,976 events)  
 Supporting network model: 210 routed nodes used for graph and cascade analysis
 
 ## Core takeaway
 
-Irish Rail looks strong at network level: average delay is 1 minute, on-time reporting is about 99.5%, and Dublin commuter operations are the most reliable and most heavily used part of the system.
+Irish Rail continues to show strong network-level performance. Live monitoring (21-minute collection on March 11) shows average delay of **0.89 minutes** with 99.3% on-time reporting. Dublin commuter operations (DART + mainline) remain the most reliable and heavily used segment.
 
-The most important newer finding is that the Galway -> Oranmore -> Athenry single-track section is not just a suspicious western outlier. Route tracing supports it as a real bottleneck with measurable delay accumulation and downstream impact.
+The Galway -> Oranmore -> Athenry single-track bottleneck previously identified remains a focus area for operational monitoring.
 
-## Topline metrics
+## Topline metrics (Live, Mar 11 20:48 UTC)
 
 | Metric | Value | Notes |
 |--------|-------|-------|
-| Average delay | 1 minute | Strong network-wide punctuality |
-| On-time reporting | 99.5% | Delays and cancellations are rare in the feed |
-| Unique trains | 257 | Good operational spread |
-| Busiest station | Dublin Connolly (36,605 events) | Core Dublin hub |
-| Busiest route | Malahide <-> Bray (84,231 events) | Highest-volume corridor |
-| Top 10 route share | 47% of all events | Demand is concentrated |
+| Average delay | 0.89 minutes | Excellent punctuality |
+| On-time reporting | 99.3% | Only 0.7% with delays ≥1 minute |
+| Maximum delay observed | 21 minutes | Rare outlier event |
+| Total events collected | 260,137 | 21-minute collection period |
+| Train snapshots | 7,058 | Real-time GPS positions |
+| Monitored stations | 171 | Full network coverage |
+| Busiest station | Connolly (8,905 events) | Core Dublin hub |
+| Train type split | 54.5% mainline, 45.5% DART | Balanced operations |
 
 ## What is well supported
 
