@@ -22,16 +22,17 @@ class IrishRailDaemon:
         self.db_url = db_url
         self.pool: Optional[psycopg.AsyncConnectionPool] = None
         self.session: Optional[aiohttp.ClientSession] = None
-        self.trains_interval: int = 3
+        self.trains_interval: int = 1
         self.boards_interval: int = 3
         self.stations_interval: int = 86400
         self.prev_trains_hash: Optional[int] = None
-        self.prev_boards_hash: Optional[int] = None
+        self.prev_boards_hashes: Dict[str, int] = {}
+        self.station_codes: List[str] = []
 
     async def init(self):
         """Set up database pool and HTTP session"""
         self.pool = await psycopg.AsyncConnectionPool.create(
-            self.db_url, min_size=2, max_size=10, command_timeout=30
+            self.db_url, min_size=5, max_size=50, command_timeout=30
         )
         self.session = aiohttp.ClientSession()
         logger.info("Daemon initialized")
@@ -108,6 +109,26 @@ class IrishRailDaemon:
             return default
         return child.text.strip()
 
+    async def fetch_train_codes_by_type(self, train_type: str) -> set:
+        """Fetch set of train codes for a specific type (D/M/S/A)"""
+        xml = await self.fetch_api(
+            "getCurrentTrainsXML_WithTrainType", {"TrainType": train_type}
+        )
+        if not xml:
+            return set()
+
+        try:
+            root = await self.parse_xml(xml)
+            codes = set()
+            for train in root:
+                code = await self.extract_text(train, "TrainCode")
+                if code:
+                    codes.add(code)
+            return codes
+        except Exception as e:
+            logger.debug(f"Error fetching {train_type} trains: {e}")
+            return set()
+
     # ========================================================================
     # FETCH TASKS
     # ========================================================================
@@ -124,6 +145,7 @@ class IrishRailDaemon:
         try:
             root = await self.parse_xml(xml)
             count = 0
+            station_codes_to_type = {}
 
             async with self.pool.connection() as conn:
                 for station in root:
@@ -133,13 +155,20 @@ class IrishRailDaemon:
                             continue
 
                         await conn.execute(
-                            """INSERT INTO stations (station_code, station_id, station_desc, latitude, longitude, updated_at)
-                               VALUES (%s, %s, %s, %s, %s, NOW())
-                               ON CONFLICT(station_code) DO UPDATE SET updated_at = NOW()""",
+                            """INSERT INTO stations (station_code, station_id, station_desc, station_alias, latitude, longitude, updated_at)
+                               VALUES (%s, %s, %s, %s, %s, %s, NOW())
+                               ON CONFLICT(station_code) DO UPDATE SET 
+                                   station_id = EXCLUDED.station_id,
+                                   station_desc = EXCLUDED.station_desc,
+                                   station_alias = EXCLUDED.station_alias,
+                                   latitude = EXCLUDED.latitude,
+                                   longitude = EXCLUDED.longitude,
+                                   updated_at = NOW()""",
                             (
                                 code,
                                 await self.extract_text(station, "StationId"),
                                 await self.extract_text(station, "StationDesc"),
+                                await self.extract_text(station, "StationAlias"),
                                 float(
                                     await self.extract_text(
                                         station, "StationLatitude", "0"
@@ -155,10 +184,53 @@ class IrishRailDaemon:
                             ),
                         )
                         count += 1
+                        station_codes_to_type[code] = None
                     except Exception as e:
                         logger.debug(f"Station parse error: {e}")
 
                 await conn.commit()
+
+            # Populate station_type and is_dart
+            logger.info("Fetching station type classifications...")
+            try:
+                (
+                    dart_stations,
+                    mainline_stations,
+                    suburban_stations,
+                    airport_stations,
+                ) = await asyncio.gather(
+                    self._fetch_stations_of_type("D"),
+                    self._fetch_stations_of_type("M"),
+                    self._fetch_stations_of_type("S"),
+                    self._fetch_stations_of_type("A"),
+                )
+
+                async with self.pool.connection() as conn:
+                    for code in dart_stations:
+                        await conn.execute(
+                            "UPDATE stations SET station_type = %s, is_dart = TRUE, updated_at = NOW() WHERE station_code = %s",
+                            ("D", code),
+                        )
+                    for code in mainline_stations:
+                        await conn.execute(
+                            "UPDATE stations SET station_type = %s, is_dart = FALSE, updated_at = NOW() WHERE station_code = %s",
+                            ("M", code),
+                        )
+                    for code in suburban_stations:
+                        await conn.execute(
+                            "UPDATE stations SET station_type = %s, is_dart = FALSE, updated_at = NOW() WHERE station_code = %s",
+                            ("S", code),
+                        )
+                    for code in airport_stations:
+                        await conn.execute(
+                            "UPDATE stations SET station_type = %s, is_dart = FALSE, updated_at = NOW() WHERE station_code = %s",
+                            ("A", code),
+                        )
+                    await conn.commit()
+            except Exception as e:
+                logger.warning(f"Could not fetch station types: {e}")
+
+            self.station_codes = list(station_codes_to_type.keys())
 
             duration = int((datetime.now() - start).total_seconds() * 1000)
             await self.record_fetch(
@@ -170,8 +242,28 @@ class IrishRailDaemon:
             logger.error(f"Stations fetch failed: {e}")
             await self.record_fetch("getAllStationsXML", 0, "failed", str(e))
 
+    async def _fetch_stations_of_type(self, station_type: str) -> set:
+        """Fetch set of station codes for a specific type (D/M/S/A)"""
+        xml = await self.fetch_api(
+            "getAllStationsXML_WithStationType", {"StationType": station_type}
+        )
+        if not xml:
+            return set()
+
+        try:
+            root = await self.parse_xml(xml)
+            codes = set()
+            for station in root:
+                code = await self.extract_text(station, "StationCode")
+                if code:
+                    codes.add(code)
+            return codes
+        except Exception as e:
+            logger.debug(f"Error fetching {station_type} stations: {e}")
+            return set()
+
     async def fetch_trains(self):
-        """Capture live train positions (every 3s, deduplicated)"""
+        """Capture live train positions (every 1s, deduplicated)"""
         start = datetime.now()
         xml = await self.fetch_api("getCurrentTrainsXML")
 
@@ -203,8 +295,31 @@ class IrishRailDaemon:
                 return
 
             self.prev_trains_hash = trains_hash
-            count = 0
 
+            # Build train type map from type-filtered endpoints
+            (
+                dart_codes,
+                mainline_codes,
+                suburban_codes,
+                airport_codes,
+            ) = await asyncio.gather(
+                self.fetch_train_codes_by_type("D"),
+                self.fetch_train_codes_by_type("M"),
+                self.fetch_train_codes_by_type("S"),
+                self.fetch_train_codes_by_type("A"),
+            )
+
+            type_map = {}
+            for code in dart_codes:
+                type_map[code] = "DART"
+            for code in mainline_codes:
+                type_map[code] = "Mainline"
+            for code in suburban_codes:
+                type_map[code] = "Suburban"
+            for code in airport_codes:
+                type_map[code] = "Airport"
+
+            count = 0
             async with self.pool.connection() as conn:
                 for train in root:
                     try:
@@ -227,7 +342,7 @@ class IrishRailDaemon:
                                 await self.extract_text(train, "TrainDate"),
                                 await self.extract_text(train, "Direction"),
                                 await self.extract_text(train, "PublicMessage"),
-                                "Unknown",
+                                type_map.get(code),
                             ),
                         )
                         count += 1
@@ -246,12 +361,15 @@ class IrishRailDaemon:
             logger.error(f"Trains fetch failed: {e}")
             await self.record_fetch("getCurrentTrainsXML", 0, "failed", str(e))
 
-    async def fetch_station_board(self, station_code: str) -> int:
-        """Get upcoming trains at one station"""
+    async def fetch_board_xml(self, station_code: str) -> tuple[str, Optional[str]]:
+        """Fetch station board XML, return (station_code, xml) tuple"""
         xml = await self.fetch_api(
             "getStationDataByCodeXML", {"StationCode": station_code}
         )
+        return (station_code, xml)
 
+    async def insert_station_events(self, station_code: str, xml: str) -> int:
+        """Parse and insert station events for one station"""
         if not xml:
             return 0
 
@@ -266,9 +384,7 @@ class IrishRailDaemon:
                         if not train_code:
                             continue
 
-                        late_str = await self.extract_text(board, "Late", "0")
-                        late = int(late_str) if late_str and late_str.isdigit() else 0
-
+                        train_code = train_code.strip()
                         late_str = await self.extract_text(board, "Late", "0")
                         due_in_str = await self.extract_text(board, "Duein", "0")
 
@@ -277,7 +393,7 @@ class IrishRailDaemon:
                                (train_code, station_code, origin, destination, train_type, direction,
                                 status, scheduled_arrival, scheduled_departure,
                                 expected_arrival, expected_departure, late_minutes, last_location, due_in,
-                                location_type, server_time, query_time, fetched_at)
+                                location_type, origin_time, destination_time, fetched_at)
                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())""",
                             (
                                 train_code,
@@ -299,8 +415,8 @@ class IrishRailDaemon:
                                 if due_in_str and due_in_str.isdigit()
                                 else None,
                                 await self.extract_text(board, "Locationtype", " "),
-                                await self.extract_text(board, "Servertime"),
-                                await self.extract_text(board, "Querytime"),
+                                await self.extract_text(board, "Origintime"),
+                                await self.extract_text(board, "Destinationtime"),
                             ),
                         )
                         count += 1
@@ -312,67 +428,64 @@ class IrishRailDaemon:
             return count
 
         except Exception as e:
-            logger.debug(f"Board fetch failed for {station_code}: {e}")
+            logger.debug(f"Board insert failed for {station_code}: {e}")
             return 0
 
     async def fetch_all_station_boards(self):
-        """Poll all 171 stations for arrivals/departures (every 3s, deduplicated)"""
+        """Poll all 171 stations for arrivals/departures (every 3s, per-station dedup)"""
         start = datetime.now()
 
-        async with self.pool.connection() as conn:
-            rows = await conn.execute(
-                "SELECT station_code FROM stations ORDER BY station_code"
-            )
-            station_codes = [row[0] async for row in rows]
+        if not self.station_codes:
+            async with self.pool.connection() as conn:
+                rows = await conn.execute(
+                    "SELECT station_code FROM stations ORDER BY station_code"
+                )
+                self.station_codes = [row[0] async for row in rows]
 
-        boards_data = []
-        board_counts = []
-
-        for code in station_codes:
-            count = await self._fetch_station_board_count(code)
-            board_counts.append(count)
-            if count > 0:
-                boards_data.append(f"{code}:{count}")
-
-        boards_hash = hash(tuple(sorted(boards_data)))
-
-        if boards_hash == self.prev_boards_hash:
-            duration = int((datetime.now() - start).total_seconds() * 1000)
-            await self.record_fetch(
-                "getStationDataByCodeXML", 0, "skipped", duration_ms=duration
-            )
+        if not self.station_codes:
+            logger.warning("No stations loaded")
             return
 
-        self.prev_boards_hash = boards_hash
+        logger.info(
+            f"Fetching {len(self.station_codes)} station boards concurrently..."
+        )
 
-        logger.info(f"Fetching {len(station_codes)} station boards...")
-        total = 0
+        fetch_tasks = [self.fetch_board_xml(code) for code in self.station_codes]
+        board_results = await asyncio.gather(*fetch_tasks, return_exceptions=True)
 
-        for code in station_codes:
-            count = await self.fetch_station_board(code)
-            total += count
+        changed_count = 0
+        total_records = 0
+
+        for result in board_results:
+            try:
+                if isinstance(result, Exception):
+                    logger.debug(f"Fetch error: {result}")
+                    continue
+
+                station_code, xml = result
+                if not xml:
+                    continue
+
+                content_hash = hash(xml)
+
+                if self.prev_boards_hashes.get(station_code) == content_hash:
+                    continue
+
+                self.prev_boards_hashes[station_code] = content_hash
+                changed_count += 1
+                count = await self.insert_station_events(station_code, xml)
+                total_records += count
+            except Exception as e:
+                logger.debug(f"Board processing error: {e}")
 
         duration = int((datetime.now() - start).total_seconds() * 1000)
+        status = "success" if changed_count > 0 else "skipped"
         await self.record_fetch(
-            "getStationDataByCodeXML", total, "success", duration_ms=duration
+            "getStationDataByCodeXML", total_records, status, duration_ms=duration
         )
         logger.info(
-            f"Station boards: {total} records from {len(station_codes)} stations"
+            f"Station boards: {total_records} records from {changed_count}/{len(self.station_codes)} changed stations"
         )
-
-    async def _fetch_station_board_count(self, station_code: str) -> int:
-        """Count trains at a station without storing"""
-        xml = await self.fetch_api(
-            "getStationDataByCodeXML", {"StationCode": station_code}
-        )
-        if not xml:
-            return 0
-
-        try:
-            root = await self.parse_xml(xml)
-            return len(list(root))
-        except:
-            return 0
 
     async def fetch_all_train_movements(self):
         """Track full journey paths for all live trains (every 60s)"""

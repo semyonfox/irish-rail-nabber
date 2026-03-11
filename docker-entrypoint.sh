@@ -8,10 +8,8 @@ until psql -h "db" -U "$POSTGRES_USER" -d "postgres" -c "SELECT 1" 2>/dev/null; 
 done
 
 echo "Database is ready. Creating and initializing schema..."
-psql -h "db" -U "$POSTGRES_USER" -d "postgres" << SQL
-SELECT 'Creating database ${POSTGRES_DB}...' as status;
-CREATE DATABASE "${POSTGRES_DB}";
-SQL
+psql -h "db" -U "$POSTGRES_USER" -d "postgres" -tc "SELECT 1 FROM pg_database WHERE datname = '${POSTGRES_DB}'" | grep -q 1 || \
+    psql -h "db" -U "$POSTGRES_USER" -d "postgres" -c "CREATE DATABASE \"${POSTGRES_DB}\""
 
 psql -h "db" -U "$POSTGRES_USER" -d "$POSTGRES_DB" < schema.sql
 

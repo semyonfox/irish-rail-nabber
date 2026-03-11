@@ -1,4 +1,3 @@
 psycopg[binary]==3.2.3
 aiohttp==3.10.10
-asyncpg==0.30.0
 python-dotenv==1.0.1

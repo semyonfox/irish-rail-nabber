@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS stations (
     station_id TEXT UNIQUE,
     station_desc TEXT NOT NULL,
     station_alias TEXT,
+    station_type CHAR(1),
+    is_dart BOOLEAN DEFAULT FALSE,
     latitude NUMERIC(8,4),
     longitude NUMERIC(8,4),
     updated_at TIMESTAMP DEFAULT NOW()
@@ -65,13 +67,14 @@ CREATE TABLE IF NOT EXISTS station_events (
     scheduled_departure TIME,
     expected_arrival TIME,
     expected_departure TIME,
+    origin_time TIME,
+    destination_time TIME,
     late_minutes INT,
     last_location TEXT,
     due_in INT,
     location_type CHAR(1),
     auto_arrival BOOLEAN,
     auto_departure BOOLEAN,
-    server_time TIMESTAMPTZ,
     query_time TIME,
     fetched_at TIMESTAMP NOT NULL,
     PRIMARY KEY (id, fetched_at)
@@ -185,8 +188,8 @@ SELECT DISTINCT ON (train_code, station_code)
     station_code,
     status,
     late_minutes,
-    actual_arrival,
-    actual_departure,
+    expected_arrival,
+    expected_departure,
     fetched_at
 FROM station_events
 ORDER BY train_code, station_code, fetched_at DESC;
