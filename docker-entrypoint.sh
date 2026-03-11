@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+export PGPASSWORD="$POSTGRES_PASSWORD"
+
 # Wait for database to be ready
 echo "Waiting for TimescaleDB to be ready..."
 until psql -h "db" -U "$POSTGRES_USER" -d "postgres" -c "SELECT 1" 2>/dev/null; do
