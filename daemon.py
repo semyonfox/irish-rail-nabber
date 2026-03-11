@@ -32,9 +32,10 @@ class IrishRailDaemon:
 
     async def init(self):
         """Set up database pool and HTTP session"""
-        self.pool = await AsyncConnectionPool.create(
-            self.db_url, min_size=5, max_size=50, command_timeout=30
+        self.pool = AsyncConnectionPool(
+            self.db_url, min_size=5, max_size=50, timeout=30
         )
+        await self.pool.open()
         self.session = aiohttp.ClientSession()
         logger.info("Daemon initialized")
 
