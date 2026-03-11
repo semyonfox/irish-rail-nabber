@@ -8,6 +8,7 @@ from typing import Dict, List, Optional
 
 import aiohttp
 import psycopg
+from psycopg_pool import AsyncConnectionPool
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -20,7 +21,7 @@ BASE_URL = "http://api.irishrail.ie/realtime/realtime.asmx"
 class IrishRailDaemon:
     def __init__(self, db_url: str):
         self.db_url = db_url
-        self.pool: Optional[psycopg.AsyncConnectionPool] = None
+        self.pool: Optional[AsyncConnectionPool] = None
         self.session: Optional[aiohttp.ClientSession] = None
         self.trains_interval: int = 1
         self.boards_interval: int = 3
@@ -31,7 +32,7 @@ class IrishRailDaemon:
 
     async def init(self):
         """Set up database pool and HTTP session"""
-        self.pool = await psycopg.AsyncConnectionPool.create(
+        self.pool = await AsyncConnectionPool.create(
             self.db_url, min_size=5, max_size=50, command_timeout=30
         )
         self.session = aiohttp.ClientSession()

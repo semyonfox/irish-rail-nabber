@@ -198,24 +198,25 @@ ORDER BY train_code, station_code, fetched_at DESC;
 -- CONTINUOUS AGGREGATES (For analytics)
 -- ============================================================================
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS hourly_delays AS
+CREATE MATERIALIZED VIEW IF NOT EXISTS hourly_delays
+WITH (timescaledb.continuous) AS
 SELECT
     TIME_BUCKET('1 hour', fetched_at) AS hour,
     station_code,
-    AVG(late_minutes)::INT AS avg_late_minutes,
-    MAX(late_minutes)::INT AS max_late_minutes,
+    AVG(late_minutes)::NUMERIC(6,2) AS avg_late_minutes,
+    MAX(late_minutes) AS max_late_minutes,
     COUNT(*) AS event_count
 FROM station_events
 WHERE late_minutes IS NOT NULL
 GROUP BY hour, station_code
-WITH DATA;
+WITH NO DATA;
 
 CREATE INDEX IF NOT EXISTS idx_hourly_delays_hour ON hourly_delays(hour DESC);
 CREATE INDEX IF NOT EXISTS idx_hourly_delays_station ON hourly_delays(station_code, hour DESC);
 
 -- Refresh daily
 SELECT add_continuous_aggregate_policy('hourly_delays',
-    start_offset => INTERVAL '2 hours',
+    start_offset => INTERVAL '3 hours',
     end_offset => INTERVAL '1 hour',
     schedule_interval => INTERVAL '1 hour',
     if_not_exists => TRUE
