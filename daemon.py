@@ -197,12 +197,10 @@ class IrishRailDaemon:
                     dart_stations,
                     mainline_stations,
                     suburban_stations,
-                    airport_stations,
                 ) = await asyncio.gather(
                     self._fetch_stations_of_type("D"),
                     self._fetch_stations_of_type("M"),
                     self._fetch_stations_of_type("S"),
-                    self._fetch_stations_of_type("A"),
                 )
 
                 async with self.pool.connection() as conn:
@@ -220,11 +218,6 @@ class IrishRailDaemon:
                         await conn.execute(
                             "UPDATE stations SET station_type = %s, is_dart = FALSE, updated_at = NOW() WHERE station_code = %s",
                             ("S", code),
-                        )
-                    for code in airport_stations:
-                        await conn.execute(
-                            "UPDATE stations SET station_type = %s, is_dart = FALSE, updated_at = NOW() WHERE station_code = %s",
-                            ("A", code),
                         )
                     await conn.commit()
             except Exception as e:
@@ -301,12 +294,10 @@ class IrishRailDaemon:
                 dart_codes,
                 mainline_codes,
                 suburban_codes,
-                airport_codes,
             ) = await asyncio.gather(
                 self.fetch_train_codes_by_type("D"),
                 self.fetch_train_codes_by_type("M"),
                 self.fetch_train_codes_by_type("S"),
-                self.fetch_train_codes_by_type("A"),
             )
 
             type_map = {}
@@ -316,8 +307,6 @@ class IrishRailDaemon:
                 type_map[code] = "Mainline"
             for code in suburban_codes:
                 type_map[code] = "Suburban"
-            for code in airport_codes:
-                type_map[code] = "Airport"
 
             count = 0
             async with self.pool.connection() as conn:
