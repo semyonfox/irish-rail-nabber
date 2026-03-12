@@ -32,6 +32,12 @@ services:
     volumes:
       - ./daemon.py:/app/daemon.py
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://api.irishrail.ie/realtime/realtime.asmx/getAllStationsXML', timeout=5)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     logging:
       driver: "json-file"
       options:

@@ -9,6 +9,7 @@ RUN pip install --no-cache-dir -v -r requirements.txt
 
 COPY schema.sql .
 COPY daemon.py .
+COPY migrations/ ./migrations/
 COPY docker-entrypoint.sh .
 RUN chmod +x docker-entrypoint.sh
 

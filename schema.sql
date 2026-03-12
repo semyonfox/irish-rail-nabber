@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS station_events (
     id BIGSERIAL,
     train_code TEXT NOT NULL,
     station_code TEXT REFERENCES stations(station_code),
+    train_date DATE,
     origin TEXT,
     destination TEXT,
     train_type TEXT,
