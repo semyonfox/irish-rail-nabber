@@ -11,7 +11,7 @@ import psycopg
 from psycopg_pool import AsyncConnectionPool
 
 logging.basicConfig(
-    level=logging.WARNING, format="%(asctime)s - %(levelname)s - %(message)s"
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -523,6 +523,7 @@ class IrishRailDaemon:
         try:
             root = await self.parse_xml(xml)
             count = 0
+            errors = []
 
             async with self.pool.connection() as conn:
                 for movement in root:
@@ -531,53 +532,69 @@ class IrishRailDaemon:
                         if not code:
                             continue
 
-                        await conn.execute(
-                            """INSERT INTO train_movements
-                               (train_code, train_date, location_code, location_full_name, location_order,
-                                location_type, train_origin, train_destination, scheduled_arrival, scheduled_departure,
-                                expected_arrival, expected_departure, actual_arrival, actual_departure,
-                                auto_arrival, auto_departure, stop_type, fetched_at)
-                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())""",
-                            (
-                                code,
-                                await self.extract_text(movement, "TrainDate"),
-                                await self.extract_text(movement, "LocationCode"),
-                                await self.extract_text(movement, "LocationFullName"),
-                                int(
+                        try:
+                            await conn.execute(
+                                """INSERT INTO train_movements
+                                   (train_code, train_date, location_code, location_full_name, location_order,
+                                    location_type, train_origin, train_destination, scheduled_arrival, scheduled_departure,
+                                    expected_arrival, expected_departure, actual_arrival, actual_departure,
+                                    auto_arrival, auto_departure, stop_type, fetched_at)
+                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())""",
+                                (
+                                    code,
+                                    await self.extract_text(movement, "TrainDate"),
+                                    await self.extract_text(movement, "LocationCode"),
                                     await self.extract_text(
-                                        movement, "LocationOrder", "0"
-                                    )
-                                    or "0"
+                                        movement, "LocationFullName"
+                                    ),
+                                    int(
+                                        await self.extract_text(
+                                            movement, "LocationOrder", "0"
+                                        )
+                                        or "0"
+                                    ),
+                                    await self.extract_text(movement, "LocationType"),
+                                    await self.extract_text(movement, "TrainOrigin"),
+                                    await self.extract_text(
+                                        movement, "TrainDestination"
+                                    ),
+                                    await self.extract_text(
+                                        movement, "ScheduledArrival", "00:00"
+                                    ),
+                                    await self.extract_text(
+                                        movement, "ScheduledDeparture", "00:00"
+                                    ),
+                                    await self.extract_text(
+                                        movement, "ExpectedArrival", "00:00"
+                                    ),
+                                    await self.extract_text(
+                                        movement, "ExpectedDeparture", "00:00"
+                                    ),
+                                    await self.extract_text(movement, "Arrival"),
+                                    await self.extract_text(movement, "Departure"),
+                                    await self.extract_text(movement, "AutoArrival")
+                                    == "true",
+                                    await self.extract_text(movement, "AutoDepart")
+                                    == "true",
+                                    await self.extract_text(movement, "StopType"),
                                 ),
-                                await self.extract_text(movement, "LocationType"),
-                                await self.extract_text(movement, "TrainOrigin"),
-                                await self.extract_text(movement, "TrainDestination"),
-                                await self.extract_text(
-                                    movement, "ScheduledArrival", "00:00"
-                                ),
-                                await self.extract_text(
-                                    movement, "ScheduledDeparture", "00:00"
-                                ),
-                                await self.extract_text(
-                                    movement, "ExpectedArrival", "00:00"
-                                ),
-                                await self.extract_text(
-                                    movement, "ExpectedDeparture", "00:00"
-                                ),
-                                await self.extract_text(movement, "Arrival"),
-                                await self.extract_text(movement, "Departure"),
-                                await self.extract_text(movement, "AutoArrival")
-                                == "true",
-                                await self.extract_text(movement, "AutoDepart")
-                                == "true",
-                                await self.extract_text(movement, "StopType"),
-                            ),
-                        )
-                        count += 1
-                    except Exception as e:
-                        logger.debug(f"Movement parse error: {e}")
+                            )
+                            count += 1
+                        except Exception as insert_error:
+                            errors.append(f"INSERT for {code}: {insert_error}")
+                            logger.error(
+                                f"Movement INSERT error for {code}: {insert_error}"
+                            )
+                    except Exception as parse_error:
+                        errors.append(f"Parse error: {parse_error}")
+                        logger.error(f"Movement parse error: {parse_error}")
 
                 await conn.commit()
+
+            if errors and count == 0:
+                logger.warning(
+                    f"Train movements: {len(errors)} errors, 0 records inserted for {train_code}"
+                )
 
             return count
         except Exception as e:
