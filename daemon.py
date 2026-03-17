@@ -119,6 +119,9 @@ class IrishRailDaemon:
         self.prev_trains_hash: Optional[str] = None
         self.prev_boards_hashes: Dict[str, str] = {}
         self.prev_movement_hashes: Dict[str, str] = {}
+        self.prev_train_at_station_hashes: Dict[str, str] = {}
+        # key: "train_code:station_code:train_date"
+        # value: hash of (status, late_minutes, last_location, due_in, expected_arrival, expected_departure)
 
         # cached train type map: train_code -> "DART"/"Mainline"/"Suburban"
         self._type_map: Dict[str, str] = {}
@@ -543,6 +546,7 @@ class IrishRailDaemon:
         - late_minutes handles negatives via to_int_or_none (was using isdigit())
         - due_in handles negatives via to_int_or_none
         - time columns use to_time_or_none (empty -> NULL, not "00:00")
+        - row-level dedup: only insert if status/late/location/due_in/expected_times changed
         """
         if not xml:
             return 0
@@ -561,6 +565,26 @@ class IrishRailDaemon:
                         train_code = train_code.strip()
                         train_date = extract_text(board, "Traindate")
                         query_time = extract_text(board, "Querytime")
+
+                        # row-level dedup: only insert if train state changed
+                        # fingerprint includes all meaningful fields except fetched_at and query_time
+                        fingerprint = stable_hash(
+                            extract_text(board, "Status"),
+                            extract_text(board, "Late"),
+                            extract_text(board, "Lastlocation"),
+                            extract_text(board, "Duein"),
+                            to_time_or_none(extract_text(board, "Exparrival")),
+                            to_time_or_none(extract_text(board, "Expdepart")),
+                        )
+                        cache_key = f"{train_code}:{station_code}:{train_date}"
+
+                        if (
+                            self.prev_train_at_station_hashes.get(cache_key)
+                            == fingerprint
+                        ):
+                            continue  # no change, skip insert
+
+                        self.prev_train_at_station_hashes[cache_key] = fingerprint
 
                         await conn.execute(
                             """INSERT INTO station_events
@@ -782,10 +806,25 @@ class IrishRailDaemon:
             for key in stale_keys:
                 del self.prev_movement_hashes[key]
 
-            if stale_keys:
+            # also clean train_at_station hashes for trains no longer running
+            # keys are "train_code:station_code:train_date", extract "train_code:train_date" to check
+            stale_train_station_keys = set()
+            for key in self.prev_train_at_station_hashes.keys():
+                parts = key.split(":")
+                if len(parts) == 3:
+                    train_part = f"{parts[0]}:{parts[2]}"  # train_code:train_date
+                    if train_part not in active_keys:
+                        stale_train_station_keys.add(key)
+
+            for key in stale_train_station_keys:
+                del self.prev_train_at_station_hashes[key]
+
+            if stale_keys or stale_train_station_keys:
                 logger.info(
                     f"cleaned {len(stale_keys)} stale movement hashes, "
-                    f"{len(self.prev_movement_hashes)} active"
+                    f"{len(stale_train_station_keys)} stale station hashes, "
+                    f"{len(self.prev_movement_hashes)} movement active, "
+                    f"{len(self.prev_train_at_station_hashes)} station active"
                 )
         except Exception as e:
             logger.debug(f"hash cleanup error: {e}")
