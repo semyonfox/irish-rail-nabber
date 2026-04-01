@@ -2,8 +2,8 @@ use async_graphql::{Context, Object, Result};
 use chrono::NaiveDate;
 use sqlx::PgPool;
 
-use crate::models::{TrainPositionRow, TrainMovementRow};
-use super::types::{TrainPosition, TrainMovement};
+use super::types::{TrainMovement, TrainPosition};
+use crate::models::{TrainMovementRow, TrainPositionRow};
 
 #[derive(Default)]
 pub struct TrainQuery;
@@ -25,7 +25,7 @@ impl TrainQuery {
                     train_code, latitude, longitude, train_status, direction, fetched_at
                  FROM train_snapshots
                  WHERE fetched_at > NOW() - INTERVAL '2 minutes' AND train_type = $1
-                 ORDER BY train_code, fetched_at DESC"
+                 ORDER BY train_code, fetched_at DESC",
             )
             .bind(&tt)
             .fetch_all(pool)
@@ -36,7 +36,7 @@ impl TrainQuery {
                     train_code, latitude, longitude, train_status, direction, fetched_at
                  FROM train_snapshots
                  WHERE fetched_at > NOW() - INTERVAL '2 minutes'
-                 ORDER BY train_code, fetched_at DESC"
+                 ORDER BY train_code, fetched_at DESC",
             )
             .fetch_all(pool)
             .await?
@@ -70,7 +70,7 @@ impl TrainQuery {
                 stop_type, fetched_at
              FROM train_movements
              WHERE train_code = $1 AND train_date = $2
-             ORDER BY location_order, fetched_at DESC"
+             ORDER BY location_order, fetched_at DESC",
         )
         .bind(&train_code)
         .bind(date)
@@ -94,7 +94,7 @@ impl TrainQuery {
              FROM train_snapshots
              WHERE train_code = $1 AND fetched_at > NOW() - make_interval(hours => $2)
              ORDER BY fetched_at DESC
-             LIMIT 500"
+             LIMIT 500",
         )
         .bind(&train_code)
         .bind(hours)

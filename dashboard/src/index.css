@@ -1,0 +1,28 @@
+@import "tailwindcss";
+@import "maplibre-gl/dist/maplibre-gl.css";
+
+:root {
+  --rail-green: #22c55e;
+  --rail-yellow: #eab308;
+  --rail-orange: #f97316;
+  --rail-red: #ef4444;
+  --rail-bg: #0f172a;
+  --rail-surface: #1e293b;
+  --rail-border: #334155;
+  --rail-text: #f1f5f9;
+  --rail-muted: #94a3b8;
+}
+
+body {
+  margin: 0;
+  background: var(--rail-bg);
+  color: var(--rail-text);
+  font-family:
+    system-ui,
+    -apple-system,
+    sans-serif;
+}
+
+#root {
+  min-height: 100vh;
+}

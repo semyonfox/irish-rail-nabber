@@ -1,9 +1,9 @@
 use async_graphql::{Context, Object, Result};
 use sqlx::PgPool;
 
-use crate::models::StationRow;
 use super::types::{Station, StationEvent};
 use crate::models::StationEventRow;
+use crate::models::StationRow;
 
 #[derive(Default)]
 pub struct StationQuery;
@@ -65,11 +65,7 @@ impl StationQuery {
     }
 
     // single station by code
-    async fn station(
-        &self,
-        ctx: &Context<'_>,
-        station_code: String,
-    ) -> Result<Option<Station>> {
+    async fn station(&self, ctx: &Context<'_>, station_code: String) -> Result<Option<Station>> {
         let pool = ctx.data::<PgPool>()?;
 
         let row = sqlx::query_as::<_, StationRow>(
@@ -101,7 +97,7 @@ impl StationQuery {
              FROM station_events
              WHERE station_code = $1 AND fetched_at > NOW() - INTERVAL '10 minutes'
              ORDER BY train_code, fetched_at DESC
-             LIMIT $2"
+             LIMIT $2",
         )
         .bind(&station_code)
         .bind(limit as i64)
