@@ -1,5 +1,5 @@
 use bigdecimal::BigDecimal;
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 
 #[derive(sqlx::FromRow, Debug)]
 #[allow(dead_code)]
@@ -84,7 +84,7 @@ pub struct FetchHistoryRow {
     pub fetched_at: NaiveDateTime,
 }
 
-#[derive(sqlx::FromRow, Debug, Clone)]
+#[derive(sqlx::FromRow, Clone)]
 pub struct UserRow {
     pub id: uuid::Uuid,
     pub email: String,
@@ -93,8 +93,24 @@ pub struct UserRow {
     pub role: String,
     pub stripe_customer_id: Option<String>,
     pub stripe_subscription_id: Option<String>,
-    pub created_at: NaiveDateTime,
-    pub updated_at: NaiveDateTime,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl std::fmt::Debug for UserRow {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UserRow")
+            .field("id", &self.id)
+            .field("email", &self.email)
+            .field("password_hash", &"[REDACTED]")
+            .field("display_name", &self.display_name)
+            .field("role", &self.role)
+            .field("stripe_customer_id", &self.stripe_customer_id)
+            .field("stripe_subscription_id", &self.stripe_subscription_id)
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .finish()
+    }
 }
 
 #[derive(sqlx::FromRow, Debug)]
@@ -102,8 +118,8 @@ pub struct RefreshTokenRow {
     pub id: uuid::Uuid,
     pub user_id: uuid::Uuid,
     pub token_hash: String,
-    pub expires_at: NaiveDateTime,
-    pub created_at: NaiveDateTime,
+    pub expires_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
