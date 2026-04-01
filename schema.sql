@@ -95,7 +95,6 @@ CREATE INDEX IF NOT EXISTS idx_station_events_train ON station_events(train_code
 CREATE INDEX IF NOT EXISTS idx_station_events_station ON station_events(station_code, fetched_at DESC);
 CREATE INDEX IF NOT EXISTS idx_station_events_origin ON station_events(origin);
 CREATE INDEX IF NOT EXISTS idx_station_events_destination ON station_events(destination);
-CREATE INDEX IF NOT EXISTS idx_station_events_type ON station_events(train_type);
 
 -- Train movements (full journey with stops - from getTrainMovementsXML)
 -- Each row is a stop on the train's route
@@ -133,7 +132,6 @@ ALTER TABLE train_movements SET (
 SELECT add_compression_policy('train_movements', INTERVAL '7 days', if_not_exists => TRUE);
 
 CREATE INDEX IF NOT EXISTS idx_train_movements_code ON train_movements(train_code, train_date, fetched_at DESC);
-CREATE INDEX IF NOT EXISTS idx_train_movements_location ON train_movements(location_code, fetched_at DESC);
 
 -- Fetch metadata
 CREATE TABLE IF NOT EXISTS fetch_history (

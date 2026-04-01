@@ -29,7 +29,4 @@ COMMENT ON COLUMN station_events.destination_time IS 'Scheduled arrival time at 
 -- INDEXES - Add for new fields
 -- ============================================================================
 
-CREATE INDEX IF NOT EXISTS idx_stations_type ON stations(station_type);
 CREATE INDEX IF NOT EXISTS idx_stations_is_dart ON stations(is_dart);
-CREATE INDEX IF NOT EXISTS idx_station_events_origin_time ON station_events(origin_time);
-CREATE INDEX IF NOT EXISTS idx_station_events_destination_time ON station_events(destination_time);
