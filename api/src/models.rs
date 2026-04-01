@@ -83,3 +83,32 @@ pub struct FetchHistoryRow {
     pub error_msg: Option<String>,
     pub fetched_at: NaiveDateTime,
 }
+
+#[derive(sqlx::FromRow, Debug, Clone)]
+pub struct UserRow {
+    pub id: uuid::Uuid,
+    pub email: String,
+    pub password_hash: String,
+    pub display_name: Option<String>,
+    pub role: String,
+    pub stripe_customer_id: Option<String>,
+    pub stripe_subscription_id: Option<String>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+}
+
+#[derive(sqlx::FromRow, Debug)]
+pub struct RefreshTokenRow {
+    pub id: uuid::Uuid,
+    pub user_id: uuid::Uuid,
+    pub token_hash: String,
+    pub expires_at: NaiveDateTime,
+    pub created_at: NaiveDateTime,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AuthUser {
+    pub id: uuid::Uuid,
+    pub email: String,
+    pub role: String,
+}
