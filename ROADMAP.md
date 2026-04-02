@@ -12,7 +12,7 @@ Goal: €5k/mo by Q4 2026
 - Data collection verified (all 4 endpoints working, deduplication tested)
 
 **Launch**: Day 30 (r/ireland announcement)  
-**Revenue**: Free trial → €25/mo flip at Day 90
+**Revenue**: Free trial → €5/mo flip at Day 90
 
 ## Phase 2: Growth (Week 3-4) - €300/mo
 

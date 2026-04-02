@@ -22,8 +22,8 @@ Copy the output.
 
 **Product Prices:**
 - Go to https://dashboard.stripe.com/products
-- Create "Coffee Plan" (€25/month recurring) → copy price_id
-- Create "Pro Plan" (€75/month recurring) → copy price_id
+- Create "Coffee Plan" (€5/month recurring) → copy price_id
+- Create "Pro Plan" (€25/month recurring) → copy price_id
 
 ### 3. On Your Server
 
@@ -122,6 +122,6 @@ curl -X POST https://your-domain.com/billing/checkout \
 | Role | Price | Features |
 |------|-------|----------|
 | free | €0 | Live map, basic queries |
-| coffee | €25/mo | Analytics, historical data |
-| pro | €75/mo | Unlimited, export, priority |
+| coffee | €5/mo | Analytics, historical data |
+| pro | €25/mo | Unlimited, export, priority |
 | admin | N/A | Full access |

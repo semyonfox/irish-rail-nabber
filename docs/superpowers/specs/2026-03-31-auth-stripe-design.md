@@ -67,8 +67,8 @@ CREATE INDEX idx_refresh_tokens_hash ON refresh_tokens(token_hash);
 | Role     | Price  | Access                                              |
 | -------- | ------ | --------------------------------------------------- |
 | `free`   | €0     | Live map, station list, 1000 req/day                |
-| `coffee` | €25/mo | Above + analytics, historical data, 10k req/day     |
-| `pro`    | €75/mo | Unlimited access, raw data export, priority support |
+| `coffee` | €5/mo | Above + analytics, historical data, 10k req/day     |
+| `pro`    | €25/mo | Unlimited access, raw data export, priority support |
 | `admin`  | N/A    | Full access, user management                        |
 
 ## Token Strategy
