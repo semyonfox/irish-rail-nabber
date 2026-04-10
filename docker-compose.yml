@@ -2,6 +2,7 @@ services:
   db:
     image: timescale/timescaledb:2.25.2-pg18
     container_name: irish_rail_db
+    hostname: db
     environment:
       POSTGRES_USER: irish_data
       POSTGRES_PASSWORD: secure_password
@@ -10,8 +11,9 @@ services:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "9898:5432"
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U irish_data"]
+      test: ["CMD-SHELL", "pg_isready -U irish_data -d ireland_public"]
       interval: 10s
       timeout: 5s
       retries: 5

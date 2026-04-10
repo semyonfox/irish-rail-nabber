@@ -696,24 +696,7 @@ class IrishRailDaemon:
         try:
             root = parse_xml(xml)
 
-            # build content hash across all stops for dedup
-            stop_fingerprints = []
-            for movement in root:
-                loc = extract_text(movement, "LocationCode")
-                arr = extract_text(movement, "Arrival")
-                dep = extract_text(movement, "Departure")
-                exp_arr = extract_text(movement, "ExpectedArrival")
-                exp_dep = extract_text(movement, "ExpectedDeparture")
-                stop_fingerprints.append(f"{loc}:{arr}:{dep}:{exp_arr}:{exp_dep}")
-
-            content_hash = stable_hash(*stop_fingerprints)
-            cache_key = f"{train_code}:{train_date}"
-
-            if self.prev_movement_hashes.get(cache_key) == content_hash:
-                return -1
-
-            self.prev_movement_hashes[cache_key] = content_hash
-
+            # per-stop content hash dedup: only insert stops that changed
             count = 0
             async with self.pool.connection() as conn:
                 for movement in root:
@@ -723,6 +706,34 @@ class IrishRailDaemon:
                             continue
 
                         code = code.strip()
+                        loc = extract_text(movement, "LocationCode")
+                        loc_name = extract_text(movement, "LocationFullName") or None
+                        loc_order = int(extract_text(movement, "LocationOrder", "0") or "0")
+                        loc_type = extract_text(movement, "LocationType")
+                        origin = extract_text(movement, "TrainOrigin")
+                        dest = extract_text(movement, "TrainDestination")
+                        sched_arr = to_time_or_none(extract_text(movement, "ScheduledArrival"))
+                        sched_dep = to_time_or_none(extract_text(movement, "ScheduledDeparture"))
+                        exp_arr = to_time_or_none(extract_text(movement, "ExpectedArrival"))
+                        exp_dep = to_time_or_none(extract_text(movement, "ExpectedDeparture"))
+                        act_arr = to_time_or_none(extract_text(movement, "Arrival"))
+                        act_dep = to_time_or_none(extract_text(movement, "Departure"))
+                        auto_arr = to_bool(extract_text(movement, "AutoArrival"))
+                        auto_dep = to_bool(extract_text(movement, "AutoDepart"))
+                        stop_type = extract_text(movement, "StopType")
+
+                        stop_fingerprint = stable_hash(
+                            code, train_date, loc, loc_name, loc_order,
+                            loc_type, origin, dest,
+                            sched_arr, sched_dep, exp_arr, exp_dep,
+                            act_arr, act_dep, auto_arr, auto_dep, stop_type
+                        )
+                        cache_key = f"{code}:{train_date}:{loc}"
+
+                        if self.prev_movement_hashes.get(cache_key) == stop_fingerprint:
+                            continue
+
+                        self.prev_movement_hashes[cache_key] = stop_fingerprint
 
                         await conn.execute(
                             """INSERT INTO train_movements
@@ -739,31 +750,11 @@ class IrishRailDaemon:
                             (
                                 code,
                                 extract_text(movement, "TrainDate"),
-                                extract_text(movement, "LocationCode"),
-                                extract_text(movement, "LocationFullName") or None,
-                                int(
-                                    extract_text(movement, "LocationOrder", "0") or "0"
-                                ),
-                                extract_text(movement, "LocationType"),
-                                extract_text(movement, "TrainOrigin"),
-                                extract_text(movement, "TrainDestination"),
-                                to_time_or_none(
-                                    extract_text(movement, "ScheduledArrival")
-                                ),
-                                to_time_or_none(
-                                    extract_text(movement, "ScheduledDeparture")
-                                ),
-                                to_time_or_none(
-                                    extract_text(movement, "ExpectedArrival")
-                                ),
-                                to_time_or_none(
-                                    extract_text(movement, "ExpectedDeparture")
-                                ),
-                                to_time_or_none(extract_text(movement, "Arrival")),
-                                to_time_or_none(extract_text(movement, "Departure")),
-                                to_bool(extract_text(movement, "AutoArrival")),
-                                to_bool(extract_text(movement, "AutoDepart")),
-                                extract_text(movement, "StopType"),
+                                loc, loc_name, loc_order, loc_type,
+                                origin, dest,
+                                sched_arr, sched_dep, exp_arr, exp_dep,
+                                act_arr, act_dep, auto_arr, auto_dep,
+                                stop_type,
                             ),
                         )
                         count += 1
