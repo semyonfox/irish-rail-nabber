@@ -191,12 +191,28 @@ async fn handle_checkout_completed(
         return Ok(());
     };
 
+    // fetch subscription from stripe to determine role from the actual price
+    let key = std::env::var("STRIPE_SECRET_KEY")
+        .map_err(|_| "missing STRIPE_SECRET_KEY".to_string())?;
+    let client = StripeClient::new(key);
+    let sub = stripe::Subscription::retrieve(&client, &subscription.id(), &[])
+        .await
+        .map_err(|err| err.to_string())?;
+
+    let role = sub
+        .items
+        .data
+        .first()
+        .and_then(|item| item.price.as_ref())
+        .map(|price| role_from_price(&price.id.to_string()))
+        .unwrap_or("free");
+
     users::update_user_subscription(
         &state.pool,
         user_id,
         &customer.id().to_string(),
         &subscription.id().to_string(),
-        "coffee",
+        role,
     )
     .await
     .map_err(|err| err.to_string())?;

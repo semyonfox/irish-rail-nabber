@@ -28,7 +28,9 @@ export default function TrainMap({ onTrainClick }: Props) {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<Map<string, maplibregl.Marker>>(new Map());
   const onTrainClickRef = useRef(onTrainClick);
-  onTrainClickRef.current = onTrainClick;
+  useEffect(() => {
+    onTrainClickRef.current = onTrainClick;
+  }, [onTrainClick]);
 
   // use callback ref so we only init the map once per DOM node
   const containerRef = useCallback((node: HTMLDivElement | null) => {
