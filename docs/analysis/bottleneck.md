@@ -48,6 +48,11 @@ The Galway -> Oranmore -> Athenry single-track section is a confirmed network bo
 - Whether other western outliers are true bottlenecks or mostly data-quality artifacts
 - Any claim in weaker-coverage corridors without comparable route tracing
 
+## Recent disruptions
+
+- **Weekend of April 5-6, 2026**: Galway-Athenry line closed for scheduled maintenance. no real-time data available for this corridor during the shutdown.
+- **April 12, 2026**: weekend timetable + industrial action (strike) reduced overall service to ~50% of normal weekday levels.
+
 ## Practical implications
 
 ### Operations

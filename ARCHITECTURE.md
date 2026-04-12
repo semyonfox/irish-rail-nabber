@@ -3,44 +3,49 @@
 ## Data Flow
 
 ```
-Irish Rail API
-    ↓ (3s polling)
-daemon.py (async/await)
-    ↓ (hash-based dedup)
-TimescaleDB (hypertables)
-    ↓ (auto-compress after 7d)
-Forever archive
+track circuits / signal blocks
+    -> Irish Rail CTC
+        -> HACON/Siemens middleware (~60s bulk refresh cycle)
+            -> SQL Server database
+                -> ASP.NET ASMX API (194.106.151.106, no CDN, no HTTP cache)
+                    ↓
+                daemon.py (async/await, aiohttp)
+                    ↓ (content-hash dedup, strips Servertime/Querytime)
+                TimescaleDB (hypertables)
+                    ↓ (auto-compress after 7d)
+                Forever archive
 ```
 
 ## Polling Strategy
 
-Irish Rail API updates every ~3.5 seconds, so:
+benchmarked April 2026. the upstream data pipeline has a ~60s bulk refresh cycle with event-driven trickles in between. individual train positions update when they cross signal block boundaries (~10-60s depending on line).
 
 | Resource | Interval | Why |
 |----------|----------|-----|
-| Train positions | 3s | Capture movement data |
-| Station boards | 3s | Capture schedule/status changes |
-| Stations | 24h | Static reference data |
+| Train positions | 10s | matches ~10s server-side refresh. 3s was 75% wasted |
+| Station boards | 15s | bulk flush ~60s, but busy stations trickle every ~15-30s |
+| Train movements | 60s | event-driven only, changes on arrival/departure |
+| Stations | 24h | static reference data |
 
-Intervals hardcoded in daemon.py based on API testing.
+previous 3s intervals were based on an incorrect assumption. see `DATA_SOURCES.md` for full benchmarking details.
 
 ## Deduplication
 
-Hash-based to avoid duplicates when nothing changes:
+hash-based to avoid duplicates when nothing changes:
 
-1. Calculate hash of API response
-2. Compare with previous hash
-3. If match: skip INSERT, record as "skipped" in fetch_history
-4. If new: INSERT with current timestamp
+1. strip `<Servertime>` and `<Querytime>` tags from response (these change every request, not real data)
+2. calculate MD5 hash of cleaned content
+3. compare with previous hash for that endpoint/entity
+4. if match: skip INSERT, record as "skipped" in fetch_history
+5. if new: INSERT with current timestamp
 
-Benefit: Cleaner archive (only real changes), faster queries, better analytics.
+three levels of dedup:
+- **whole-endpoint**: trains XML hashed as one blob (getCurrentTrainsXML)
+- **per-station**: each station board hashed independently (171 hashes maintained)
+- **per-train-per-station**: station events fingerprinted by (status, late, location, duein, expected times)
+- **per-journey**: train movements hashed per train_code:train_date
 
-Example:
-```
-Poll 1: Trains moved → 40 records inserted
-Poll 2: Same positions → 0 records (skipped, 2x faster)
-Poll 3: Trains moved → 35 records inserted
-```
+**known issue (pre-April 2026)**: station board dedup was hashing raw XML including Servertime/Querytime fields. every poll appeared "changed", defeating dedup entirely and inserting duplicate rows. fix: strip timestamp tags before hashing.
 
 ## TimescaleDB Configuration
 
@@ -49,17 +54,17 @@ Poll 3: Trains moved → 35 records inserted
 **train_snapshots**: Time-series of train positions
 - Indexed on: train_code, fetched_at
 - Partitioned by: fetched_at (automatic)
-- ~28,800 records/day per train (3s polling × 1440 mins)
+- ~8,640 records/day per train (10s polling × 1440 mins, with dedup)
 
 **station_events**: Time-series of arrivals/departures
 - Indexed on: station_code, train_code, fetched_at
 - Partitioned by: fetched_at (automatic)
-- ~28,800 records/day per station (3s polling)
+- ~5,760 records/day per station (15s polling, with dedup)
 
 **train_movements**: Journey logs
 - Indexed on: train_code, train_date, location_code
 - Partitioned by: fetched_at (automatic)
-- ~1M records/day (78 trains × 8 stops × 1440 polls)
+- actual insert rate is low due to movement dedup (changes only on arrival/departure)
 
 ### Compression & Retention
 
@@ -127,14 +132,34 @@ SELECT DISTINCT ON (train_code) * FROM train_snapshots
 
 ## Storage Estimates
 
-Assuming 40-50 live trains, 171 stations:
+assuming 30-50 live trains, 171 stations, with corrected polling intervals:
 
-- Per poll cycle (3s): ~1,000-1,500 records (dedup helps)
-- Per day: ~28,800 records per train, ~1M+ total
-- Per week: ~200M raw records → ~20MB compressed
-- Per 90 days: ~2GB raw → ~200MB compressed
+- train snapshots: ~8,640 polls/day × ~40 trains = ~345k potential rows, but dedup reduces to ~50k actual inserts (data changes ~15% of polls)
+- station events: ~5,760 polls/day × 171 stations, but per-station dedup means only ~10% insert = ~100k rows/day
+- train movements: ~1,440 polls/day × ~40 trains, but content-hash dedup means ~5k actual inserts/day
 
-**Total database size**: Stays constant at ~5-10GB (compression + retention).
+**total database size**: stays constant at ~2-5GB (compression + retention), significantly lower than previous 3s polling estimates.
+
+## Known Issues
+
+### docker bridge network has no outbound internet
+
+the daemon container has **never reliably reached the API**. 2565/2620 train polls failed with timeouts since first deploy (April 1). this is NOT related to Mullvad (only installed April 11).
+
+**root cause**: nftables is active on the host and blocking outbound traffic from docker bridge networks. DNS resolves fine (docker's internal `127.0.0.11` resolver), but TCP connections to any external IP time out — including google, not just Irish Rail.
+
+**confirmed**: `--network host` works perfectly. the `irish-rail-nabber_default` bridge network does not.
+
+the 19 successful polls on April 3 16:00 were likely during a brief window when nftables rules were reloaded or docker was restarted.
+
+**fix options** (pick one):
+1. add nftables rules to allow docker bridge outbound traffic
+2. switch daemon to `network_mode: host` in docker-compose.yml (quick fix, loses container network isolation)
+3. configure docker to use nftables backend (`"iptables": false` in `/etc/docker/daemon.json`)
+
+### station board dedup bug
+
+`Servertime` and `Querytime` XML fields change on every API response (server clock, not real data). the daemon hashes raw XML including these fields, so every poll appears "changed" and inserts duplicate rows. fix: strip these tags before hashing with `re.sub(r"<(?:Servertime|Querytime)>[^<]*</(?:Servertime|Querytime)>", "", xml)`.
 
 ## No Configuration
 

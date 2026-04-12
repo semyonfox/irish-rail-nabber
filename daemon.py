@@ -23,6 +23,7 @@ import asyncio
 import hashlib
 import logging
 import os
+import re
 import signal
 import xml.etree.ElementTree as ET
 from datetime import datetime
@@ -47,6 +48,12 @@ STATION_FETCH_CONCURRENCY = 30
 
 # stale movement hash cleanup interval (seconds)
 HASH_CLEANUP_INTERVAL = 3600
+
+# server injects Servertime and Querytime into station board responses every request.
+# these change every second and are not real data — strip before hashing for dedup.
+_TIMESTAMP_RE = re.compile(
+    r"<(?:Servertime|Querytime)>[^<]*</(?:Servertime|Querytime)>"
+)
 
 
 # ============================================================================
@@ -507,7 +514,7 @@ class IrishRailDaemon:
                 if not xml:
                     continue
 
-                content_hash = stable_hash(xml)
+                content_hash = stable_hash(_TIMESTAMP_RE.sub("", xml))
 
                 if self.prev_boards_hashes.get(station_code) == content_hash:
                     continue
