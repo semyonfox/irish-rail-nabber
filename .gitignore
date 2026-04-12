@@ -9,6 +9,7 @@ __pycache__/
 *$py.class
 *.so
 .Python
+.venv/
 env/
 venv/
 ENV/
@@ -59,7 +60,20 @@ logs/
 .mypy_cache/
 
 # Docker
-.dockerignore
+# (keep .dockerignore tracked)
+
+# Build artifacts
+api/target/
+dashboard/node_modules/
+dashboard/dist/
+
+# Backups
+backups/
+
+# Data
+data/
+network_graphs/
+output.txt
 
 # Private local-only work
 private/
