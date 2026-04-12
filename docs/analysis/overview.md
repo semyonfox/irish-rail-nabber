@@ -90,8 +90,22 @@ See `docs/analysis/bottleneck.md` for the full case.
 - Build the case for relieving the Galway-Oranmore-Athenry single-track constraint.
 - Extend route-tracing methods to other suspected bottlenecks before making equivalent claims.
 
+## API data pipeline (April 2026 findings)
+
+benchmarking revealed the upstream data pipeline and its limitations:
+
+- the API is backed by HACON/Siemens Mobility middleware feeding a SQL Server database
+- the backend runs a ~60 second bulk refresh cycle for station boards, with event-driven trickles in between
+- train positions refresh every ~10 seconds server-side
+- trains report position via signal block track circuits, not continuous GPS
+- GPS is only available on newer rolling stock (DART, newer InterCity) and updates bundled with signaling data
+- western/rural lines (Galway, Westport, Cork-Cobh) frequently show lat=0,lon=0 between signal blocks
+- `Servertime` and `Querytime` fields in station board responses change on every request and must be stripped before hashing
+
+see `DATA_SOURCES.md` for full benchmarking methodology and measured refresh intervals.
+
 ## Related docs
 
 - `docs/analysis/bottleneck.md` - technical bottleneck evidence
 - `docs/analysis/operations.md` - action plan and follow-up frameworks
-- `DATA_SOURCES.md` - API caveats and coverage limits
+- `DATA_SOURCES.md` - API caveats, upstream pipeline, and measured refresh intervals
