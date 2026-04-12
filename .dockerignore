@@ -1,0 +1,10 @@
+# everything except what the daemon image needs
+*
+
+# include only what Dockerfile COPYs
+!requirements.txt
+!schema.sql
+!daemon.py
+!migrations/
+!docker-entrypoint.sh
+!Dockerfile
