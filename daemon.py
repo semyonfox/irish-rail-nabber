@@ -579,7 +579,6 @@ class IrishRailDaemon:
                             extract_text(board, "Status"),
                             extract_text(board, "Late"),
                             extract_text(board, "Lastlocation"),
-                            extract_text(board, "Duein"),
                             to_time_or_none(extract_text(board, "Exparrival")),
                             to_time_or_none(extract_text(board, "Expdepart")),
                         )
