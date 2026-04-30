@@ -9,5 +9,7 @@ export const client = new Client({
   exchanges: [cacheExchange, fetchExchange],
   fetchOptions: {
     credentials: "include",
+    method: "POST",
   },
+  preferGetMethod: false,
 });
