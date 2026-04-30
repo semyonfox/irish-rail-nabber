@@ -61,8 +61,8 @@ services:
       JWT_ACCESS_EXPIRY: "900"
       JWT_REFRESH_EXPIRY: "604800"
       COOKIE_SECURE: "true"
-      CORS_ORIGINS: "https://train.semyon.ie"
-      APP_URL: "https://train.semyon.ie"
+      CORS_ORIGINS: "https://traein.semyon.ie"
+      APP_URL: "https://traein.semyon.ie"
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
       STRIPE_COFFEE_PRICE_ID: ${STRIPE_COFFEE_PRICE_ID:-}
