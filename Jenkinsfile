@@ -11,7 +11,7 @@ pipeline {
   }
 
   environment {
-    DOCKER_BUILDKIT         = '1'
+    DOCKER_BUILDKIT         = '0'
     COMPOSE_PROJECT_NAME    = 'irish-rail-nabber'
     CLOUDFLARE_TUNNEL_TOKEN = credentials('cloudflare-tunnel-token')
     JWT_SECRET              = credentials('irish-rail-jwt-secret')
