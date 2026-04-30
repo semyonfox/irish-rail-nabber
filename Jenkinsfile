@@ -11,9 +11,9 @@ pipeline {
   }
 
   environment {
-    IMAGE_NAME = 'irish-rail-nabber-daemon'
-    CONTAINER_NAME = 'irish_rail_daemon'
-    NETWORK = 'irish-rail-nabber_default'
+    DOCKER_BUILDKIT         = '1'
+    CLOUDFLARE_TUNNEL_TOKEN = credentials('cloudflare-tunnel-token')
+    JWT_SECRET              = credentials('irish-rail-jwt-secret')
   }
 
   stages {
@@ -27,19 +27,31 @@ pipeline {
       }
     }
 
+    stage('Build') {
+      parallel {
+        stage('Daemon') {
+          steps {
+            sh 'docker build -t irish-rail-nabber-daemon:latest .'
+          }
+        }
+        stage('API') {
+          steps {
+            sh 'docker build -t irish-rail-nabber-api:latest ./api'
+          }
+        }
+        stage('Dashboard') {
+          steps {
+            sh 'docker build -t irish-rail-nabber-dashboard:latest ./dashboard'
+          }
+        }
+      }
+    }
+
     stage('Deploy') {
       steps {
         sh '''
-          docker build -t "$IMAGE_NAME:latest" .
-          docker rm -f "$CONTAINER_NAME" || true
-          docker run -d \
-            --name "$CONTAINER_NAME" \
-            --network "$NETWORK" \
-            --restart unless-stopped \
-            -e DATABASE_URL=postgresql://irish_data:secure_password@irish_rail_db:5432/ireland_public \
-            "$IMAGE_NAME:latest"
-          sleep 10
-          docker inspect "$CONTAINER_NAME" --format '{{.State.Status}}' | grep -q running
+          docker compose up -d --no-build
+          docker compose ps
         '''
       }
     }

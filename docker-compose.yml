@@ -17,6 +17,7 @@ services:
       retries: 5
 
   daemon:
+    image: irish-rail-nabber-daemon:latest
     build:
       context: .
       dockerfile: Dockerfile
@@ -51,18 +52,19 @@ services:
         max-file: "3"
 
   api:
+    image: irish-rail-nabber-api:latest
     build:
       context: ./api
       dockerfile: Dockerfile
     container_name: irish_rail_api
     environment:
       DATABASE_URL: postgresql://irish_data:secure_password@db:5432/ireland_public
-      JWT_SECRET: ${JWT_SECRET:-dev-change-me}
+      JWT_SECRET: ${JWT_SECRET}
       JWT_ACCESS_EXPIRY: "900"
       JWT_REFRESH_EXPIRY: "604800"
-      COOKIE_SECURE: "false"
-      CORS_ORIGINS: "http://localhost:3000,http://localhost:5173"
-      APP_URL: "http://localhost:3000"
+      COOKIE_SECURE: "true"
+      CORS_ORIGINS: "https://train.semyon.ie"
+      APP_URL: "https://train.semyon.ie"
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
       STRIPE_COFFEE_PRICE_ID: ${STRIPE_COFFEE_PRICE_ID:-}
@@ -81,6 +83,7 @@ services:
       start_period: 30s
 
   dashboard:
+    image: irish-rail-nabber-dashboard:latest
     build:
       context: ./dashboard
       dockerfile: Dockerfile
@@ -89,6 +92,14 @@ services:
       - "3000:80"
     depends_on:
       - api
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: irish_rail_cloudflared
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - dashboard
     restart: unless-stopped
 
 volumes:
