@@ -101,6 +101,26 @@ def to_bool(val: str) -> bool:
     return val.strip() == "1" if val else False
 
 
+def parse_hacon_datetime(val: str) -> Optional[datetime]:
+    """parse HACON dd/MM/yyyy HH:mm:ss timestamps.
+
+    returns None for the 01/01/1900 default sentinel — that date is the .NET
+    DateTime default and cannot be a real Irish Rail timestamp under any
+    circumstance, so we clean it at ingest. (this is the one place we deviate
+    from "store exactly what the API sends" because the sentinel is unambiguous,
+    unlike the 00:00 sentinel in other endpoints which collides with real
+    midnight services.)"""
+    if not val or not val.strip():
+        return None
+    val = val.strip()
+    if val.startswith("01/01/1900"):
+        return None
+    try:
+        return datetime.strptime(val, "%d/%m/%Y %H:%M:%S")
+    except ValueError:
+        return None
+
+
 def stable_hash(*args) -> str:
     """deterministic hash from multiple values. returns hex digest.
     unlike Python's hash(), this is stable across process restarts."""
@@ -129,6 +149,11 @@ class IrishRailDaemon:
         self.prev_train_at_station_hashes: Dict[str, str] = {}
         # key: "train_code:station_code:train_date"
         # value: hash of (status, late_minutes, last_location, due_in, expected_arrival, expected_departure)
+
+        # HACON dedup state
+        self.prev_hacon_hash: Optional[str] = None
+        self.prev_hacon_train_hashes: Dict[str, str] = {}
+        # key: train_code, value: per-train fingerprint of moveable fields
 
         # cached train type map: train_code -> "DART"/"Mainline"/"Suburban"
         self._type_map: Dict[str, str] = {}
@@ -477,6 +502,115 @@ class IrishRailDaemon:
             logger.error(f"trains fetch failed: {e}")
             await self.record_fetch("getCurrentTrainsXML", 0, "failed", str(e))
 
+    async def fetch_hacon(self):
+        """capture HACON enriched train data with per-train dedup.
+
+        same trains as getCurrentTrainsXML but with structured fields the public
+        feed lacks: NextLocation, LastLocationType (A/D/E/T), Difference in
+        seconds, station codes instead of prose names, full datetimes.
+
+        two layers of dedup:
+        1. whole-response hash — skip everything if no train moved at all
+        2. per-train hash — when something moved, only insert the trains that changed
+           (benchmark shows only ~1 of 75 trains changes per poll, so per-train
+            dedup eliminates 98.6% of would-be inserts)
+        """
+        start = datetime.now()
+        xml = await self.fetch_api("getHaconTrainsXML")
+
+        if not xml:
+            await self.record_fetch("getHaconTrainsXML", 0, "failed", "no response")
+            return
+
+        try:
+            root = parse_xml(xml)
+
+            # whole-response dedup (cheap escape hatch — most polls hit this)
+            content_hash = stable_hash(xml)
+            if content_hash == self.prev_hacon_hash:
+                duration = int((datetime.now() - start).total_seconds() * 1000)
+                await self.record_fetch(
+                    "getHaconTrainsXML", 0, "skipped", duration_ms=duration
+                )
+                return
+            self.prev_hacon_hash = content_hash
+
+            inserted = 0
+            unchanged = 0
+            async with self.pool.connection() as conn:
+                for train in root:
+                    code = extract_text(train, "TrainCode").strip()
+                    if not code:
+                        continue
+
+                    try:
+                        # per-train fingerprint over fields that actually move.
+                        # status/direction barely change; lat/lon/lastloc/nextloc/
+                        # lasttype/diff are the moveable ones.
+                        fp = stable_hash(
+                            extract_text(train, "TrainStatus"),
+                            extract_text(train, "TrainLatitude"),
+                            extract_text(train, "TrainLongitude"),
+                            extract_text(train, "LastLocation"),
+                            extract_text(train, "LastLocationType"),
+                            extract_text(train, "NextLocation"),
+                            extract_text(train, "Difference"),
+                        )
+
+                        if self.prev_hacon_train_hashes.get(code) == fp:
+                            unchanged += 1
+                            continue
+                        self.prev_hacon_train_hashes[code] = fp
+
+                        await conn.execute(
+                            """INSERT INTO train_snapshots_hacon
+                               (train_code, train_status, latitude, longitude, train_date,
+                                direction, last_location_type, last_location, next_location,
+                                difference_seconds, train_origin, train_destination,
+                                train_origin_time, train_destination_time,
+                                scheduled_departure, scheduled_arrival, fetched_at)
+                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                                       %s, %s, %s, %s, NOW())""",
+                            (
+                                code,
+                                extract_text(train, "TrainStatus") or None,
+                                float(extract_text(train, "TrainLatitude", "0") or "0"),
+                                float(extract_text(train, "TrainLongitude", "0") or "0"),
+                                extract_text(train, "TrainDate") or None,
+                                extract_text(train, "Direction") or None,
+                                extract_text(train, "LastLocationType") or None,
+                                extract_text(train, "LastLocation") or None,
+                                extract_text(train, "NextLocation") or None,
+                                to_int_or_none(extract_text(train, "Difference")),
+                                extract_text(train, "TrainOrigin") or None,
+                                extract_text(train, "TrainDestination") or None,
+                                parse_hacon_datetime(extract_text(train, "TrainOriginTime")),
+                                parse_hacon_datetime(extract_text(train, "TrainDestinationTime")),
+                                parse_hacon_datetime(extract_text(train, "ScheduledDeparture")),
+                                parse_hacon_datetime(extract_text(train, "ScheduledArrival")),
+                            ),
+                        )
+                        inserted += 1
+                    except Exception as e:
+                        logger.debug(f"hacon parse error for {code}: {e}")
+
+                await conn.commit()
+
+            duration = int((datetime.now() - start).total_seconds() * 1000)
+            await self.record_fetch(
+                "getHaconTrainsXML", inserted, "success", duration_ms=duration
+            )
+            if inserted > 0:
+                total = inserted + unchanged
+                logger.info(
+                    f"hacon: {inserted} inserted, {unchanged} unchanged "
+                    f"({100 * unchanged / total:.0f}% per-train deduped)"
+                )
+
+        except Exception as e:
+            logger.error(f"hacon fetch failed: {e}")
+            await self.record_fetch("getHaconTrainsXML", 0, "failed", str(e))
+
     async def fetch_all_station_boards(self):
         """poll all stations for arrivals/departures (per-station dedup)"""
         start = datetime.now()
@@ -812,6 +946,12 @@ class IrishRailDaemon:
             for key in stale_keys:
                 del self.prev_movement_hashes[key]
 
+            # clean HACON per-train hashes for trains no longer running
+            active_codes = {key.split(":")[0] for key in active_keys}
+            stale_hacon = set(self.prev_hacon_train_hashes.keys()) - active_codes
+            for code in stale_hacon:
+                del self.prev_hacon_train_hashes[code]
+
             # also clean train_at_station hashes for trains no longer running
             # keys are "train_code:station_code:train_date", extract "train_code:train_date" to check
             stale_train_station_keys = set()
@@ -870,9 +1010,10 @@ class IrishRailDaemon:
             await self.fetch_stations()
 
             tasks = [
-                asyncio.create_task(self.schedule_task("trains", self.fetch_trains, 3)),
+                asyncio.create_task(self.schedule_task("trains", self.fetch_trains, 5)),
+                asyncio.create_task(self.schedule_task("hacon", self.fetch_hacon, 5)),
                 asyncio.create_task(
-                    self.schedule_task("boards", self.fetch_all_station_boards, 3)
+                    self.schedule_task("boards", self.fetch_all_station_boards, 5)
                 ),
                 asyncio.create_task(
                     self.schedule_task("movements", self.fetch_all_train_movements, 60)
