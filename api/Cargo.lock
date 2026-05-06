@@ -198,7 +198,6 @@ dependencies = [
  "smol_str",
  "thiserror 1.0.69",
  "tokio",
- "uuid 0.8.2",
 ]
 
 [[package]]
@@ -1439,7 +1438,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
- "uuid 1.23.0",
+ "uuid",
 ]
 
 [[package]]
@@ -1725,15 +1724,14 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "openssl"
-version = "0.10.76"
+version = "0.10.79"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "951c002c75e16ea2c65b8c7e4d3d51d5530d8dfa7d060b4776828c88cfb18ecf"
+checksum = "bf0b434746ee2832f4f0baf10137e1cabb18cbe6912c69e2e33263c45250f542"
 dependencies = [
  "bitflags",
  "cfg-if",
  "foreign-types",
  "libc",
- "once_cell",
  "openssl-macros",
  "openssl-sys",
 ]
@@ -1757,9 +1755,9 @@ checksum = "7c87def4c32ab89d880effc9e097653c8da5d6ef28e6b539d313baaacfbafcbe"
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.112"
+version = "0.9.115"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57d55af3b3e226502be1526dfdba67ab0e9c96fc293004e79576b2b9edb0dbdb"
+checksum = "158fe5b292746440aa6e7a7e690e55aeb72d41505e2804c23c6973ad0e9c9781"
 dependencies = [
  "cc",
  "libc",
@@ -2536,7 +2534,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "url",
- "uuid 1.23.0",
+ "uuid",
 ]
 
 [[package]]
@@ -2619,7 +2617,7 @@ dependencies = [
  "thiserror 2.0.18",
  "time",
  "tracing",
- "uuid 1.23.0",
+ "uuid",
  "whoami",
 ]
 
@@ -2661,7 +2659,7 @@ dependencies = [
  "thiserror 2.0.18",
  "time",
  "tracing",
- "uuid 1.23.0",
+ "uuid",
  "whoami",
 ]
 
@@ -2689,7 +2687,7 @@ dependencies = [
  "time",
  "tracing",
  "url",
- "uuid 1.23.0",
+ "uuid",
 ]
 
 [[package]]
@@ -3212,15 +3210,6 @@ name = "utf8_iter"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
-
-[[package]]
-name = "uuid"
-version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc5cf98d8186244414c848017f0e2676b3fcb46807f6668a97dfe67359a3c4b7"
-dependencies = [
- "getrandom 0.2.17",
-]
 
 [[package]]
 name = "uuid"
