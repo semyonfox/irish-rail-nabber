@@ -16,7 +16,7 @@ dotenvy = "0.15"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 argon2 = "0.5"
-jsonwebtoken = "9"
+jsonwebtoken = "10"
 uuid = { version = "1", features = ["v4", "serde"] }
 rand = "0.9"
 sha2 = "0.10"

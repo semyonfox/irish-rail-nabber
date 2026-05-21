@@ -41,7 +41,9 @@
   "pnpm": {
     "overrides": {
       "vite": "npm:@voidzero-dev/vite-plus-core@latest",
-      "vitest": "npm:@voidzero-dev/vite-plus-test@latest"
+      "vitest": "npm:@voidzero-dev/vite-plus-test@latest",
+      "postcss": ">=8.5.10",
+      "protocol-buffers-schema": ">=3.6.1"
     }
   }
 }
