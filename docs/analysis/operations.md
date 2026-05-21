@@ -71,4 +71,4 @@ The existing modelling work is promising but still early.
 
 - `docs/analysis/overview.md` - main summary
 - `docs/analysis/bottleneck.md` - technical bottleneck evidence
-- `DATA_SOURCES.md` - API caveats and weaker-coverage areas
+- [../data-sources.md](../data-sources.md) — API caveats and weaker-coverage areas

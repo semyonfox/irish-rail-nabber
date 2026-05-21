@@ -1,16 +1,14 @@
-# Analysis Docs
+# Analysis
 
-This project's analysis notes now live in one place.
+Conclusions drawn from the collected dataset, kept separate from the engineering docs.
 
 ## Read order
 
-1. `docs/analysis/overview.md` - main summary, key metrics, confidence, and recommendations
-2. `docs/analysis/bottleneck.md` - detailed Galway -> Oranmore -> Athenry bottleneck analysis
-3. `docs/analysis/operations.md` - action plan, alerting, and predictive follow-up work
-4. `DATA_SOURCES.md` - API caveats and weaker-coverage areas
+1. [overview.md](overview.md) — main summary, key metrics, confidence, recommendations
+2. [bottleneck.md](bottleneck.md) — Galway → Oranmore → Athenry deep dive
+3. [operations.md](operations.md) — action plan, alerting, predictive follow-up
+4. [../data-sources.md](../data-sources.md) — upstream API caveats and weak-coverage regions
 
-## Why this was reduced
+## Why this is a separate folder
 
-- Older analysis markdown files overlapped heavily.
-- The newer bottleneck work was split across too many files.
-- The current set keeps one baseline document, one technical deep dive, and one follow-up plan.
+Engineering docs describe what the system does. Analysis docs describe what the data says. They evolve on different cadences — analysis is rewritten when fresh datasets arrive; engineering changes with the code. Crosslinks in either direction are encouraged.

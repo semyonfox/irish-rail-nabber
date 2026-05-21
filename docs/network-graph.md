@@ -1,0 +1,151 @@
+# Network Graph
+
+A station-level graph of the Irish Rail passenger network, built from rail geometry and enriched with observed operational evidence. Used for shortest-path, centrality, and bottleneck analysis ([analysis/bottleneck.md](analysis/bottleneck.md)) and as the spatial source for the chatbot's `network_path` tool ([chatbot.md](chatbot.md#tool-surface)).
+
+## Sources of truth
+
+| Source | Used for | Authority |
+|--------|----------|-----------|
+| `data/Rail_Network_Segment_*.geojson` | physical track topology | **authoritative** for adjacency |
+| `data/Rail_Points_*.geojson` | rail infrastructure points | supporting |
+| `network_graphs/irish_rail_stations.json` | station metadata (158 passenger stations) | authoritative for nodes |
+| `train_movements` table | service evidence (stop sequences, runtimes) | enriches edges, never overrides geometry |
+| `station_events` table | reliability indicators | enriches edges |
+
+**Conflict policy**: if geometry says two stations are connected and the live data has never observed a train between them, keep the geometry edge and mark service evidence as missing. Operational sparsity must not silently delete real physical links.
+
+## Model
+
+### Nodes
+
+One node per passenger station, keyed by canonical `station_code`. Attributes: `station_code`, `name`, `latitude`, `longitude` (WGS84).
+
+### Edge layers
+
+Two layers, sharing the same node set.
+
+**`rail_edge`** — physical adjacency from geometry.
+
+```
+edge_type = "rail_edge"
+distance_km
+geometry_confidence       (default high)
+track_count               (nullable)
+source = "geojson"
+```
+
+**`service_edge`** — operational evidence from history.
+
+```
+edge_type = "service_edge"
+trips_observed
+median_runtime_min
+on_time_rate
+ata_coverage_score
+source = "historic_ata"
+```
+
+Service metrics attach to a matching `rail_edge` where one exists. Non-matching service transitions stay as low-confidence service-only candidates and are excluded from core topology.
+
+### Confidence per corridor
+
+- `geometry_confidence` — high unless station-to-track snapping was poor.
+- `ata_coverage_score` — from observation count, recency, and directional balance.
+- `composite_confidence` — weighted blend, used for filtering.
+
+## Pipeline
+
+1. Load and normalise stations from `irish_rail_stations.json`.
+2. Project to EPSG:2157 (Irish National Grid).
+3. Snap each station to the nearest rail segment vertex with a bounded distance threshold; record snap quality.
+4. Build segment connectivity and walk it to derive station-to-next-station physical adjacency.
+5. Query Postgres for observed stop-to-stop transitions and their timing / reliability stats.
+6. Join service evidence onto physical edges; keep unmatched as service-only candidates.
+7. Compute confidence scores and coverage diagnostics.
+8. Export the graph and quality artifacts.
+
+The builder lives in the repo's Python scripts (`build_actual_network.py`, etc.). For exploratory work see `private/analysis/`.
+
+## Outputs
+
+```
+network_graphs/irish_rail_network_actual.pkl              NetworkX pickle
+network_graphs/irish_rail_network_actual.gml              GML, importable by Gephi / Cytoscape
+network_graphs/irish_rail_network_actual_stats.json       node/edge counts, components, confidence histogram
+network_graphs/irish_rail_network_actual_confidence.csv   per-edge confidence
+network_graphs/irish_rail_network_actual_data_quality.md  human-readable quality report
+network_graphs/network_interactive.html                   Cytoscape.js viewer
+network_graphs/network_graph.png                          static render (2132×2118, 150 DPI)
+network_graphs/irish_rail_stations.json                   158 stations w/ coordinates
+```
+
+Legacy proximity-based outputs (`irish_rail_network_proximity.*`) are retained for reproducibility but should not be used for new analysis. The 50 km proximity heuristic invents long-hop edges that distort centrality and shortest-path metrics.
+
+## Current quality (snapshot)
+
+From `irish_rail_network_actual_data_quality.md`:
+
+| Metric | Value |
+|--------|-------|
+| Stations | 158 |
+| Physical rail edges | 210 |
+| Service edges | 105 |
+| Physical components | 3 |
+| Physical edges without ATA coverage | 105 |
+| Service pairs not in physical topology | 4 |
+| Stations not snapped to geometry | 5 (BFSTC, LBURN, LURGN, NEWRY, PDOWN) |
+| Average physical degree | 2.66 |
+| Median degree | 2.0 |
+| Max degree | 9 |
+| Avg shortest path (largest component) | 18.6 |
+| Diameter (largest component) | 48 |
+| Low-confidence physical edges (<0.6) | 76 |
+
+The five unsnapped stations are all Northern Ireland (cross-border data quality). Treat them as a separate component for graph math.
+
+## Visualisations
+
+- **Interactive (`network_interactive.html`)** — Cytoscape.js, zoom/pan, click stations for details, sidebar stats. Open in any browser.
+- **Static (`network_graph.png`)** — matplotlib, dark theme, viridis colormap by degree. For slides/print.
+
+Both are regenerated by `create_interactive_viz.py` and `export_network_image.py` from the current pickle.
+
+## Using the graph
+
+```python
+import pickle, networkx as nx
+
+with open('network_graphs/irish_rail_network_actual.pkl', 'rb') as f:
+    G = pickle.load(f)
+
+# physical-layer-only subgraph
+rail = G.edge_subgraph(
+    (u, v) for u, v, d in G.edges(data=True)
+    if d.get('edge_type') == 'rail_edge'
+)
+
+print(nx.number_connected_components(rail))     # 3
+path = nx.shortest_path(rail, 'GLWY', 'CNLLY')  # Galway → Connolly
+
+# filter to high-confidence edges before centrality
+hc = G.edge_subgraph(
+    (u, v) for u, v, d in G.edges(data=True)
+    if d.get('composite_confidence', 0) >= 0.6
+)
+betw = nx.betweenness_centrality(hc)
+```
+
+## Interpretation rules
+
+- **Centrality concentrates around Dublin** because branch density and service volume are highest there. Expected, not a bug.
+- **Global metrics are sensitive to components** — Northern Ireland stations split off in the physical layer, so always check `number_connected_components` before comparing runs.
+- **Shortest-path distances are large** — the network is corridor-like, not a mesh.
+- **Confidence matters** — low-confidence stitched edges shift betweenness noticeably. Threshold with `composite_confidence` before publishing.
+
+## Related docs
+
+- [data-sources.md](data-sources.md) — where the ATA evidence comes from
+- [scraper.md](scraper.md#schema) — `train_movements` and `station_events` tables
+- [chatbot.md](chatbot.md#tool-surface) — the `network_path` tool
+- [analysis/bottleneck.md](analysis/bottleneck.md) — graph-based bottleneck analysis
+- [analysis/overview.md](analysis/overview.md) — summary findings

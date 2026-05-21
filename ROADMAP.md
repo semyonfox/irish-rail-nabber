@@ -1,112 +1,99 @@
-# Development Roadmap
+# Roadmap
 
-Goal: €5k/mo by Q4 2026
+Goal: €5k/month by Q4 2026.
 
-## Phase 1: MVP (Week 1-2) - Irish Rail Only
+Phase status reflects the current state of the codebase, not the original plan.
 
-**Status**: Complete
+## Phase 1 — MVP (complete)
 
-- Irish Rail 3s polling daemon (356 LOC)
-- TimescaleDB schema with hypertables, compression, forever retention
-- Docker Compose setup (single container, 30s startup)
-- Data collection verified (all 4 endpoints working, deduplication tested)
+- Irish Rail polling daemon, TimescaleDB hypertables ([docs/scraper.md](docs/scraper.md))
+- Dedup at four granularities, content-hash based ([docs/scraper.md#deduplication](docs/scraper.md#deduplication))
+- 90-day rolling window with 7-day compression
+- Single `docker compose up` deployment ([docs/deployment.md](docs/deployment.md))
 
-**Launch**: Day 30 (r/ireland announcement)  
-**Revenue**: Free trial → €5/mo flip at Day 90
+## Phase 2 — API, auth, billing (in progress)
 
-## Phase 2: Growth (Week 3-4) - €300/mo
+**Done:**
 
-### Data Sources
-- Dublin Bikes: 7yr CSV import + 1min polling
-- NTA GTFS-RT: Buses + Luas 30s polling
+- Rust Axum service with async-graphql ([docs/api.md](docs/api.md))
+- Custom email/password auth, JWT + refresh rotation ([docs/auth-billing.md](docs/auth-billing.md))
+- Stripe integration end-to-end (checkout, portal, webhook)
+- React 19 dashboard with live map, pricing page, account page ([docs/dashboard.md](docs/dashboard.md))
+- Cloudflare Tunnel deployment at [traein.semyon.ie](https://traein.semyon.ie)
 
-### Monetization
-- Stripe integration (€25 Coffee Club, €75 Pro)
-- JWT auth (Stripe customer_id)
-- Rate limiting (1000 req/day free → unlimited paid)
+**Remaining:**
 
-### GraphQL API
-- Strawberry GraphQL service (~200 LOC)
-- Query: `recentTrains(hours: 24)`
-- Multi-source joins
+- **Switch billing to Polar.sh** for VAT/tax handling ([docs/auth-billing.md#polar-flow](docs/auth-billing.md#polar-flow))
+- Per-resolver role gates on analytics fields
+- Rate limiting (1 k / 10 k / unlimited by tier)
+- Public launch on r/ireland
 
-## Phase 3: Analytics (Month 2) - €750/mo
+Target MRR after Phase 2 launch: **€100–250** (5–10 paying users).
 
-- Planning Applications: Daily scrape
-- CSO Stats: Hourly snapshots (CPI, employment)
-- Met Éireann: 15min weather polling
-- EPA Air Quality: 5min polling
-- OPW Floods: 15min polling
-- Continuous aggregates (train delay stats, hourly summaries)
-- `insights()` query (combined data)
+## Phase 3 — AI chatbot and analytics
 
-## Phase 4: Specialization (Month 3) - €1.5k/mo
+- Build the chatbot service ([docs/chatbot.md](docs/chatbot.md))
+- Tool surface over GraphQL: `find_stations`, `station_board`, `delay_history`, `network_path`, `service_summary`
+- Continuous aggregates for delay/punctuality (Timescale materialised views)
+- Predictive delay model fed by `train_movements` history
 
-- Oireachtas: Debates + votes daily
-- TII Traffic: 5min counter polling
-- SEM-O Power Prices: Daily import
-- Industry-specific schemas (proptech, newsroom, researcher)
+Target MRR: **€750**.
 
-## Phase 5: Scale (Month 4-6) - €5k/mo
+## Phase 4 — Specialisation
 
-- Read replicas (analytics separation)
-- Timescale Cloud migration (optional)
-- Custom data exports (Parquet, CSV)
-- WebSocket subscriptions (real-time feeds)
-- SLA guarantees (99.9% uptime)
+Add datasets that justify the Pro tier on their own:
 
-## Tech Stack (Final)
+- Dublin Bikes (7-year CSV import + 1-minute polling)
+- NTA GTFS-RT (buses + Luas, 30s)
+- Met Éireann weather (15min)
+- EPA Air Quality (5min)
+- OPW Floods (15min)
 
-```
-docker-compose.yml:
-├── timescaledb:16-alpine
-└── daemon (Python 3.11 + asyncio)
+Industry-specific GraphQL extensions (proptech, newsroom, researcher).
 
-api (Phase 2):
-├── Strawberry GraphQL
-└── FastAPI (REST fallback)
+Target MRR: **€1 500**.
 
-payments (Phase 2):
-└── Stripe webhooks + JWT
+## Phase 5 — Scale
 
-monitoring (Phase 3):
-├── Prometheus exporter
-└── Grafana dashboards
-```
+- Read replicas (split analytics from collector)
+- Optional Timescale Cloud migration
+- WebSocket subscriptions for real-time feeds
+- Custom data exports (Parquet / CSV)
+- SLA (99.9%) with Railway + Fly failover ([docs/deployment.md#cloud-options](docs/deployment.md#cloud-options))
 
-Codebase: ~500 LOC now → ~2,500 LOC at Phase 2 → ~5,000 LOC full
-
-## Timeline
-
-```
-Week 1:   Collector done + verify + cleanup
-Week 2:   GraphQL API
-Week 3:   Stripe + Dublin Bikes
-Month 2:  Phase 2 launch (r/ireland)
-Month 3:  5 more data sources
-Month 6:  €5k/mo revenue
-```
-
-## Success Metrics
-
-**Day 7**:
-- TimescaleDB has 3000+ train snapshots
-- 171 stations cached
-- Docker compose up works first try
-- Repo public on GitHub
-
-**Day 30**:
-- GraphQL API live (public beta)
-- 50k+ snapshots collected
-- 4 free trial signups
-
-**Day 90**:
-- €100-250/mo MRR (5-10 paying)
-- 500k+ snapshots
-- <1% API failure rate
+Target MRR: **€5 000**.
 
 ## Positioning
 
-"Ireland's LIVE public data API. data.gov.ie is dead CSVs. We are realtime."
+> "Ireland's live public data API. data.gov.ie is dead CSVs. We are realtime."
 
-Target: Indie devs, proptech, researchers, news
+Target users: indie devs, proptech, researchers, newsrooms.
+
+## Success metrics
+
+| Milestone | When | What |
+|-----------|------|------|
+| Day 7 | post-MVP | 3 k+ train snapshots, 171 stations, docker compose works first-try |
+| Day 30 | public beta | GraphQL live, 50 k+ snapshots, 4 free-trial signups |
+| Day 90 | Phase 2 launch | €100–250 MRR, 500 k+ snapshots, <1% API failure rate |
+| Month 6 | Phase 5 | €5 k MRR |
+
+## Tech stack
+
+```
+docker compose
+├── db          timescaledb 2.25 / pg 18
+├── daemon      python 3.11 + asyncio
+├── api         rust + axum + async-graphql
+├── dashboard   react 19 + vite+ + tailwind
+└── cloudflared edge tunnel
+```
+
+Lines of code today: ~3 000. Target by Phase 5: ~6 000.
+
+## Related docs
+
+- [docs/architecture.md](docs/architecture.md) — what the system looks like today
+- [docs/auth-billing.md](docs/auth-billing.md) — Polar migration plan
+- [docs/chatbot.md](docs/chatbot.md) — the Phase 3 product
+- [docs/deployment.md](docs/deployment.md) — when to leave the home server
