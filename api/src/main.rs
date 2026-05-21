@@ -3,6 +3,7 @@ mod billing;
 mod db;
 mod models;
 mod schema;
+mod rate_limit;
 mod state;
 
 use async_graphql::http::{playground_source, GraphQLPlaygroundConfig};
@@ -78,10 +79,18 @@ async fn main() {
 
     let billing_routes = Router::new()
         .route("/checkout", post(billing::handlers::checkout))
-        .route("/portal", post(billing::handlers::portal));
+        .route("/portal", post(billing::handlers::portal))
+        .route("/usage", get(billing::handlers::usage));
+
+    let graphql_routes = Router::new()
+        .route("/graphql", get(graphql_playground).post(graphql_handler))
+        .layer(axum_middleware::from_fn_with_state(
+            app_state.clone(),
+            rate_limit::graphql_rate_limit,
+        ));
 
     let app = Router::new()
-        .route("/graphql", get(graphql_playground).post(graphql_handler))
+        .merge(graphql_routes)
         .nest("/auth", auth_routes)
         .nest("/billing", billing_routes)
         .route("/billing/webhook", post(billing::handlers::webhook))

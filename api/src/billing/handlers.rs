@@ -5,6 +5,7 @@ use axum::{
     Extension, Json,
 };
 use serde::{Deserialize, Serialize};
+use chrono::{Duration, TimeZone, Utc};
 use stripe::{
     BillingPortalSession, CheckoutSession, CheckoutSessionMode, Client as StripeClient,
     CreateBillingPortalSession, CreateCheckoutSession, CreateCheckoutSessionLineItems, Event,
@@ -12,7 +13,7 @@ use stripe::{
 };
 use uuid::Uuid;
 
-use crate::{db::users, models::AuthUser, state::AppState};
+use crate::{db, db::users, models::AuthUser, rate_limit::plan_limit, state::AppState};
 
 #[derive(Debug, Deserialize)]
 pub struct CheckoutRequest {
@@ -161,6 +162,47 @@ pub async fn webhook(
     }
 
     StatusCode::OK
+}
+
+#[derive(Debug, Serialize)]
+pub struct UsageResponse {
+    pub used: i64,
+    pub limit: Option<i64>,
+    pub remaining: Option<i64>,
+    pub reset_at: i64,
+    pub role: String,
+}
+
+pub async fn usage(
+    State(state): State<AppState>,
+    Extension(auth_user): Extension<Option<AuthUser>>,
+) -> Result<Json<UsageResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let auth_user =
+        auth_user.ok_or_else(|| json_error(StatusCode::UNAUTHORIZED, "not authenticated"))?;
+    let subject = format!("user:{}", auth_user.id);
+    let usage = db::usage::get_subject_usage(&state.pool, &subject)
+        .await
+        .map_err(|_| json_error(StatusCode::INTERNAL_SERVER_ERROR, "database error"))?
+        .unwrap_or(db::usage::DailyUsageRecord {
+            request_count: 0,
+            role_snapshot: auth_user.role.clone(),
+            for_date: Utc::now().date_naive(),
+        });
+
+    let limit = plan_limit(&auth_user.role);
+    let remaining = limit.map(|tier_limit| (tier_limit - usage.request_count).max(0));
+    let tomorrow = Utc::now().date_naive() + Duration::days(1);
+    let reset_at = Utc
+        .from_utc_datetime(&tomorrow.and_hms_opt(0, 0, 0).expect("valid midnight"))
+        .timestamp();
+
+    Ok(Json(UsageResponse {
+        used: usage.request_count,
+        limit,
+        remaining,
+        reset_at,
+        role: auth_user.role,
+    }))
 }
 
 async fn handle_event(state: &AppState, event: Event) -> Result<(), String> {

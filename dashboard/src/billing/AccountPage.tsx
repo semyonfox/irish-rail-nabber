@@ -1,14 +1,42 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { useAuth } from "../auth/useAuth";
-import { api, ApiError } from "../graphql/api";
+import { api, ApiError, type UsageInfo } from "../graphql/api";
 
 export default function AccountPage() {
   const { user, logout } = useAuth();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loadingUsage, setLoadingUsage] = useState(false);
+  const [usage, setUsage] = useState<UsageInfo | null>(null);
 
   if (!user) return null;
+
+  useEffect(() => {
+    let active = true;
+    setLoadingUsage(true);
+    api
+      .usage()
+      .then((payload) => {
+        if (active) {
+          setUsage(payload);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setUsage(null);
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setLoadingUsage(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function openPortal() {
     setError("");
@@ -36,6 +64,20 @@ export default function AccountPage() {
 
         <p className="text-sm text-[var(--rail-muted)]">Member since</p>
         <p className="text-white">{new Date(user.created_at).toLocaleDateString()}</p>
+
+        <p className="text-sm text-[var(--rail-muted)]">API usage today</p>
+        {loadingUsage ? (
+          <p className="text-sm text-[var(--rail-muted)]">Loading usage...</p>
+        ) : usage ? (
+          <div>
+            <p className="text-white">
+              {usage.used} / {usage.limit ?? "unlimited"} requests
+            </p>
+            <p className="text-sm text-[var(--rail-muted)]">
+              Remaining: {usage.remaining ?? "unlimited"}
+            </p>
+          </div>
+        ) : null}
 
         {error ? <p className="text-sm text-[var(--rail-red)]">{error}</p> : null}
 
