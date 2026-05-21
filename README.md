@@ -1,79 +1,49 @@
-# Irish Public Data API
+# irish-rail-nabber
 
-Real-time Irish Rail collector with TimescaleDB. Phase 1 MVP complete.
+Real-time Irish Rail data, exposed as a GraphQL API, a live dashboard, and an AI chatbot you can ask questions in plain English.
 
-## Quick Start
+Live at [traein.semyon.ie](https://traein.semyon.ie).
+
+## Quick start
 
 ```bash
-docker-compose up -d
+git clone <repo>
+cd irish-rail-nabber
+cp docs/deployment.md /dev/null         # read it: env template lives there
+docker compose up -d
 sleep 30
-docker-compose logs daemon
+docker compose logs --tail=50
 ```
 
-That's it. Database runs forever, daemon collects 24/7.
+Verify with the smoke test in [docs/testing.md](docs/testing.md).
 
-## What It Does
+## What's in the box
 
-Collects Irish Rail data every 3 seconds into TimescaleDB:
-- Train positions (latitude/longitude, updated in real-time)
-- Station arrivals/departures (39+ events per station per poll)
-- Full journey tracking (8+ stops per train per hour)
-- Forever archive with compression (saves 90% space after 7 days)
+| Component | What it does | Doc |
+|-----------|--------------|-----|
+| **daemon** | Polls Irish Rail every 10–60s, dedups, writes to TimescaleDB | [docs/scraper.md](docs/scraper.md) |
+| **api** | Rust GraphQL + REST (auth, billing) on Axum | [docs/api.md](docs/api.md) |
+| **dashboard** | React 19 SPA: live map, station boards, account | [docs/dashboard.md](docs/dashboard.md) |
+| **chatbot** | Natural-language queries via tool calls against the DB *(planned)* | [docs/chatbot.md](docs/chatbot.md) |
+| **db** | PostgreSQL 18 + TimescaleDB, time-series hypertables | [docs/scraper.md#schema](docs/scraper.md#schema) |
 
-All data is deduplicated (only stores when values change).
+System diagram and request flows: [docs/architecture.md](docs/architecture.md).
 
-## Database Schema
+## Paid tiers
 
-- `stations` - 171 static reference records
-- `train_snapshots` - Train positions (3s polling, ~28k/day per train)
-- `station_events` - Board updates (3s polling, ~1.7M/day)
-- `train_movements` - Journey logs (60s polling, ~1M/day)
-- `fetch_history` - API call metadata (success/skip/error)
+| Tier | Price | What you get |
+|------|-------|--------------|
+| free | €0 | live map, station boards, anonymous GraphQL, 1 k req/day |
+| coffee | €5/mo | + analytics, history, limited chatbot |
+| pro | €25/mo | + unlimited chatbot, exports, priority support |
 
-Indexes on: train_code, station_code, fetched_at
+Billed through [Polar.sh](https://polar.sh) (merchant of record — handles VAT). Stripe is the legacy provider, still in code. Full details: [docs/auth-billing.md](docs/auth-billing.md).
 
-## Architecture
+## Documentation
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for:
-- Polling strategy (why 3s)
-- Deduplication logic
-- TimescaleDB configuration
-- Docker setup
+Everything is under [docs/](docs/). Start at [docs/README.md](docs/README.md).
 
-## Data Analysis
-
-Extract deep insights from your Irish Rail dataset with the consolidated docs in `docs/analysis/`.
-
-Local-only exploratory scripts live in `private/analysis/` and are intentionally ignored by git.
-
-### Analysis documents
-
-- `docs/analysis/README.md` - index for the reduced analysis doc set
-- `docs/analysis/overview.md` - main summary and recommendations
-- `docs/analysis/bottleneck.md` - Galway-Athenry bottleneck deep dive
-- `docs/analysis/operations.md` - action plan, alerting, and predictive follow-up
-- `DATA_SOURCES.md` - API caveats and weaker-coverage areas
-
-## Testing
-
-See [TESTING.md](TESTING.md) for:
-- Verification checklist
-- 24-hour stability test
-- Troubleshooting guide
-
-## Roadmap
-
-See [ROADMAP.md](ROADMAP.md) for 5-phase development plan (€5k/mo revenue target).
-
-Phase 2: GraphQL API (Week 2)
-Phase 3-5: Dublin Bikes, NTA GTFS-RT, planning apps, weather, power prices, etc.
-
-## Tech Stack
-
-- **Database**: TimescaleDB 16 (PostgreSQL, time-series optimized)
-- **Daemon**: Python 3.11 + asyncio (356 LOC)
-- **Container**: Docker + Docker Compose (single service)
-- **API**: Strawberry GraphQL (Phase 2, Week 2)
+Roadmap and revenue phasing: [ROADMAP.md](ROADMAP.md).
 
 ## License
 

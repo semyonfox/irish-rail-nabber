@@ -70,4 +70,4 @@ The Galway -> Oranmore -> Athenry single-track section is a confirmed network bo
 
 - `docs/analysis/overview.md` - broader system context
 - `docs/analysis/operations.md` - action plan, alerting, and predictive follow-up
-- `DATA_SOURCES.md` - API caveats
+- [../data-sources.md](../data-sources.md) — API caveats

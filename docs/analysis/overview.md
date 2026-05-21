@@ -55,7 +55,7 @@ See `docs/analysis/bottleneck.md` for the full case.
 ### Still uncertain
 
 - Other western and rural delay averages may reflect weaker real-time coverage as much as real operational delay.
-- `DATA_SOURCES.md` should be read alongside any station-level western ranking.
+- [../data-sources.md](../data-sources.md) should be read alongside any station-level western ranking.
 
 ## Confidence guide
 
@@ -77,7 +77,7 @@ See `docs/analysis/bottleneck.md` for the full case.
 
 - Monitor Galway, Oranmore, and Athenry as one corridor.
 - Watch peak-hour knock-on effects in Dublin core stations.
-- Keep `DATA_SOURCES.md` close when interpreting western delays.
+- Keep [../data-sources.md](../data-sources.md) close when interpreting western delays.
 
 ### Near term
 
@@ -102,10 +102,10 @@ benchmarking revealed the upstream data pipeline and its limitations:
 - western/rural lines (Galway, Westport, Cork-Cobh) frequently show lat=0,lon=0 between signal blocks
 - `Servertime` and `Querytime` fields in station board responses change on every request and must be stripped before hashing
 
-see `DATA_SOURCES.md` for full benchmarking methodology and measured refresh intervals.
+see [../data-sources.md](../data-sources.md) for full benchmarking methodology and measured refresh intervals.
 
 ## Related docs
 
 - `docs/analysis/bottleneck.md` - technical bottleneck evidence
 - `docs/analysis/operations.md` - action plan and follow-up frameworks
-- `DATA_SOURCES.md` - API caveats, upstream pipeline, and measured refresh intervals
+- [../data-sources.md](../data-sources.md) — API caveats, upstream pipeline, and measured refresh intervals
