@@ -1,4 +1,5 @@
 pub mod users;
+pub mod usage;
 
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;

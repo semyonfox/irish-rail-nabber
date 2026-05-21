@@ -10,6 +10,14 @@ export interface MeUser extends User {
   created_at: string;
 }
 
+export interface UsageInfo {
+  used: number;
+  limit: number | null;
+  remaining: number | null;
+  reset_at: number;
+  role: string;
+}
+
 interface ApiErrorBody {
   error: string;
 }
@@ -84,5 +92,9 @@ export const api = {
     return request<{ url: string }>("/billing/portal", {
       method: "POST",
     });
+  },
+
+  usage() {
+    return request<UsageInfo>("/billing/usage");
   },
 };
