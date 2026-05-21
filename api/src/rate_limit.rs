@@ -121,8 +121,24 @@ pub async fn graphql_rate_limit(
     };
     let usage = match usage_store::record_graphql_request(&state.pool, &subject, &role).await {
         Ok(usage) => usage,
-        Err(_) => {
-            return next.run(request).await;
+        Err(error) => {
+            tracing::warn!(
+                "rate limit tracking failed for subject {} role {}: {}",
+                subject,
+                role,
+                error
+            );
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(RateLimitPayload {
+                    error: "rate limit service unavailable".to_string(),
+                    used: 0,
+                    limit: Some(limit),
+                    remaining: Some(0),
+                    reset_at: next_window_reset_unix_ts(),
+                }),
+            )
+                .into_response();
         }
     };
 
