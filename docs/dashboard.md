@@ -12,7 +12,7 @@ React 19 SPA. Built and served with [Vite+](https://vitejs.dev/) under `dashboar
 /pricing           PricingPage     public
 /account           AccountPage     protected (any signed-in user)
 /analytics         Analytics       protected + paid (coffee/pro)
-/chat              Chatbot         protected + paid  (see chatbot.md)
+/chat              Chat Assistant   protected + paid (uses live tools)
 ```
 
 `ProtectedRoute` redirects to `/login` if `useAuth()` reports no user; paid pages additionally check `user.role !== 'free'`.

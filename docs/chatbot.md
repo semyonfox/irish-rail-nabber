@@ -2,7 +2,7 @@
 
 Natural-language interface to the Irish Rail dataset. The chatbot answers questions like "is the 17:30 from Heuston running late?" or "which stations had the worst delays last week?" by calling the GraphQL API through a fixed set of tools.
 
-> Status: design. No code yet.
+> Status: frontend tool-backed prototype is in place (`/chat`) using existing GraphQL tools and plain parsing. No model orchestrator yet.
 
 ## Goals
 
@@ -43,14 +43,12 @@ Tools are thin GraphQL wrappers. Each maps to one query, with no hidden side eff
 
 | Tool | Backing query | Notes |
 |------|---------------|-------|
-| `find_stations` | `stationsByName` | fuzzy + code search |
 | `station_board` | `stationBoard` | next-90-min arrivals/departures |
-| `train_position` | `trainSnapshot` | latest known position |
-| `train_journey` | `trainMovements` | full stop sequence |
-| `recent_trains` | `recentTrains` | trains active in last N minutes |
-| `delay_history` | `delayHistory` | bucketed delays per station/corridor |
-| `network_path` | derived from `network_graph.md` | shortest physical path between two stations |
-| `service_summary` | `serviceSummary` | on-time %, p50/p95 delay, observed runtimes |
+| `train_journey` | `trainJourney` | full stop sequence for a given train code/date |
+| `route_reliability` | `routeReliability` | observed reliability + avg lateness by origin/destination |
+| `station_delay_stats` | `stationDelayStats` | station delay summary by recent window |
+| `hourly_delays` | `hourlyDelays` | per-hour delay trend (optional station filter) |
+| `network_summary` | `networkSummary` | global active train + aggregate delay state |
 
 Tool schemas mirror the GraphQL arguments. The model sees JSONSchema-typed tools; the service translates each `tool_use` into a GraphQL query at the API and returns the result as `tool_result`.
 

@@ -5,6 +5,7 @@ import { useAuth } from "../auth/useAuth";
 const links = [
   { to: "/", label: "Live Map" },
   { to: "/stations", label: "Stations" },
+  { to: "/chat", label: "Chat" },
   { to: "/analytics", label: "Analytics" },
   { to: "/pricing", label: "Pricing" },
 ];

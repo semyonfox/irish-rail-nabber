@@ -9,6 +9,7 @@ import AccountPage from "./billing/AccountPage";
 import PricingPage from "./billing/PricingPage";
 import Layout from "./components/Layout";
 import LiveMap from "./pages/LiveMap";
+import ChatAssistant from "./pages/ChatAssistant";
 import Stations from "./pages/Stations";
 import Analytics from "./pages/Analytics";
 
@@ -24,6 +25,14 @@ export default function App() {
               <Route path="login" element={<LoginPage />} />
               <Route path="register" element={<RegisterPage />} />
               <Route path="pricing" element={<PricingPage />} />
+              <Route
+                path="chat"
+                element={
+                  <ProtectedRoute>
+                    <ChatAssistant />
+                  </ProtectedRoute>
+                }
+              />
               <Route
                 path="analytics"
                 element={
