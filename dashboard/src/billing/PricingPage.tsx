@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/useAuth";
-import { api, ApiError } from "../graphql/api";
+import { api, ApiError, type RateLimits } from "../graphql/api";
 
 const plans = [
   {
@@ -32,7 +32,59 @@ export default function PricingPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
+  const [loadingLimits, setLoadingLimits] = useState(false);
   const [error, setError] = useState("");
+  const [limits, setLimits] = useState<RateLimits | null>(null);
+
+  const requestLimitText = (planId: string) => {
+    if (!limits) {
+      return "Loading limits...";
+    }
+
+    if (limits.unlimited_roles.includes(planId)) {
+      return "Unlimited requests";
+    }
+
+    if (planId === "coffee") {
+      return limits.coffee === null ? "Unlimited requests" : `Up to ${limits.coffee} requests/day`;
+    }
+
+    if (planId === "pro") {
+      return "Unlimited requests";
+    }
+
+    if (planId === "free") {
+      return limits.free === null ? "Unlimited requests" : `Up to ${limits.free} requests/day`;
+    }
+
+    return "Limited by plan";
+  };
+
+  useEffect(() => {
+    let active = true;
+    setLoadingLimits(true);
+    api
+      .limits()
+      .then((payload) => {
+        if (active) {
+          setLimits(payload);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setLimits(null);
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setLoadingLimits(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function startCheckout(priceId: string) {
     if (!user) {
@@ -65,6 +117,8 @@ export default function PricingPage() {
       <div className="mt-8 grid gap-4 md:grid-cols-3">
         {plans.map((plan) => {
           const current = user?.role === plan.id;
+          const limitText = loadingLimits ? "Loading limits..." : requestLimitText(plan.id);
+
           return (
             <div
               key={plan.id}
@@ -72,6 +126,7 @@ export default function PricingPage() {
             >
               <h3 className="text-lg font-semibold text-white">{plan.name}</h3>
               <p className="mt-1 text-sm text-[var(--rail-muted)]">{plan.price}</p>
+              <p className="mt-2 text-sm text-[var(--rail-muted)]">Requests: {limitText}</p>
               <ul className="mt-4 space-y-2 text-sm text-[var(--rail-muted)]">
                 {plan.features.map((feature) => (
                   <li key={feature}>+ {feature}</li>
