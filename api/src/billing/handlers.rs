@@ -13,7 +13,7 @@ use stripe::{
 };
 use uuid::Uuid;
 
-use crate::{db, db::users, models::AuthUser, rate_limit::plan_limit, state::AppState};
+use crate::{db, db::users, models::AuthUser, rate_limit, rate_limit::plan_limit, state::AppState};
 
 #[derive(Debug, Deserialize)]
 pub struct CheckoutRequest {
@@ -203,6 +203,24 @@ pub async fn usage(
         reset_at,
         role: auth_user.role,
     }))
+}
+
+#[derive(Debug, Serialize)]
+pub struct RateLimitsResponse {
+    pub free: Option<i64>,
+    pub coffee: Option<i64>,
+    pub pro: Option<i64>,
+    pub unlimited_roles: Vec<String>,
+}
+
+pub async fn limits() -> Json<RateLimitsResponse> {
+    let policy = rate_limit::rate_limit_policy();
+    Json(RateLimitsResponse {
+        free: policy.free,
+        coffee: policy.coffee,
+        pro: policy.pro,
+        unlimited_roles: policy.unlimited_roles,
+    })
 }
 
 async fn handle_event(state: &AppState, event: Event) -> Result<(), String> {

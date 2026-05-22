@@ -38,6 +38,10 @@ COOKIE_SECURE=true
 # routing
 APP_URL=https://traein.semyon.ie
 CORS_ORIGINS=https://traein.semyon.ie
+API_RATE_LIMIT_FREE_TIER_LIMIT=1000
+API_RATE_LIMIT_COFFEE_TIER_LIMIT=10000
+API_RATE_LIMIT_UNLIMITED_ROLES=pro,admin
+API_RATE_LIMIT_IP_SALT=rail-salt
 
 # billing (Polar.sh — primary, see auth-billing.md)
 POLAR_ACCESS_TOKEN=polar_at_...

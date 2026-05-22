@@ -135,6 +135,10 @@ JWT_REFRESH_EXPIRY=604800
 COOKIE_SECURE=true
 CORS_ORIGINS=https://traein.semyon.ie
 APP_URL=https://traein.semyon.ie
+API_RATE_LIMIT_FREE_TIER_LIMIT=1000
+API_RATE_LIMIT_COFFEE_TIER_LIMIT=10000
+API_RATE_LIMIT_UNLIMITED_ROLES=pro,admin
+API_RATE_LIMIT_IP_SALT=rail-salt
 ```
 
 Provider-specific keys (Polar or Stripe) are in [auth-billing.md](auth-billing.md).

@@ -80,6 +80,7 @@ async fn main() {
     let billing_routes = Router::new()
         .route("/checkout", post(billing::handlers::checkout))
         .route("/portal", post(billing::handlers::portal))
+        .route("/limits", get(billing::handlers::limits))
         .route("/usage", get(billing::handlers::usage));
 
     let graphql_routes = Router::new()

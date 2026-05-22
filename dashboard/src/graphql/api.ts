@@ -18,6 +18,13 @@ export interface UsageInfo {
   role: string;
 }
 
+export interface RateLimits {
+  free: number | null;
+  coffee: number | null;
+  pro: number | null;
+  unlimited_roles: string[];
+}
+
 interface ApiErrorBody {
   error: string;
 }
@@ -96,5 +103,9 @@ export const api = {
 
   usage() {
     return request<UsageInfo>("/billing/usage");
+  },
+
+  limits() {
+    return request<RateLimits>("/billing/limits");
   },
 };
