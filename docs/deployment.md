@@ -43,6 +43,17 @@ API_RATE_LIMIT_COFFEE_TIER_LIMIT=10000
 API_RATE_LIMIT_UNLIMITED_ROLES=pro,admin
 API_RATE_LIMIT_IP_SALT=rail-salt
 
+# chatbot LLM (OghmaNotes-compatible OpenAI-style endpoint)
+LLM_API_URL=https://api.moonshot.ai/v1
+LLM_API_KEY=<provider-key>
+LLM_MODEL=kimi-k2.5
+LLM_THINKING=off
+LLM_TIMEOUT_MS=45000
+LLM_MAX_TOKENS=1200
+CHAT_MAX_TOOL_ITERATIONS=3
+CHAT_MAX_TOOL_CALLS_PER_TURN=3
+CHAT_TOOL_RESULT_MAX_CHARS=3500
+
 # billing (Polar.sh — primary, see auth-billing.md)
 POLAR_ACCESS_TOKEN=polar_at_...
 POLAR_WEBHOOK_SECRET=polar_wh_...
@@ -60,6 +71,8 @@ STRIPE_PRO_PRICE_ID=
 # edge
 CLOUDFLARE_TUNNEL_TOKEN=...
 ```
+
+The Jenkins pipeline also loads `/home/semyon/jenkins/env/irish-rail-nabber.env` when present, matching the OghmaNotes deployment pattern. Put production `LLM_*` values there instead of committing secrets.
 
 Full description of each variable is in [auth-billing.md](auth-billing.md#polar-config-env) and [api.md](api.md#environment).
 

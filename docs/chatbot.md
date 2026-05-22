@@ -66,13 +66,14 @@ Response:
 
 Environment knobs:
 
-- `OPENAI_API_KEY` (required, fallback: `LLM_API_KEY`)
-- `OPENAI_BASE_URL` (default `https://api.openai.com`, fallback: `LLM_API_URL`)
-- `CHAT_MODEL` (default `gpt-4o-mini`, fallback: `LLM_MODEL`)
-- `CHAT_MAX_TOKENS` (default `1200`)
+- `LLM_API_KEY` (required, fallback: `OPENAI_API_KEY`)
+- `LLM_API_URL` (default `https://api.openai.com`, fallback: `OPENAI_BASE_URL`)
+- `LLM_MODEL` (default `gpt-4o-mini`, fallback: `CHAT_MODEL`)
+- `LLM_THINKING` (accepted for OghmaNotes-compatible env files; currently ignored by this chat-completions client)
+- `LLM_TIMEOUT_MS` (default `45000`, fallback: `CHAT_REQUEST_TIMEOUT_SECONDS`)
+- `LLM_MAX_TOKENS` (default `1200`, fallback: `CHAT_MAX_TOKENS`)
 - `CHAT_MAX_TOOL_ITERATIONS` (default `3`)
 - `CHAT_MAX_TOOL_CALLS_PER_TURN` (default `3`)
-- `CHAT_REQUEST_TIMEOUT_SECONDS` (default `45`)
 - `CHAT_TOOL_RESULT_MAX_CHARS` (default `3500`)
 - `CHAT_STATION_BOARD_LIMIT` (default `120`)
 - `CHAT_STATION_DELAY_LIMIT` (default `40`)

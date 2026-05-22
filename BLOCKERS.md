@@ -1,7 +1,7 @@
 # Blockers
 
 ## Current blockers
-- `/chat` requires `OPENAI_API_KEY` at runtime; without it every call returns 500.
+- `/chat` requires `LLM_API_KEY` or `OPENAI_API_KEY` at runtime; without one every call returns 500.
 - Session persistence / history streaming are not yet implemented; current implementation is one-turn JSON.
 
 ## Resolved during work
