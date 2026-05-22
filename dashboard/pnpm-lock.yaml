@@ -85,7 +85,7 @@ importers:
         specifier: npm:@voidzero-dev/vite-plus-core@latest
         version: '@voidzero-dev/vite-plus-core@0.1.14(@types/node@24.12.0)(jiti@2.6.1)(typescript@5.9.3)'
       vite-plus:
-        specifier: latest
+        specifier: ^0.1.22
         version: 0.1.22(@types/node@24.12.0)(@voidzero-dev/vite-plus-core@0.1.14(@types/node@24.12.0)(jiti@2.6.1)(typescript@5.9.3))(jiti@2.6.1)(typescript@5.9.3)
 
 packages:
