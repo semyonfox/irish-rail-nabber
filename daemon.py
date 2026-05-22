@@ -21,12 +21,14 @@ bug fixes over the original version:
 
 import asyncio
 import hashlib
+import json
 import logging
 import os
 import re
 import signal
 import xml.etree.ElementTree as ET
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Optional
 
 import aiohttp
@@ -48,6 +50,14 @@ STATION_FETCH_CONCURRENCY = 30
 
 # stale movement hash cleanup interval (seconds)
 HASH_CLEANUP_INTERVAL = 3600
+
+IE_LAT_MIN = 51.0
+IE_LAT_MAX = 56.0
+IE_LON_MIN = -11.0
+IE_LON_MAX = -5.0
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+CANONICAL_STATIONS_FILE = PROJECT_ROOT / "network_graphs" / "irish_rail_stations.json"
 
 # server injects Servertime and Querytime into station board responses every request.
 # these change every second and are not real data — strip before hashing for dedup.
@@ -96,6 +106,77 @@ def to_int_or_none(val: str) -> Optional[int]:
         return None
 
 
+def _parse_float_or_none(val: str) -> Optional[float]:
+    if not val or not val.strip():
+        return None
+    try:
+        return float(val.strip())
+    except ValueError:
+        return None
+
+
+def is_valid_irish_coordinate(lat: Optional[float], lon: Optional[float]) -> bool:
+    """Reject the upstream (0,0) sentinel and impossible Irish coordinates."""
+    if lat is None or lon is None:
+        return False
+    if lat == 0 and lon == 0:
+        return False
+    return IE_LAT_MIN <= lat <= IE_LAT_MAX and IE_LON_MIN <= lon <= IE_LON_MAX
+
+
+def to_irish_coordinate_pair(lat_val: str, lon_val: str) -> tuple[Optional[float], Optional[float]]:
+    lat = _parse_float_or_none(lat_val)
+    lon = _parse_float_or_none(lon_val)
+    if not is_valid_irish_coordinate(lat, lon):
+        return None, None
+    return lat, lon
+
+
+def _time_to_minutes(val: Optional[str]) -> Optional[int]:
+    if not val:
+        return None
+    parts = val.strip().split(":")
+    if len(parts) < 2:
+        return None
+    try:
+        return int(parts[0]) * 60 + int(parts[1])
+    except ValueError:
+        return None
+
+
+def normalize_late_minutes(
+    late: Optional[int],
+    scheduled_arrival: Optional[str],
+    scheduled_departure: Optional[str],
+    expected_arrival: Optional[str],
+    expected_departure: Optional[str],
+) -> Optional[int]:
+    """Drop unambiguous upstream delay garbage before it reaches analytics.
+
+    Irish Rail board times are time-only fields. Around midnight the feed can
+    wrap expected times onto the wrong date and emit impossible negative delays
+    such as -1079 minutes. Keep normal early trains; reject only clear wraps and
+    a hard 12-hour outlier guard.
+    """
+    if late is None:
+        return None
+    if abs(late) > 720:
+        return None
+
+    scheduled = (
+        _time_to_minutes(scheduled_arrival if scheduled_arrival != "00:00" else None)
+        or _time_to_minutes(scheduled_departure if scheduled_departure != "00:00" else None)
+        or _time_to_minutes(scheduled_arrival)
+        or _time_to_minutes(scheduled_departure)
+    )
+    expected = _time_to_minutes(expected_arrival) or _time_to_minutes(expected_departure)
+
+    if late < -60 and scheduled is not None and expected is not None and expected < scheduled:
+        return None
+
+    return late
+
+
 def to_bool(val: str) -> bool:
     """convert API boolean strings. '1' -> True, everything else -> False."""
     return val.strip() == "1" if val else False
@@ -130,6 +211,28 @@ def stable_hash(*args) -> str:
     return h.hexdigest()
 
 
+def load_canonical_station_coords() -> Dict[str, tuple[float, float]]:
+    """Load local station coordinates as a fallback for broken upstream rows."""
+    if not CANONICAL_STATIONS_FILE.exists():
+        return {}
+
+    try:
+        with CANONICAL_STATIONS_FILE.open("r", encoding="utf-8") as handle:
+            stations = json.load(handle)
+    except Exception as error:
+        logger.warning(f"could not load canonical stations: {error}")
+        return {}
+
+    coords: Dict[str, tuple[float, float]] = {}
+    for station in stations:
+        code = str(station.get("code", "")).strip().upper()
+        lat = _parse_float_or_none(str(station.get("latitude", "")))
+        lon = _parse_float_or_none(str(station.get("longitude", "")))
+        if code and is_valid_irish_coordinate(lat, lon):
+            coords[code] = (lat, lon)
+    return coords
+
+
 # ============================================================================
 # daemon
 # ============================================================================
@@ -158,6 +261,10 @@ class IrishRailDaemon:
         # cached train type map: train_code -> "DART"/"Mainline"/"Suburban"
         self._type_map: Dict[str, str] = {}
         self._type_map_updated: Optional[datetime] = None
+
+        # local station coordinates are only used when upstream sends invalid
+        # coordinates, e.g. the known 0,0 sentinel stations.
+        self.canonical_station_coords = load_canonical_station_coords()
 
         # shutdown coordination
         self._shutdown = asyncio.Event()
@@ -316,6 +423,16 @@ class IrishRailDaemon:
                         code = extract_text(station, "StationCode")
                         if not code:
                             continue
+                        code = code.strip().upper()
+
+                        lat, lon = to_irish_coordinate_pair(
+                            extract_text(station, "StationLatitude", "0"),
+                            extract_text(station, "StationLongitude", "0"),
+                        )
+                        if lat is None or lon is None:
+                            fallback = self.canonical_station_coords.get(code)
+                            if fallback:
+                                lat, lon = fallback
 
                         await conn.execute(
                             """INSERT INTO stations
@@ -334,13 +451,8 @@ class IrishRailDaemon:
                                 extract_text(station, "StationId"),
                                 extract_text(station, "StationDesc"),
                                 extract_text(station, "StationAlias"),
-                                float(
-                                    extract_text(station, "StationLatitude", "0") or "0"
-                                ),
-                                float(
-                                    extract_text(station, "StationLongitude", "0")
-                                    or "0"
-                                ),
+                                lat,
+                                lon,
                             ),
                         )
                         count += 1
@@ -468,6 +580,7 @@ class IrishRailDaemon:
 
                         lat_str = extract_text(train, "TrainLatitude", "0")
                         lon_str = extract_text(train, "TrainLongitude", "0")
+                        lat, lon = to_irish_coordinate_pair(lat_str, lon_str)
 
                         await conn.execute(
                             """INSERT INTO train_snapshots
@@ -478,8 +591,8 @@ class IrishRailDaemon:
                             (
                                 code,
                                 extract_text(train, "TrainStatus"),
-                                float(lat_str or "0"),
-                                float(lon_str or "0"),
+                                lat,
+                                lon,
                                 extract_text(train, "TrainDate"),
                                 extract_text(train, "Direction"),
                                 extract_text(train, "PublicMessage"),
@@ -544,6 +657,11 @@ class IrishRailDaemon:
                         continue
 
                     try:
+                        lat, lon = to_irish_coordinate_pair(
+                            extract_text(train, "TrainLatitude", "0"),
+                            extract_text(train, "TrainLongitude", "0"),
+                        )
+
                         # per-train fingerprint over fields that actually move.
                         # status/direction barely change; lat/lon/lastloc/nextloc/
                         # lasttype/diff are the moveable ones.
@@ -574,8 +692,8 @@ class IrishRailDaemon:
                             (
                                 code,
                                 extract_text(train, "TrainStatus") or None,
-                                float(extract_text(train, "TrainLatitude", "0") or "0"),
-                                float(extract_text(train, "TrainLongitude", "0") or "0"),
+                                lat,
+                                lon,
                                 extract_text(train, "TrainDate") or None,
                                 extract_text(train, "Direction") or None,
                                 extract_text(train, "LastLocationType") or None,
@@ -706,15 +824,34 @@ class IrishRailDaemon:
                         train_code = train_code.strip()
                         train_date = extract_text(board, "Traindate")
                         query_time = extract_text(board, "Querytime")
+                        scheduled_arrival = to_time_or_none(
+                            extract_text(board, "Scharrival")
+                        )
+                        scheduled_departure = to_time_or_none(
+                            extract_text(board, "Schdepart")
+                        )
+                        expected_arrival = to_time_or_none(
+                            extract_text(board, "Exparrival")
+                        )
+                        expected_departure = to_time_or_none(
+                            extract_text(board, "Expdepart")
+                        )
+                        late_minutes = normalize_late_minutes(
+                            to_int_or_none(extract_text(board, "Late")),
+                            scheduled_arrival,
+                            scheduled_departure,
+                            expected_arrival,
+                            expected_departure,
+                        )
 
                         # row-level dedup: only insert if train state changed
                         # fingerprint includes all meaningful fields except fetched_at and query_time
                         fingerprint = stable_hash(
                             extract_text(board, "Status"),
-                            extract_text(board, "Late"),
+                            late_minutes,
                             extract_text(board, "Lastlocation"),
-                            to_time_or_none(extract_text(board, "Exparrival")),
-                            to_time_or_none(extract_text(board, "Expdepart")),
+                            expected_arrival,
+                            expected_departure,
                         )
                         cache_key = f"{train_code}:{station_code}:{train_date}"
 
@@ -746,11 +883,11 @@ class IrishRailDaemon:
                                 extract_text(board, "Traintype"),
                                 extract_text(board, "Direction"),
                                 extract_text(board, "Status"),
-                                to_time_or_none(extract_text(board, "Scharrival")),
-                                to_time_or_none(extract_text(board, "Schdepart")),
-                                to_time_or_none(extract_text(board, "Exparrival")),
-                                to_time_or_none(extract_text(board, "Expdepart")),
-                                to_int_or_none(extract_text(board, "Late")),
+                                scheduled_arrival,
+                                scheduled_departure,
+                                expected_arrival,
+                                expected_departure,
+                                late_minutes,
                                 extract_text(board, "Lastlocation"),
                                 to_int_or_none(extract_text(board, "Duein")),
                                 extract_text(board, "Locationtype") or None,
@@ -863,6 +1000,10 @@ class IrishRailDaemon:
                             continue
 
                         code = code.strip()
+                        location_code = extract_text(movement, "LocationCode").upper()
+                        stop_type = extract_text(movement, "StopType") or None
+                        if stop_type == "-":
+                            stop_type = None
 
                         await conn.execute(
                             """INSERT INTO train_movements
@@ -879,7 +1020,7 @@ class IrishRailDaemon:
                             (
                                 code,
                                 extract_text(movement, "TrainDate"),
-                                extract_text(movement, "LocationCode"),
+                                location_code,
                                 extract_text(movement, "LocationFullName") or None,
                                 int(
                                     extract_text(movement, "LocationOrder", "0") or "0"
@@ -903,7 +1044,7 @@ class IrishRailDaemon:
                                 to_time_or_none(extract_text(movement, "Departure")),
                                 to_bool(extract_text(movement, "AutoArrival")),
                                 to_bool(extract_text(movement, "AutoDepart")),
-                                extract_text(movement, "StopType"),
+                                stop_type,
                             ),
                         )
                         count += 1

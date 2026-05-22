@@ -72,6 +72,15 @@ impl AnalyticsQuery {
                 FROM station_events
                 WHERE fetched_at > NOW() - make_interval(hours => $1)
                     AND late_minutes IS NOT NULL
+                    AND NOT (
+                        ABS(late_minutes) > 720
+                        OR (
+                            late_minutes < -60
+                            AND COALESCE(expected_arrival, expected_departure) IS NOT NULL
+                            AND COALESCE(NULLIF(scheduled_arrival, TIME '00:00'), NULLIF(scheduled_departure, TIME '00:00'), scheduled_arrival, scheduled_departure) IS NOT NULL
+                            AND COALESCE(expected_arrival, expected_departure) < COALESCE(NULLIF(scheduled_arrival, TIME '00:00'), NULLIF(scheduled_departure, TIME '00:00'), scheduled_arrival, scheduled_departure)
+                        )
+                    )
                 ORDER BY train_code, station_code, fetched_at DESC
             )
             SELECT
@@ -124,6 +133,15 @@ impl AnalyticsQuery {
                 FROM station_events
                 WHERE fetched_at > NOW() - INTERVAL '1 hour'
                     AND late_minutes IS NOT NULL
+                    AND NOT (
+                        ABS(late_minutes) > 720
+                        OR (
+                            late_minutes < -60
+                            AND COALESCE(expected_arrival, expected_departure) IS NOT NULL
+                            AND COALESCE(NULLIF(scheduled_arrival, TIME '00:00'), NULLIF(scheduled_departure, TIME '00:00'), scheduled_arrival, scheduled_departure) IS NOT NULL
+                            AND COALESCE(expected_arrival, expected_departure) < COALESCE(NULLIF(scheduled_arrival, TIME '00:00'), NULLIF(scheduled_departure, TIME '00:00'), scheduled_arrival, scheduled_departure)
+                        )
+                    )
                 ORDER BY train_code, station_code, fetched_at DESC
             )
             SELECT
@@ -168,6 +186,15 @@ impl AnalyticsQuery {
                 WHERE fetched_at > NOW() - make_interval(hours => $1)
                     AND late_minutes IS NOT NULL
                     AND origin IS NOT NULL AND destination IS NOT NULL
+                    AND NOT (
+                        ABS(late_minutes) > 720
+                        OR (
+                            late_minutes < -60
+                            AND COALESCE(expected_arrival, expected_departure) IS NOT NULL
+                            AND COALESCE(NULLIF(scheduled_arrival, TIME '00:00'), NULLIF(scheduled_departure, TIME '00:00'), scheduled_arrival, scheduled_departure) IS NOT NULL
+                            AND COALESCE(expected_arrival, expected_departure) < COALESCE(NULLIF(scheduled_arrival, TIME '00:00'), NULLIF(scheduled_departure, TIME '00:00'), scheduled_arrival, scheduled_departure)
+                        )
+                    )
                 ORDER BY train_code, station_code, fetched_at DESC
             )
             SELECT
