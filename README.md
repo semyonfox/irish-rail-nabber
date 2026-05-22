@@ -24,7 +24,7 @@ Verify with the smoke test in [docs/testing.md](docs/testing.md).
 | **daemon** | Polls Irish Rail every 10–60s, dedups, writes to TimescaleDB | [docs/scraper.md](docs/scraper.md) |
 | **api** | Rust GraphQL + REST (auth, billing) on Axum | [docs/api.md](docs/api.md) |
 | **dashboard** | React 19 SPA: live map, station boards, account | [docs/dashboard.md](docs/dashboard.md) |
-| **chatbot** | Natural-language queries via tool calls against the DB *(planned)* | [docs/chatbot.md](docs/chatbot.md) |
+| **chatbot** | Natural-language queries via tool calls against the DB | [docs/chatbot.md](docs/chatbot.md) |
 | **db** | PostgreSQL 18 + TimescaleDB, time-series hypertables | [docs/scraper.md#schema](docs/scraper.md#schema) |
 
 System diagram and request flows: [docs/architecture.md](docs/architecture.md).

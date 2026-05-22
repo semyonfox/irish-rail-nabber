@@ -304,6 +304,18 @@ fn parse_env_i64(name: &str, default: i64) -> i64 {
         .unwrap_or(default)
 }
 
+fn parse_first_env_i64(names: &[&str], default: i64) -> i64 {
+    names
+        .iter()
+        .find_map(|name| {
+            env::var(name)
+                .ok()
+                .and_then(|value| value.parse::<i64>().ok())
+                .filter(|value| *value > 0)
+        })
+        .unwrap_or(default)
+}
+
 fn parse_env_usize(name: &str, default: usize) -> usize {
     env::var(name)
         .ok()
@@ -316,11 +328,23 @@ fn first_env_var(names: &[&str]) -> Option<String> {
     names.iter().find_map(|name| env::var(name).ok())
 }
 
+fn request_timeout_secs() -> u64 {
+    if let Some(timeout_ms) = env::var("LLM_TIMEOUT_MS")
+        .ok()
+        .and_then(|value| value.parse::<i64>().ok())
+        .filter(|value| *value > 0)
+    {
+        return ((timeout_ms + 999) / 1000) as u64;
+    }
+
+    parse_env_i64("CHAT_REQUEST_TIMEOUT_SECONDS", 45) as u64
+}
+
 fn chat_config() -> Result<ChatConfig, (StatusCode, Json<ErrorResponse>)> {
-    let api_key = first_env_var(&["OPENAI_API_KEY", "LLM_API_KEY"]).ok_or_else(|| {
+    let api_key = first_env_var(&["LLM_API_KEY", "OPENAI_API_KEY"]).ok_or_else(|| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "OPENAI_API_KEY is not configured (or fallback LLM_API_KEY)",
+            "LLM_API_KEY is not configured (or fallback OPENAI_API_KEY)",
         )
     })?;
 
@@ -335,18 +359,22 @@ fn chat_config() -> Result<ChatConfig, (StatusCode, Json<ErrorResponse>)> {
         live_trains_limit: parse_env_i64("CHAT_LIVE_TRAINS_LIMIT", 200),
     };
 
-    let tool_result_max_chars = parse_env_i64("CHAT_TOOL_RESULT_MAX_CHARS", DEFAULT_TOOL_RESULT_CHARS as i64)
-        as usize;
+    let tool_result_max_chars = parse_env_i64(
+        "CHAT_TOOL_RESULT_MAX_CHARS",
+        DEFAULT_TOOL_RESULT_CHARS as i64,
+    ) as usize;
 
     Ok(ChatConfig {
         api_key,
-        model: first_env_var(&["CHAT_MODEL", "LLM_MODEL"]).unwrap_or_else(|| "gpt-4o-mini".to_string()),
-        base_url: first_env_var(&["OPENAI_BASE_URL", "LLM_API_URL"]).unwrap_or_else(|| "https://api.openai.com".to_string()),
-        max_tokens: parse_env_i64("CHAT_MAX_TOKENS", 1200),
+        model: first_env_var(&["LLM_MODEL", "CHAT_MODEL"])
+            .unwrap_or_else(|| "gpt-4o-mini".to_string()),
+        base_url: first_env_var(&["LLM_API_URL", "OPENAI_BASE_URL"])
+            .unwrap_or_else(|| "https://api.openai.com".to_string()),
+        max_tokens: parse_first_env_i64(&["LLM_MAX_TOKENS", "CHAT_MAX_TOKENS"], 1200),
         max_tool_iterations: parse_env_usize("CHAT_MAX_TOOL_ITERATIONS", 3),
         max_tool_calls_per_turn: parse_env_usize("CHAT_MAX_TOOL_CALLS_PER_TURN", 3),
         tool_result_max_chars,
-        request_timeout_secs: parse_env_i64("CHAT_REQUEST_TIMEOUT_SECONDS", 45) as u64,
+        request_timeout_secs: request_timeout_secs(),
         limits,
     })
 }
@@ -514,6 +542,10 @@ fn summarize_result(result: &Value, max_chars: usize) -> (String, bool) {
 }
 
 fn query_result_count(result: &Value, field: &str) -> usize {
+    if let Some(array) = result.as_array() {
+        return array.len();
+    }
+
     result
         .get(field)
         .and_then(Value::as_array)
@@ -564,7 +596,10 @@ async fn execute_graphql_query(
             .map(|error| format!("{error:?}"))
             .collect::<Vec<_>>()
             .join("; ");
-        return Err(json_error(StatusCode::BAD_GATEWAY, &format!("query failed: {reasons}")));
+        return Err(json_error(
+            StatusCode::BAD_GATEWAY,
+            &format!("query failed: {reasons}"),
+        ));
     }
 
     let response_json = serde_json::to_value(response).map_err(|error| {
@@ -574,10 +609,12 @@ async fn execute_graphql_query(
         )
     })?;
 
-    response_json
-        .get("data")
-        .cloned()
-        .ok_or_else(|| json_error(StatusCode::INTERNAL_SERVER_ERROR, "missing graph response data"))
+    response_json.get("data").cloned().ok_or_else(|| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "missing graph response data",
+        )
+    })
 }
 
 async fn execute_tool(
@@ -622,7 +659,12 @@ async fn execute_tool(
         }
         "station_board" => {
             let args: StationBoardArgs = parse_tool_arguments("station_board", call)?;
-            let limit = clamp(Some(args.limit.unwrap_or(20)), 5, limits.station_board_limit, 20);
+            let limit = clamp(
+                Some(args.limit.unwrap_or(20)),
+                5,
+                limits.station_board_limit,
+                20,
+            );
             let payload = execute_graphql_query(
                 state,
                 auth_user,
@@ -762,8 +804,8 @@ async fn execute_tool(
             })
         }
         "network_summary" => {
-            let payload = execute_graphql_query(state, auth_user, Q_NETWORK_SUMMARY, json!({}))
-                .await?;
+            let payload =
+                execute_graphql_query(state, auth_user, Q_NETWORK_SUMMARY, json!({})).await?;
             let key = "networkSummary";
             let result = payload.get(key).cloned().unwrap_or(Value::Null);
             let rows = if result.is_null() { 0 } else { 1 };
@@ -777,7 +819,8 @@ async fn execute_tool(
             })
         }
         "fetch_status" => {
-            let payload = execute_graphql_query(state, auth_user, Q_FETCH_STATUS, json!({})).await?;
+            let payload =
+                execute_graphql_query(state, auth_user, Q_FETCH_STATUS, json!({})).await?;
             let key = "fetchStatus";
             let result = payload.get(key).cloned().unwrap_or(Value::Null);
             let rows = query_result_count(&result, key);
@@ -888,7 +931,8 @@ pub async fn chat(
     Extension(auth_user): Extension<Option<AuthUser>>,
     Json(body): Json<ChatRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let user = auth_user.ok_or_else(|| json_error(StatusCode::UNAUTHORIZED, "not authenticated"))?;
+    let user =
+        auth_user.ok_or_else(|| json_error(StatusCode::UNAUTHORIZED, "not authenticated"))?;
     if !is_paid_role(&user.role.to_lowercase()) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
@@ -975,9 +1019,14 @@ pub async fn chat(
                 });
 
                 for tool_call in tool_calls {
-                    let tool_result =
-                        execute_tool(&state, &user, tool_call, &cfg.limits, cfg.tool_result_max_chars)
-                            .await?;
+                    let tool_result = execute_tool(
+                        &state,
+                        &user,
+                        tool_call,
+                        &cfg.limits,
+                        cfg.tool_result_max_chars,
+                    )
+                    .await?;
                     used_tools.push(tool_result.clone());
                     messages.push(ModelMessage {
                         role: "tool".to_string(),

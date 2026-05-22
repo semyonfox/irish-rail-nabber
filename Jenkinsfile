@@ -13,6 +13,7 @@ pipeline {
   environment {
     DOCKER_BUILDKIT         = '0'
     COMPOSE_PROJECT_NAME    = 'irish-rail-nabber'
+    ENV_FILE                = '/home/semyon/jenkins/env/irish-rail-nabber.env'
     CLOUDFLARE_TUNNEL_TOKEN = credentials('cloudflare-tunnel-token')
     JWT_SECRET              = credentials('irish-rail-jwt-secret')
   }
@@ -51,6 +52,13 @@ pipeline {
     stage('Deploy') {
       steps {
         sh '''
+          if [ -f "$ENV_FILE" ]; then
+            set -a
+            . "$ENV_FILE"
+            set +a
+          else
+            echo "optional env file not found: $ENV_FILE"
+          fi
           docker compose up -d --no-build
           docker compose ps
         '''
