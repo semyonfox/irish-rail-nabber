@@ -1,5 +1,6 @@
 mod auth;
 mod billing;
+mod chat;
 mod db;
 mod models;
 mod schema;
@@ -83,6 +84,8 @@ async fn main() {
         .route("/limits", get(billing::handlers::limits))
         .route("/usage", get(billing::handlers::usage));
 
+    let chat_routes = Router::new().route("/chat", post(chat::chat));
+
     let graphql_routes = Router::new()
         .route("/graphql", get(graphql_playground).post(graphql_handler))
         .layer(axum_middleware::from_fn_with_state(
@@ -92,6 +95,12 @@ async fn main() {
 
     let app = Router::new()
         .merge(graphql_routes)
+        .merge(
+            chat_routes.layer(axum_middleware::from_fn_with_state(
+                app_state.clone(),
+                rate_limit::graphql_rate_limit,
+            )),
+        )
         .nest("/auth", auth_routes)
         .nest("/billing", billing_routes)
         .route("/billing/webhook", post(billing::handlers::webhook))

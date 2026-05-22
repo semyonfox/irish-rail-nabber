@@ -1,7 +1,8 @@
 # Blockers
 
 ## Current blockers
-- None blocking feature completion in this repository state.
+- `/chat` requires `OPENAI_API_KEY` at runtime; without it every call returns 500.
+- Session persistence / history streaming are not yet implemented; current implementation is one-turn JSON.
 
 ## Resolved during work
 - `cargo` in this environment routes through a rustup shim that can be blocked by proxy settings. Worked around by using `/home/semyon/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo` for checks.
