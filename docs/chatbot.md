@@ -66,9 +66,9 @@ Response:
 
 Environment knobs:
 
-- `OPENAI_API_KEY` (required)
-- `OPENAI_BASE_URL` (default `https://api.openai.com`)
-- `CHAT_MODEL` (default `gpt-4o-mini`)
+- `OPENAI_API_KEY` (required, fallback: `LLM_API_KEY`)
+- `OPENAI_BASE_URL` (default `https://api.openai.com`, fallback: `LLM_API_URL`)
+- `CHAT_MODEL` (default `gpt-4o-mini`, fallback: `LLM_MODEL`)
 - `CHAT_MAX_TOKENS` (default `1200`)
 - `CHAT_MAX_TOOL_ITERATIONS` (default `3`)
 - `CHAT_MAX_TOOL_CALLS_PER_TURN` (default `3`)
