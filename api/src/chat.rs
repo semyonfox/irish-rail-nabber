@@ -139,11 +139,11 @@ const Q_FETCH_STATUS: &str = r#"
 const DEFAULT_TOOL_RESULT_CHARS: usize = 3500;
 
 #[derive(Debug, Deserialize)]
-struct ChatRequest {
+pub(crate) struct ChatRequest {
     message: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 struct ChatToolCallLog {
     name: String,
     arguments: Value,
@@ -160,7 +160,7 @@ struct ChatResponse {
 }
 
 #[derive(Debug, Serialize)]
-struct ErrorResponse {
+pub(crate) struct ErrorResponse {
     error: String,
 }
 
@@ -983,7 +983,7 @@ pub async fn chat(
                         role: "tool".to_string(),
                         content: Some(tool_result.result),
                         tool_call_id: Some(tool_call.id.clone()),
-                        name: Some(tool_call.name.clone()),
+                        name: Some(tool_call.function.name.clone()),
                         tool_calls: None,
                     });
                 }
