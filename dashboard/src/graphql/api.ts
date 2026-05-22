@@ -25,6 +25,20 @@ export interface RateLimits {
   unlimited_roles: string[];
 }
 
+export interface ChatToolCall {
+  name: string;
+  arguments: Record<string, unknown>;
+  rows: number;
+  truncated: boolean;
+  result: string;
+}
+
+export interface ChatResponse {
+  answer: string;
+  tools: ChatToolCall[];
+  model: string;
+}
+
 interface ApiErrorBody {
   error: string;
 }
@@ -107,5 +121,12 @@ export const api = {
 
   limits() {
     return request<RateLimits>("/billing/limits");
+  },
+
+  chat(message: string) {
+    return request<ChatResponse>("/chat", {
+      method: "POST",
+      body: JSON.stringify({ message }),
+    });
   },
 };

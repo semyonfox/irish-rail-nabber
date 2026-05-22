@@ -1,141 +1,90 @@
 # Chatbot
 
-Natural-language interface to the Irish Rail dataset. The chatbot answers questions like "is the 17:30 from Heuston running late?" or "which stations had the worst delays last week?" by calling the GraphQL API through a fixed set of tools.
+The chat route is now a real model-backed assistant:
 
-> Status: frontend tool-backed prototype is in place (`/chat`) using existing GraphQL tools and plain parsing. No model orchestrator yet.
+- Frontend: `dashboard/src/pages/ChatAssistant.tsx`
+- Backend: `api/src/chat.rs`
+- Endpoint: `POST /chat`
 
-## Goals
+## Current status
 
-- One product surface (`/chat`) that subsumes most paid-tier value: analytics, historical lookups, predictions.
-- The model never invents data. Every factual answer is sourced from a tool call against the database.
-- Tools are derived from the existing GraphQL schema, not a parallel API.
-- Strict tier gating at the entrypoint so individual tools don't need to re-check auth.
+Done.
 
-## Why this exists
+- OpenAI function-calling assistant is wired end-to-end.
+- Model responses are produced from tool results only (no fabricated schedules).
+- Role-gated access: only `coffee`, `pro`, and `admin` users can use chat.
+- The dashboard route `/chat` is fully hooked to backend.
+- Dev and production proxy paths now forward `/chat` to the API.
 
-The free dashboard handles "where is train X right now" through the live map. Past that, users want comparisons, history, and forecasts — which require composing several GraphQL queries, joining results, and explaining what they mean. That is what an LLM with tool access does well, and it justifies the paid tier far more cleanly than locking individual GraphQL fields.
+## Toolset used by the model
 
-See [auth-billing.md](auth-billing.md#tiers) for tier definitions.
+Each tool maps to a GraphQL query with bounded inputs and output limits:
 
-## Architecture
+| Tool | GraphQL query |
+| --- | --- |
+| `stations` | `stations` |
+| `station_board` | `stationBoard` |
+| `train_journey` | `trainJourney` |
+| `route_reliability` | `routeReliability` |
+| `station_delay_stats` | `stationDelayStats` |
+| `hourly_delays` | `hourlyDelays` |
+| `network_summary` | `networkSummary` |
+| `fetch_status` | `fetchStatus` |
+| `live_trains` | `liveTrains` |
 
-```
-dashboard /chat  ──► chatbot service  ──► Anthropic Messages API (Claude Sonnet 4.6 by default)
-                          │  ▲
-                          │  │ tool_use / tool_result
-                          ▼  │
-                       Tool layer
-                          │
-                          ▼
-                  api /graphql + sqlx queries
-                          │
-                          ▼
-                     TimescaleDB
-```
+## Request/response contract
 
-The chatbot is its own service so it can be rate-limited and budgeted independently from the public API. It authenticates to the Rust API as a service account and forwards the end-user's role via a signed JWT claim so per-user quotas can still be enforced upstream if needed.
+`POST /chat`
 
-Default model: `claude-sonnet-4-6`. Heavier reasoning (e.g. plan a multi-step analysis, write a SQL summary) uses `claude-opus-4-7`. Cheap admin / classification calls use `claude-haiku-4-5`. Prompt caching is always on. See the `claude-api` skill for cache + thinking + tool-use patterns.
+Payload:
 
-## Tool surface
-
-Tools are thin GraphQL wrappers. Each maps to one query, with no hidden side effects.
-
-| Tool | Backing query | Notes |
-|------|---------------|-------|
-| `station_board` | `stationBoard` | next-90-min arrivals/departures |
-| `train_journey` | `trainJourney` | full stop sequence for a given train code/date |
-| `route_reliability` | `routeReliability` | observed reliability + avg lateness by origin/destination |
-| `station_delay_stats` | `stationDelayStats` | station delay summary by recent window |
-| `hourly_delays` | `hourlyDelays` | per-hour delay trend (optional station filter) |
-| `network_summary` | `networkSummary` | global active train + aggregate delay state |
-
-Tool schemas mirror the GraphQL arguments. The model sees JSONSchema-typed tools; the service translates each `tool_use` into a GraphQL query at the API and returns the result as `tool_result`.
-
-### Tool design rules
-
-1. Read-only. The chatbot never writes to the database.
-2. Bounded result size. Every tool has a hard cap (e.g. 200 rows) to keep tool_result payloads small and the cache hot.
-3. Deterministic. Same args → same query → same shape, so the cache prefix stays stable.
-4. No free-text SQL. The model cannot execute arbitrary SQL; if a question needs a new shape, that becomes a new tool.
-
-## Conversation model
-
-- One conversation per browser session, kept in `chat_sessions` (Postgres, separate from the time-series tables).
-- Messages stored as `(role, content, tool_calls, tool_results, model, tokens_in, tokens_out, created_at)`.
-- The system prompt names the dataset, the timezone (Europe/Dublin), the tool list, and instructs the model to cite sources by tool call.
-- Prompt caching marks the system prompt + tool definitions + last completed turn as cacheable, so multi-turn conversations stay cheap.
-
-## Rate limiting and cost control
-
-Limits run on three layers:
-
-1. **Tier gate** at the chatbot entrypoint. Anonymous and `free` are rejected with a redirect to `/pricing`.
-2. **Per-user token budget** per rolling 24h. Coffee tier gets a modest budget; Pro is effectively unlimited subject to abuse rules. Stored in `chat_usage`.
-3. **Per-request hard caps**: `max_tokens`, max tool calls, max total iterations.
-
-Cost telemetry is recorded per-message so it can be compared against revenue from [auth-billing.md](auth-billing.md).
-
-## Safety
-
-- The system prompt forbids unverifiable claims about future train operations beyond the published schedule.
-- For delay predictions the model must call `delay_history` and `service_summary` and disclose the data window.
-- All tool calls are logged with the resolved GraphQL operation for audit.
-- No PII collection beyond what the user types — chat history is theirs to delete from the account page.
-
-## Storage
-
-```sql
-chat_sessions (
-    id           UUID PRIMARY KEY,
-    user_id      UUID REFERENCES users(id) ON DELETE CASCADE,
-    title        TEXT,
-    created_at   TIMESTAMPTZ DEFAULT NOW(),
-    updated_at   TIMESTAMPTZ DEFAULT NOW()
-);
-
-chat_messages (
-    id           UUID PRIMARY KEY,
-    session_id   UUID REFERENCES chat_sessions(id) ON DELETE CASCADE,
-    role         TEXT,            -- user, assistant, tool
-    content      JSONB,           -- text, tool_use, tool_result blocks
-    model        TEXT,
-    tokens_in    INT,
-    tokens_out   INT,
-    cached       BOOLEAN,
-    created_at   TIMESTAMPTZ DEFAULT NOW()
-);
-
-chat_usage (
-    user_id      UUID REFERENCES users(id) ON DELETE CASCADE,
-    day          DATE,
-    tokens_in    INT,
-    tokens_out   INT,
-    PRIMARY KEY (user_id, day)
-);
+```json
+{
+  "message": "How late is the next 10:10 from Heuston?"
+}
 ```
 
-## Endpoints (proposed)
+Response:
 
-| Path | Method | Auth | Purpose |
-|------|--------|------|---------|
-| `/chat/sessions` | GET | paid | list sessions |
-| `/chat/sessions` | POST | paid | create session |
-| `/chat/sessions/:id` | DELETE | paid | delete session |
-| `/chat/sessions/:id/messages` | GET | paid | load history |
-| `/chat/sessions/:id/messages` | POST (SSE stream) | paid | send a turn, stream response |
+```json
+{
+  "answer": "The train is expected to be 3 minutes late.",
+  "tools": [
+    {
+      "name": "station_board",
+      "arguments": {"stationCode":"HST","limit":20},
+      "rows": 20,
+      "truncated": false,
+      "result": "[{...}]"
+    }
+  ],
+  "model": "gpt-4o-mini"
+}
+```
 
-Streams use server-sent events so the dashboard can render tool calls inline (`searching delay_history for GLWY…`).
+## Infra and limits
 
-## Open questions
+Environment knobs:
 
-- Pick implementation language. The Rust API already has the GraphQL client and DB pool; embedding the chatbot there keeps deployment simple. A separate TypeScript service makes Anthropic SDK + streaming easier. Default: TypeScript service deployed as a sibling container.
-- Decide whether tool definitions are generated from the GraphQL schema (single source of truth) or hand-written (full control over arg shapes and result trimming). Default: hand-written for now, automate later.
-- Long-term: optional `claude-opus-4-7` toggle for power users at higher cost-per-message.
+- `OPENAI_API_KEY` (required)
+- `OPENAI_BASE_URL` (default `https://api.openai.com`)
+- `CHAT_MODEL` (default `gpt-4o-mini`)
+- `CHAT_MAX_TOKENS` (default `1200`)
+- `CHAT_MAX_TOOL_ITERATIONS` (default `3`)
+- `CHAT_MAX_TOOL_CALLS_PER_TURN` (default `3`)
+- `CHAT_REQUEST_TIMEOUT_SECONDS` (default `45`)
+- `CHAT_TOOL_RESULT_MAX_CHARS` (default `3500`)
+- `CHAT_STATION_BOARD_LIMIT` (default `120`)
+- `CHAT_STATION_DELAY_LIMIT` (default `40`)
+- `CHAT_STATION_DELAY_HOURS` (default `168`)
+- `CHAT_HOURLY_HOURS` (default `168`)
+- `CHAT_STATION_HOURLY_HOURS` (default `72`)
+- `CHAT_ROUTE_HOURS` (default `720`)
+- `CHAT_ROUTE_MIN_TRAINS` (default `3`)
+- `CHAT_LIVE_TRAINS_LIMIT` (default `200`)
 
-## Related docs
+## Notes
 
-- [api.md](api.md) — the GraphQL surface the tools wrap
-- [auth-billing.md](auth-billing.md) — tier gating
-- [scraper.md](scraper.md#schema) — the underlying data shapes
-- [analysis/overview.md](analysis/overview.md) — what kinds of answers the corpus can support
+- Tool calls are capped per request and logged back in response.
+- `POST /chat` shares the existing `graphql_rate_limit` middleware in `api/src/main.rs`.
+- Session persistence and streaming responses are not yet implemented; this is a single-turn JSON request/response for now.
