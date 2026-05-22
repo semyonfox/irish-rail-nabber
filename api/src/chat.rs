@@ -312,11 +312,15 @@ fn parse_env_usize(name: &str, default: usize) -> usize {
         .unwrap_or(default)
 }
 
+fn first_env_var(names: &[&str]) -> Option<String> {
+    names.iter().find_map(|name| env::var(name).ok())
+}
+
 fn chat_config() -> Result<ChatConfig, (StatusCode, Json<ErrorResponse>)> {
-    let api_key = env::var("OPENAI_API_KEY").map_err(|_| {
+    let api_key = first_env_var(&["OPENAI_API_KEY", "LLM_API_KEY"]).ok_or_else(|| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "OPENAI_API_KEY is not configured",
+            "OPENAI_API_KEY is not configured (or fallback LLM_API_KEY)",
         )
     })?;
 
@@ -336,8 +340,8 @@ fn chat_config() -> Result<ChatConfig, (StatusCode, Json<ErrorResponse>)> {
 
     Ok(ChatConfig {
         api_key,
-        model: env::var("CHAT_MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string()),
-        base_url: env::var("OPENAI_BASE_URL").unwrap_or_else(|_| "https://api.openai.com".to_string()),
+        model: first_env_var(&["CHAT_MODEL", "LLM_MODEL"]).unwrap_or_else(|| "gpt-4o-mini".to_string()),
+        base_url: first_env_var(&["OPENAI_BASE_URL", "LLM_API_URL"]).unwrap_or_else(|| "https://api.openai.com".to_string()),
         max_tokens: parse_env_i64("CHAT_MAX_TOKENS", 1200),
         max_tool_iterations: parse_env_usize("CHAT_MAX_TOOL_ITERATIONS", 3),
         max_tool_calls_per_turn: parse_env_usize("CHAT_MAX_TOOL_CALLS_PER_TURN", 3),
