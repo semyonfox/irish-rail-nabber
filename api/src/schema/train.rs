@@ -22,7 +22,10 @@ impl TrainQuery {
         let rows = if let Some(tt) = train_type {
             sqlx::query_as::<_, TrainPositionRow>(
                 "SELECT DISTINCT ON (train_code)
-                    train_code, latitude, longitude, train_status, direction, fetched_at
+                    train_code,
+                    CASE WHEN latitude = 0 AND longitude = 0 THEN NULL ELSE latitude END AS latitude,
+                    CASE WHEN latitude = 0 AND longitude = 0 THEN NULL ELSE longitude END AS longitude,
+                    train_status, direction, fetched_at
                  FROM train_snapshots
                  WHERE fetched_at > NOW() - INTERVAL '2 minutes' AND train_type = $1
                  ORDER BY train_code, fetched_at DESC",
@@ -33,7 +36,10 @@ impl TrainQuery {
         } else {
             sqlx::query_as::<_, TrainPositionRow>(
                 "SELECT DISTINCT ON (train_code)
-                    train_code, latitude, longitude, train_status, direction, fetched_at
+                    train_code,
+                    CASE WHEN latitude = 0 AND longitude = 0 THEN NULL ELSE latitude END AS latitude,
+                    CASE WHEN latitude = 0 AND longitude = 0 THEN NULL ELSE longitude END AS longitude,
+                    train_status, direction, fetched_at
                  FROM train_snapshots
                  WHERE fetched_at > NOW() - INTERVAL '2 minutes'
                  ORDER BY train_code, fetched_at DESC",
@@ -67,9 +73,13 @@ impl TrainQuery {
                 scheduled_arrival, scheduled_departure,
                 expected_arrival, expected_departure,
                 actual_arrival, actual_departure,
-                stop_type, fetched_at
+                NULLIF(stop_type, '-') AS stop_type, fetched_at
              FROM train_movements
              WHERE train_code = $1 AND train_date = $2
+                AND location_type <> 'T'
+                AND EXISTS (
+                    SELECT 1 FROM stations s WHERE s.station_code = location_code
+                )
              ORDER BY location_order, fetched_at DESC",
         )
         .bind(&train_code)
@@ -93,6 +103,7 @@ impl TrainQuery {
             "SELECT train_code, latitude, longitude, train_status, direction, fetched_at
              FROM train_snapshots
              WHERE train_code = $1 AND fetched_at > NOW() - make_interval(hours => $2)
+                AND NOT (latitude = 0 AND longitude = 0)
              ORDER BY fetched_at DESC
              LIMIT 500",
         )

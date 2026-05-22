@@ -22,7 +22,9 @@ impl StationQuery {
         let rows = match (&station_type, is_dart) {
             (Some(st), Some(dart)) => {
                 sqlx::query_as::<_, StationRow>(
-                    "SELECT station_code, station_id, station_desc, station_alias, station_type, is_dart, latitude, longitude
+                    "SELECT station_code, station_id, station_desc, station_alias, station_type, is_dart,
+                        CASE WHEN latitude BETWEEN 51 AND 56 AND longitude BETWEEN -11 AND -5 THEN latitude ELSE NULL END AS latitude,
+                        CASE WHEN latitude BETWEEN 51 AND 56 AND longitude BETWEEN -11 AND -5 THEN longitude ELSE NULL END AS longitude
                      FROM stations WHERE station_type = $1 AND is_dart = $2
                      ORDER BY station_desc"
                 )
@@ -33,7 +35,9 @@ impl StationQuery {
             }
             (Some(st), None) => {
                 sqlx::query_as::<_, StationRow>(
-                    "SELECT station_code, station_id, station_desc, station_alias, station_type, is_dart, latitude, longitude
+                    "SELECT station_code, station_id, station_desc, station_alias, station_type, is_dart,
+                        CASE WHEN latitude BETWEEN 51 AND 56 AND longitude BETWEEN -11 AND -5 THEN latitude ELSE NULL END AS latitude,
+                        CASE WHEN latitude BETWEEN 51 AND 56 AND longitude BETWEEN -11 AND -5 THEN longitude ELSE NULL END AS longitude
                      FROM stations WHERE station_type = $1
                      ORDER BY station_desc"
                 )
@@ -43,7 +47,9 @@ impl StationQuery {
             }
             (None, Some(dart)) => {
                 sqlx::query_as::<_, StationRow>(
-                    "SELECT station_code, station_id, station_desc, station_alias, station_type, is_dart, latitude, longitude
+                    "SELECT station_code, station_id, station_desc, station_alias, station_type, is_dart,
+                        CASE WHEN latitude BETWEEN 51 AND 56 AND longitude BETWEEN -11 AND -5 THEN latitude ELSE NULL END AS latitude,
+                        CASE WHEN latitude BETWEEN 51 AND 56 AND longitude BETWEEN -11 AND -5 THEN longitude ELSE NULL END AS longitude
                      FROM stations WHERE is_dart = $1
                      ORDER BY station_desc"
                 )
@@ -53,7 +59,9 @@ impl StationQuery {
             }
             (None, None) => {
                 sqlx::query_as::<_, StationRow>(
-                    "SELECT station_code, station_id, station_desc, station_alias, station_type, is_dart, latitude, longitude
+                    "SELECT station_code, station_id, station_desc, station_alias, station_type, is_dart,
+                        CASE WHEN latitude BETWEEN 51 AND 56 AND longitude BETWEEN -11 AND -5 THEN latitude ELSE NULL END AS latitude,
+                        CASE WHEN latitude BETWEEN 51 AND 56 AND longitude BETWEEN -11 AND -5 THEN longitude ELSE NULL END AS longitude
                      FROM stations ORDER BY station_desc"
                 )
                 .fetch_all(pool)
@@ -69,10 +77,12 @@ impl StationQuery {
         let pool = ctx.data::<PgPool>()?;
 
         let row = sqlx::query_as::<_, StationRow>(
-            "SELECT station_code, station_id, station_desc, station_alias, station_type, is_dart, latitude, longitude
+            "SELECT station_code, station_id, station_desc, station_alias, station_type, is_dart,
+                CASE WHEN latitude BETWEEN 51 AND 56 AND longitude BETWEEN -11 AND -5 THEN latitude ELSE NULL END AS latitude,
+                CASE WHEN latitude BETWEEN 51 AND 56 AND longitude BETWEEN -11 AND -5 THEN longitude ELSE NULL END AS longitude
              FROM stations WHERE station_code = $1"
         )
-        .bind(&station_code)
+        .bind(station_code.trim().to_uppercase())
         .fetch_optional(pool)
         .await?;
 
@@ -91,15 +101,25 @@ impl StationQuery {
         let rows = sqlx::query_as::<_, StationEventRow>(
             "SELECT DISTINCT ON (train_code)
                 train_code, station_code, train_date, origin, destination, train_type,
-                direction, status, scheduled_arrival, scheduled_departure,
-                expected_arrival, expected_departure, late_minutes, last_location,
+                direction, NULLIF(BTRIM(status), '') AS status, scheduled_arrival, scheduled_departure,
+                expected_arrival, expected_departure,
+                CASE
+                    WHEN ABS(late_minutes) > 720 THEN NULL
+                    WHEN late_minutes < -60
+                        AND COALESCE(expected_arrival, expected_departure) IS NOT NULL
+                        AND COALESCE(NULLIF(scheduled_arrival, TIME '00:00'), NULLIF(scheduled_departure, TIME '00:00'), scheduled_arrival, scheduled_departure) IS NOT NULL
+                        AND COALESCE(expected_arrival, expected_departure) < COALESCE(NULLIF(scheduled_arrival, TIME '00:00'), NULLIF(scheduled_departure, TIME '00:00'), scheduled_arrival, scheduled_departure)
+                    THEN NULL
+                    ELSE late_minutes
+                END AS late_minutes,
+                NULLIF(BTRIM(last_location), '') AS last_location,
                 due_in, fetched_at
              FROM station_events
              WHERE station_code = $1 AND fetched_at > NOW() - INTERVAL '10 minutes'
              ORDER BY train_code, fetched_at DESC
              LIMIT $2",
         )
-        .bind(&station_code)
+        .bind(station_code.trim().to_uppercase())
         .bind(limit as i64)
         .fetch_all(pool)
         .await?;
