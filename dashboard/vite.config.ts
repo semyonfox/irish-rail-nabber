@@ -7,7 +7,10 @@ export default defineConfig({
   server: {
     proxy: {
       "/graphql": "http://localhost:8000",
-      "/chat": "http://localhost:8000",
+      "/api/chat": {
+        target: "http://localhost:8000",
+        rewrite: (path) => path.replace(/^\/api\/chat/, "/chat"),
+      },
       "/auth": "http://localhost:8000",
       "/billing": "http://localhost:8000",
     },
