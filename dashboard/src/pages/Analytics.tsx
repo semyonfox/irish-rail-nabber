@@ -1,4 +1,6 @@
 import DelayChart from "../components/DelayChart";
+import RouteReliabilityChart from "../components/RouteReliabilityChart";
+import StationRiskChart from "../components/StationRiskChart";
 import { ROUTE_RELIABILITY } from "../graphql/queries";
 import { usePollingQuery } from "../utils/usePollingQuery";
 import { delayColor, formatPct } from "../utils/format";
@@ -25,14 +27,29 @@ export default function Analytics() {
   return (
     <div className="space-y-8 p-6">
       <section>
-        <h2 className="mb-4 text-xl font-bold text-white">Delay Trends (24h)</h2>
+        <h2 className="mb-4 text-xl font-bold text-white">Network Delay Shape (24h)</h2>
         <div className="rounded-xl border border-[var(--rail-border)] bg-[var(--rail-surface)] p-4">
           <DelayChart hours={24} />
         </div>
       </section>
 
+      <section className="grid gap-6 xl:grid-cols-2">
+        <div>
+          <h2 className="mb-4 text-xl font-bold text-white">Worst Stations Now</h2>
+          <div className="rounded-xl border border-[var(--rail-border)] bg-[var(--rail-surface)] p-4">
+            <StationRiskChart />
+          </div>
+        </div>
+        <div>
+          <h2 className="mb-4 text-xl font-bold text-white">Route Reliability</h2>
+          <div className="rounded-xl border border-[var(--rail-border)] bg-[var(--rail-surface)] p-4">
+            <RouteReliabilityChart />
+          </div>
+        </div>
+      </section>
+
       <section>
-        <h2 className="mb-4 text-xl font-bold text-white">Route Reliability</h2>
+        <h2 className="mb-4 text-xl font-bold text-white">Route Reliability Table</h2>
         <div className="overflow-auto rounded-xl border border-[var(--rail-border)] bg-[var(--rail-surface)]">
           <table className="w-full text-sm">
             <thead>
