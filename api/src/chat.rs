@@ -324,8 +324,19 @@ fn parse_env_usize(name: &str, default: usize) -> usize {
         .unwrap_or(default)
 }
 
+fn non_blank_env_value(value: String) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
 fn first_env_var(names: &[&str]) -> Option<String> {
-    names.iter().find_map(|name| env::var(name).ok())
+    names
+        .iter()
+        .find_map(|name| env::var(name).ok().and_then(non_blank_env_value))
 }
 
 fn request_timeout_secs() -> u64 {
@@ -1056,4 +1067,24 @@ pub async fn chat(
         StatusCode::BAD_REQUEST,
         "tool calls exceeded configured chat depth",
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::non_blank_env_value;
+
+    #[test]
+    fn non_blank_env_value_ignores_empty_or_whitespace() {
+        assert_eq!(non_blank_env_value(String::new()), None);
+        assert_eq!(non_blank_env_value("   ".to_string()), None);
+        assert_eq!(non_blank_env_value("\n\t".to_string()), None);
+    }
+
+    #[test]
+    fn non_blank_env_value_trims_config_values() {
+        assert_eq!(
+            non_blank_env_value("  https://api.moonshot.ai/v1  ".to_string()),
+            Some("https://api.moonshot.ai/v1".to_string())
+        );
+    }
 }
