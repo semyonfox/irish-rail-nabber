@@ -21,7 +21,22 @@ pub struct TrainPositionRow {
     pub longitude: Option<BigDecimal>,
     pub train_status: Option<String>,
     pub direction: Option<String>,
+    pub train_type: Option<String>,
     pub fetched_at: Option<NaiveDateTime>,
+}
+
+#[derive(sqlx::FromRow, Debug)]
+pub struct RouteSegmentRow {
+    pub from_station_code: String,
+    pub from_station_name: String,
+    pub from_latitude: Option<BigDecimal>,
+    pub from_longitude: Option<BigDecimal>,
+    pub to_station_code: String,
+    pub to_station_name: String,
+    pub to_latitude: Option<BigDecimal>,
+    pub to_longitude: Option<BigDecimal>,
+    pub train_count: i64,
+    pub last_seen: Option<NaiveDateTime>,
 }
 
 #[derive(sqlx::FromRow, Debug)]

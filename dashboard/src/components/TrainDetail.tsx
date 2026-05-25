@@ -40,7 +40,7 @@ export default function TrainDetail({ trainCode, onClose }: Props) {
   const destination = stops[0]?.trainDestination ?? "";
 
   return (
-    <div className="fixed inset-y-0 right-0 z-50 w-96 overflow-auto border-l border-[var(--rail-border)] bg-[var(--rail-surface)] p-4 shadow-xl">
+    <div className="fixed inset-y-0 right-0 z-50 w-full overflow-auto border-l border-[var(--rail-border)] bg-[var(--rail-surface)] p-4 shadow-xl sm:w-96">
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h2 className="text-lg font-bold text-white">{trainCode}</h2>
@@ -49,14 +49,21 @@ export default function TrainDetail({ trainCode, onClose }: Props) {
           </p>
         </div>
         <button
+          type="button"
           onClick={onClose}
           className="rounded-lg p-2 text-[var(--rail-muted)] hover:bg-[var(--rail-bg)] hover:text-white"
+          aria-label="Close train panel"
         >
           ✕
         </button>
       </div>
 
       {fetching && !data && <p className="text-[var(--rail-muted)]">Loading journey...</p>}
+      {!fetching && stops.length === 0 && (
+        <p className="rounded-lg border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3 text-sm text-[var(--rail-muted)]">
+          No station-by-station journey has been captured for this train yet.
+        </p>
+      )}
 
       <div className="space-y-1">
         {stops.map((stop) => {

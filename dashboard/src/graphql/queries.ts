@@ -8,6 +8,7 @@ export const LIVE_TRAINS = gql`
       longitude
       trainStatus
       direction
+      trainType
       fetchedAt
     }
   }
@@ -91,6 +92,23 @@ export const ROUTE_RELIABILITY = gql`
       avgLateMinutes
       onTimePct
       trainCount
+    }
+  }
+`;
+
+export const ROUTE_SEGMENTS = gql`
+  query RouteSegments($hours: Int, $limit: Int) {
+    routeSegments(hours: $hours, limit: $limit) {
+      fromStationCode
+      fromStationName
+      fromLatitude
+      fromLongitude
+      toStationCode
+      toStationName
+      toLatitude
+      toLongitude
+      trainCount
+      lastSeen
     }
   }
 `;
