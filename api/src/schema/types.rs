@@ -54,6 +54,7 @@ pub struct TrainPosition {
     pub longitude: Option<f64>,
     pub train_status: Option<String>,
     pub direction: Option<String>,
+    pub train_type: Option<String>,
     pub fetched_at: Option<String>,
 }
 
@@ -65,7 +66,39 @@ impl From<TrainPositionRow> for TrainPosition {
             longitude: bd_to_f64(&r.longitude),
             train_status: r.train_status,
             direction: r.direction,
+            train_type: r.train_type,
             fetched_at: datetime_to_string(&r.fetched_at),
+        }
+    }
+}
+
+#[derive(SimpleObject)]
+pub struct RouteSegment {
+    pub from_station_code: String,
+    pub from_station_name: String,
+    pub from_latitude: Option<f64>,
+    pub from_longitude: Option<f64>,
+    pub to_station_code: String,
+    pub to_station_name: String,
+    pub to_latitude: Option<f64>,
+    pub to_longitude: Option<f64>,
+    pub train_count: i64,
+    pub last_seen: Option<String>,
+}
+
+impl From<RouteSegmentRow> for RouteSegment {
+    fn from(r: RouteSegmentRow) -> Self {
+        Self {
+            from_station_code: r.from_station_code,
+            from_station_name: r.from_station_name,
+            from_latitude: bd_to_f64(&r.from_latitude),
+            from_longitude: bd_to_f64(&r.from_longitude),
+            to_station_code: r.to_station_code,
+            to_station_name: r.to_station_name,
+            to_latitude: bd_to_f64(&r.to_latitude),
+            to_longitude: bd_to_f64(&r.to_longitude),
+            train_count: r.train_count,
+            last_seen: datetime_to_string(&r.last_seen),
         }
     }
 }
