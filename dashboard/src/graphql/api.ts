@@ -124,7 +124,7 @@ export const api = {
   },
 
   chat(message: string) {
-    return request<ChatResponse>("/chat", {
+    return request<ChatResponse>("/api/chat", {
       method: "POST",
       body: JSON.stringify({ message }),
     });
