@@ -1,4 +1,5 @@
 import { useState } from "react";
+import CountryBoard from "../components/CountryBoard";
 import TrainMap, { type MapRouteSelection, type MapStationSelection } from "../components/TrainMap";
 import NetworkStats from "../components/NetworkStats";
 import TrainDetail from "../components/TrainDetail";
@@ -28,6 +29,8 @@ export default function LiveMap() {
     setSelectedStation(null);
   };
 
+  const hasSelection = selectedTrain || selectedStation || selectedRoute;
+
   return (
     <div className="relative h-full">
       <TrainMap
@@ -40,13 +43,20 @@ export default function LiveMap() {
       <div className="pointer-events-none absolute left-4 top-4">
         <NetworkStats />
       </div>
+      {!hasSelection && (
+        <div className="pointer-events-auto absolute right-4 top-4 z-40 hidden max-h-[calc(100%-2rem)] w-[460px] overflow-auto xl:block">
+          <CountryBoard compact limit={45} minutes={45} />
+        </div>
+      )}
       {selectedTrain && (
         <TrainDetail trainCode={selectedTrain} onClose={() => setSelectedTrain(null)} />
       )}
       {selectedStation && (
         <StationDetail station={selectedStation} onClose={() => setSelectedStation(null)} />
       )}
-      {selectedRoute && <RouteDetail route={selectedRoute} onClose={() => setSelectedRoute(null)} />}
+      {selectedRoute && (
+        <RouteDetail route={selectedRoute} onClose={() => setSelectedRoute(null)} />
+      )}
     </div>
   );
 }

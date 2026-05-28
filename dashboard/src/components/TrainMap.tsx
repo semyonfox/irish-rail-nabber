@@ -100,6 +100,7 @@ const SELECTED_ROUTE_LAYER_ID = "selected-train-route-line";
 const SELECTED_STOP_LAYER_ID = "selected-train-stops-circle";
 const STATION_LAYER_ID = "stations-circle";
 const STATION_LABEL_LAYER_ID = "stations-label";
+const TRAIN_HALO_LAYER_ID = "live-trains-halo";
 const TRAIN_LAYER_ID = "live-trains-circle";
 const TRAIN_LABEL_LAYER_ID = "live-trains-label";
 
@@ -262,17 +263,7 @@ export default function TrainMap({
             24,
             0.85,
           ],
-          "line-width": [
-            "interpolate",
-            ["linear"],
-            ["get", "trainCount"],
-            1,
-            1.25,
-            8,
-            2.75,
-            24,
-            5,
-          ],
+          "line-width": ["interpolate", ["linear"], ["get", "trainCount"], 1, 1.25, 8, 2.75, 24, 5],
         },
       });
 
@@ -305,10 +296,13 @@ export default function TrainMap({
         source: STATION_SOURCE_ID,
         paint: {
           "circle-radius": [
-            "case",
-            ["get", "selected"],
-            7,
-            ["interpolate", ["linear"], ["zoom"], 6, 2.5, 10, 5],
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            6,
+            ["case", ["get", "selected"], 7, 2.5],
+            10,
+            ["case", ["get", "selected"], 7, 5],
           ],
           "circle-color": [
             "match",
@@ -358,11 +352,23 @@ export default function TrainMap({
       });
 
       map.addLayer({
+        id: TRAIN_HALO_LAYER_ID,
+        type: "circle",
+        source: TRAIN_SOURCE_ID,
+        paint: {
+          "circle-radius": ["case", ["get", "selected"], 18, 12],
+          "circle-color": ["case", ["get", "selected"], "#facc15", "#f8fafc"],
+          "circle-opacity": ["case", ["get", "selected"], 0.45, 0.58],
+          "circle-blur": 0.25,
+        },
+      });
+
+      map.addLayer({
         id: TRAIN_LAYER_ID,
         type: "circle",
         source: TRAIN_SOURCE_ID,
         paint: {
-          "circle-radius": ["case", ["get", "selected"], 10, 6.5],
+          "circle-radius": ["case", ["get", "selected"], 11, 7.5],
           "circle-color": [
             "match",
             ["get", "trainType"],
@@ -375,7 +381,7 @@ export default function TrainMap({
             "#f8fafc",
           ],
           "circle-stroke-color": ["case", ["get", "selected"], "#facc15", "#020617"],
-          "circle-stroke-width": ["case", ["get", "selected"], 3, 2],
+          "circle-stroke-width": ["case", ["get", "selected"], 3.5, 2.5],
         },
       });
 
@@ -617,13 +623,7 @@ export default function TrainMap({
 
     setSourceData(mapRef.current, SELECTED_ROUTE_SOURCE_ID, featureCollection(routeFeatures));
     setSourceData(mapRef.current, SELECTED_STOP_SOURCE_ID, featureCollection(stopFeatures));
-  }, [
-    journeyData,
-    mapReady,
-    selectedRouteCoordinates,
-    selectedTrainCode,
-    stationsByCode,
-  ]);
+  }, [journeyData, mapReady, selectedRouteCoordinates, selectedTrainCode, stationsByCode]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current || !selectedTrainCode) {
@@ -651,6 +651,9 @@ export default function TrainMap({
   }, [mapReady, selectedRouteCoordinates, selectedTrainCode]);
 
   const liveTrainCount = trainsData?.liveTrains?.length ?? 0;
+  const mappedTrainCount =
+    trainsData?.liveTrains?.filter((train) => train.latitude != null && train.longitude != null)
+      .length ?? 0;
   const routeCount = routeSegmentsData?.routeSegments?.length ?? 0;
   const stationCount = stationsData?.stations?.length ?? 0;
 
@@ -661,6 +664,9 @@ export default function TrainMap({
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-[var(--rail-muted)]">
           <span>
             <span className="font-semibold text-white">{liveTrainCount}</span> live trains
+          </span>
+          <span>
+            <span className="font-semibold text-white">{mappedTrainCount}</span> mapped
           </span>
           <span>
             <span className="font-semibold text-white">{stationCount}</span> stations
