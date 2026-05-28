@@ -60,6 +60,27 @@ pub struct StationEventRow {
 }
 
 #[derive(sqlx::FromRow, Debug)]
+pub struct CountryBoardEventRow {
+    pub train_code: String,
+    pub station_code: String,
+    pub station_desc: String,
+    pub train_date: Option<NaiveDate>,
+    pub origin: Option<String>,
+    pub destination: Option<String>,
+    pub train_type: Option<String>,
+    pub direction: Option<String>,
+    pub status: Option<String>,
+    pub scheduled_arrival: Option<NaiveTime>,
+    pub scheduled_departure: Option<NaiveTime>,
+    pub expected_arrival: Option<NaiveTime>,
+    pub expected_departure: Option<NaiveTime>,
+    pub late_minutes: Option<i32>,
+    pub last_location: Option<String>,
+    pub due_in: Option<i32>,
+    pub fetched_at: NaiveDateTime,
+}
+
+#[derive(sqlx::FromRow, Debug)]
 pub struct TrainMovementRow {
     pub train_code: String,
     pub train_date: NaiveDate,

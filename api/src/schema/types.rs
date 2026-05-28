@@ -147,6 +147,51 @@ impl From<StationEventRow> for StationEvent {
 }
 
 #[derive(SimpleObject)]
+pub struct CountryBoardEvent {
+    pub train_code: String,
+    pub station_code: String,
+    pub station_desc: String,
+    pub train_date: Option<String>,
+    pub origin: Option<String>,
+    pub destination: Option<String>,
+    pub train_type: Option<String>,
+    pub direction: Option<String>,
+    pub status: Option<String>,
+    pub scheduled_arrival: Option<String>,
+    pub scheduled_departure: Option<String>,
+    pub expected_arrival: Option<String>,
+    pub expected_departure: Option<String>,
+    pub late_minutes: Option<i32>,
+    pub last_location: Option<String>,
+    pub due_in: Option<i32>,
+    pub fetched_at: String,
+}
+
+impl From<CountryBoardEventRow> for CountryBoardEvent {
+    fn from(r: CountryBoardEventRow) -> Self {
+        Self {
+            train_code: r.train_code,
+            station_code: r.station_code,
+            station_desc: r.station_desc,
+            train_date: date_to_string(&r.train_date),
+            origin: r.origin,
+            destination: r.destination,
+            train_type: r.train_type,
+            direction: r.direction,
+            status: r.status,
+            scheduled_arrival: time_to_string(&r.scheduled_arrival),
+            scheduled_departure: time_to_string(&r.scheduled_departure),
+            expected_arrival: time_to_string(&r.expected_arrival),
+            expected_departure: time_to_string(&r.expected_departure),
+            late_minutes: r.late_minutes,
+            last_location: r.last_location,
+            due_in: r.due_in,
+            fetched_at: r.fetched_at.format("%Y-%m-%dT%H:%M:%S").to_string(),
+        }
+    }
+}
+
+#[derive(SimpleObject)]
 pub struct TrainMovement {
     pub train_code: String,
     pub train_date: String,

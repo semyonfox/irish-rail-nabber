@@ -6,7 +6,7 @@ const links = [
   { to: "/", label: "Live Map" },
   { to: "/stations", label: "Stations" },
   { to: "/chat", label: "Chat" },
-  { to: "/analytics", label: "Analytics" },
+  { to: "/analytics", label: "Network Board" },
   { to: "/pricing", label: "Pricing" },
 ];
 

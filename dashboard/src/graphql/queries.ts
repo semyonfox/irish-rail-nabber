@@ -59,6 +59,30 @@ export const STATION_BOARD = gql`
   }
 `;
 
+export const COUNTRY_BOARD = gql`
+  query CountryBoard($limit: Int, $minutes: Int) {
+    countryBoard(limit: $limit, minutes: $minutes) {
+      trainCode
+      stationCode
+      stationDesc
+      trainDate
+      origin
+      destination
+      trainType
+      direction
+      status
+      scheduledArrival
+      scheduledDeparture
+      expectedArrival
+      expectedDeparture
+      lateMinutes
+      lastLocation
+      dueIn
+      fetchedAt
+    }
+  }
+`;
+
 export const STATION_DELAY_STATS = gql`
   query StationDelayStats($hours: Int, $limit: Int) {
     stationDelayStats(hours: $hours, limit: $limit) {

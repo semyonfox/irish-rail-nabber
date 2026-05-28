@@ -1,7 +1,8 @@
 use async_graphql::{Context, Object, Result};
 use sqlx::PgPool;
 
-use super::types::{Station, StationEvent};
+use super::types::{CountryBoardEvent, Station, StationEvent};
+use crate::models::CountryBoardEventRow;
 use crate::models::StationEventRow;
 use crate::models::StationRow;
 
@@ -125,5 +126,90 @@ impl StationQuery {
         .await?;
 
         Ok(rows.into_iter().map(StationEvent::from).collect())
+    }
+
+    // country-wide arrivals/departures board from the latest station events
+    async fn country_board(
+        &self,
+        ctx: &Context<'_>,
+        #[graphql(default = 80)] limit: i32,
+        #[graphql(default = 45)] minutes: i32,
+    ) -> Result<Vec<CountryBoardEvent>> {
+        let pool = ctx.data::<PgPool>()?;
+        let bounded_limit = limit.clamp(20, 200);
+        let bounded_minutes = minutes.clamp(5, 180);
+
+        let rows = sqlx::query_as::<_, CountryBoardEventRow>(
+            "WITH latest AS (
+                SELECT DISTINCT ON (se.train_code, se.station_code, se.train_date)
+                    se.train_code,
+                    se.station_code,
+                    s.station_desc,
+                    se.train_date,
+                    NULLIF(BTRIM(se.origin), '') AS origin,
+                    NULLIF(BTRIM(se.destination), '') AS destination,
+                    NULLIF(BTRIM(se.train_type), '') AS train_type,
+                    NULLIF(BTRIM(se.direction), '') AS direction,
+                    NULLIF(BTRIM(se.status), '') AS status,
+                    se.scheduled_arrival,
+                    se.scheduled_departure,
+                    se.expected_arrival,
+                    se.expected_departure,
+                    CASE
+                        WHEN ABS(se.late_minutes) > 720 THEN NULL
+                        WHEN se.late_minutes < -60
+                            AND COALESCE(se.expected_arrival, se.expected_departure) IS NOT NULL
+                            AND COALESCE(NULLIF(se.scheduled_arrival, TIME '00:00'), NULLIF(se.scheduled_departure, TIME '00:00'), se.scheduled_arrival, se.scheduled_departure) IS NOT NULL
+                            AND COALESCE(se.expected_arrival, se.expected_departure) < COALESCE(NULLIF(se.scheduled_arrival, TIME '00:00'), NULLIF(se.scheduled_departure, TIME '00:00'), se.scheduled_arrival, se.scheduled_departure)
+                        THEN NULL
+                        ELSE se.late_minutes
+                    END AS late_minutes,
+                    NULLIF(BTRIM(se.last_location), '') AS last_location,
+                    se.due_in,
+                    se.fetched_at
+                FROM station_events se
+                JOIN stations s ON s.station_code = se.station_code
+                WHERE se.fetched_at > NOW() - ($1::int * INTERVAL '1 minute')
+                    AND (se.due_in IS NULL OR se.due_in >= -5)
+                    AND COALESCE(se.expected_departure, se.expected_arrival, se.scheduled_departure, se.scheduled_arrival) IS NOT NULL
+                ORDER BY se.train_code, se.station_code, se.train_date, se.fetched_at DESC
+            )
+            SELECT
+                train_code,
+                station_code,
+                station_desc,
+                train_date,
+                origin,
+                destination,
+                train_type,
+                direction,
+                status,
+                scheduled_arrival,
+                scheduled_departure,
+                expected_arrival,
+                expected_departure,
+                late_minutes,
+                last_location,
+                due_in,
+                fetched_at
+            FROM latest
+            ORDER BY
+                CASE
+                    WHEN late_minutes >= 15 THEN 0
+                    WHEN late_minutes >= 5 THEN 1
+                    WHEN COALESCE(due_in, 9999) <= 10 THEN 2
+                    ELSE 3
+                END,
+                COALESCE(due_in, 9999),
+                COALESCE(expected_departure, expected_arrival, scheduled_departure, scheduled_arrival),
+                fetched_at DESC
+            LIMIT $2",
+        )
+        .bind(bounded_minutes)
+        .bind(bounded_limit as i64)
+        .fetch_all(pool)
+        .await?;
+
+        Ok(rows.into_iter().map(CountryBoardEvent::from).collect())
     }
 }
