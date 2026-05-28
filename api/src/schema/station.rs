@@ -156,12 +156,7 @@ impl StationQuery {
                     se.expected_arrival,
                     se.expected_departure,
                     CASE
-                        WHEN ABS(se.late_minutes) > 720 THEN NULL
-                        WHEN se.late_minutes < -60
-                            AND COALESCE(se.expected_arrival, se.expected_departure) IS NOT NULL
-                            AND COALESCE(NULLIF(se.scheduled_arrival, TIME '00:00'), NULLIF(se.scheduled_departure, TIME '00:00'), se.scheduled_arrival, se.scheduled_departure) IS NOT NULL
-                            AND COALESCE(se.expected_arrival, se.expected_departure) < COALESCE(NULLIF(se.scheduled_arrival, TIME '00:00'), NULLIF(se.scheduled_departure, TIME '00:00'), se.scheduled_arrival, se.scheduled_departure)
-                        THEN NULL
+                        WHEN ABS(se.late_minutes) > 720 OR se.late_minutes < -60 THEN NULL
                         ELSE se.late_minutes
                     END AS late_minutes,
                     NULLIF(BTRIM(se.last_location), '') AS last_location,
@@ -171,6 +166,7 @@ impl StationQuery {
                 JOIN stations s ON s.station_code = se.station_code
                 WHERE se.fetched_at > NOW() - ($1::int * INTERVAL '1 minute')
                     AND (se.due_in IS NULL OR se.due_in >= -5)
+                    AND (se.late_minutes IS NULL OR se.late_minutes >= -60)
                     AND COALESCE(se.expected_departure, se.expected_arrival, se.scheduled_departure, se.scheduled_arrival) IS NOT NULL
                 ORDER BY se.train_code, se.station_code, se.train_date, se.fetched_at DESC
             )
