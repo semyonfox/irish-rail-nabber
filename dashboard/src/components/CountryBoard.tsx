@@ -41,20 +41,31 @@ const modes: { id: Mode; label: string }[] = [
   { id: "all", label: "All" },
 ];
 
+function isRealTime(time: string | null | undefined) {
+  return Boolean(time && time !== "00:00:00");
+}
+
+function pickTime(...times: (string | null | undefined)[]) {
+  return times.find(isRealTime) ?? null;
+}
+
 function eventKind(row: BoardEvent) {
-  return row.expectedDeparture || row.scheduledDeparture ? "Dep" : "Arr";
+  if (pickTime(row.expectedDeparture, row.scheduledDeparture)) return "Dep";
+  if (pickTime(row.expectedArrival, row.scheduledArrival)) return "Arr";
+  return "-";
 }
 
 function eventTime(row: BoardEvent) {
   const expected =
     eventKind(row) === "Dep"
-      ? row.expectedDeparture || row.scheduledDeparture
-      : row.expectedArrival || row.scheduledArrival;
+      ? pickTime(row.expectedDeparture, row.scheduledDeparture)
+      : pickTime(row.expectedArrival, row.scheduledArrival);
   return formatTime(expected);
 }
 
 function scheduledTime(row: BoardEvent) {
-  const scheduled = eventKind(row) === "Dep" ? row.scheduledDeparture : row.scheduledArrival;
+  const scheduled =
+    eventKind(row) === "Dep" ? pickTime(row.scheduledDeparture) : pickTime(row.scheduledArrival);
   return formatTime(scheduled);
 }
 
