@@ -151,10 +151,10 @@ impl StationQuery {
                     NULLIF(BTRIM(se.train_type), '') AS train_type,
                     NULLIF(BTRIM(se.direction), '') AS direction,
                     NULLIF(BTRIM(se.status), '') AS status,
-                    se.scheduled_arrival,
-                    se.scheduled_departure,
-                    se.expected_arrival,
-                    se.expected_departure,
+                    NULLIF(se.scheduled_arrival, TIME '00:00') AS scheduled_arrival,
+                    NULLIF(se.scheduled_departure, TIME '00:00') AS scheduled_departure,
+                    NULLIF(se.expected_arrival, TIME '00:00') AS expected_arrival,
+                    NULLIF(se.expected_departure, TIME '00:00') AS expected_departure,
                     CASE
                         WHEN ABS(se.late_minutes) > 720 OR se.late_minutes < -60 THEN NULL
                         ELSE se.late_minutes

@@ -103,6 +103,12 @@ const STATION_LABEL_LAYER_ID = "stations-label";
 const TRAIN_HALO_LAYER_ID = "live-trains-halo";
 const TRAIN_LAYER_ID = "live-trains-circle";
 const TRAIN_LABEL_LAYER_ID = "live-trains-label";
+const STATION_RADIUS = [
+  "case",
+  ["get", "selected"],
+  7,
+  4,
+] as unknown as maplibregl.ExpressionSpecification;
 
 function emptyCollection(): SourceData {
   return { type: "FeatureCollection", features: [] } as unknown as SourceData;
@@ -162,6 +168,7 @@ export default function TrainMap({
   const onRouteClickRef = useRef(onRouteClick);
   const fittedTrainRef = useRef<string | null>(null);
   const [mapReady, setMapReady] = useState(false);
+  const [mapError, setMapError] = useState<string | null>(null);
 
   useEffect(() => {
     onTrainClickRef.current = onTrainClick;
@@ -210,62 +217,79 @@ export default function TrainMap({
     if (!node) return;
     if (mapRef.current) return;
 
-    const map = new maplibregl.Map({
-      container: node,
-      style: {
-        version: 8,
-        sources: {
-          osm: {
-            type: "raster",
-            tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-            tileSize: 256,
-            attribution: "&copy; OpenStreetMap contributors",
+    let map: maplibregl.Map;
+    try {
+      map = new maplibregl.Map({
+        container: node,
+        style: {
+          version: 8,
+          sources: {
+            osm: {
+              type: "raster",
+              tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+              tileSize: 256,
+              attribution: "&copy; OpenStreetMap contributors",
+            },
           },
+          layers: [
+            {
+              id: "osm",
+              type: "raster",
+              source: "osm",
+            },
+          ],
         },
-        layers: [
-          {
-            id: "osm",
-            type: "raster",
-            source: "osm",
-          },
+        center: IRELAND_CENTER,
+        zoom: 7,
+        maxBounds: [
+          [-12, 50.5],
+          [-4, 56],
         ],
-      },
-      center: IRELAND_CENTER,
-      zoom: 7,
-      maxBounds: [
-        [-12, 50.5],
-        [-4, 56],
-      ],
-    });
+      });
+    } catch (error) {
+      setMapError(error instanceof Error ? error.message : "Map unavailable");
+      return;
+    }
 
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
     map.on("load", () => {
-      map.addSource(ROUTE_SOURCE_ID, { type: "geojson", data: emptyCollection() });
-      map.addSource(SELECTED_ROUTE_SOURCE_ID, { type: "geojson", data: emptyCollection() });
-      map.addSource(SELECTED_STOP_SOURCE_ID, { type: "geojson", data: emptyCollection() });
-      map.addSource(STATION_SOURCE_ID, { type: "geojson", data: emptyCollection() });
-      map.addSource(TRAIN_SOURCE_ID, { type: "geojson", data: emptyCollection() });
+      try {
+        map.addSource(ROUTE_SOURCE_ID, { type: "geojson", data: emptyCollection() });
+        map.addSource(SELECTED_ROUTE_SOURCE_ID, { type: "geojson", data: emptyCollection() });
+        map.addSource(SELECTED_STOP_SOURCE_ID, { type: "geojson", data: emptyCollection() });
+        map.addSource(STATION_SOURCE_ID, { type: "geojson", data: emptyCollection() });
+        map.addSource(TRAIN_SOURCE_ID, { type: "geojson", data: emptyCollection() });
 
-      map.addLayer({
-        id: ROUTE_LAYER_ID,
-        type: "line",
-        source: ROUTE_SOURCE_ID,
-        paint: {
-          "line-color": "#38bdf8",
-          "line-opacity": [
-            "interpolate",
-            ["linear"],
-            ["get", "trainCount"],
-            1,
-            0.2,
-            8,
-            0.55,
-            24,
-            0.85,
-          ],
-          "line-width": ["interpolate", ["linear"], ["get", "trainCount"], 1, 1.25, 8, 2.75, 24, 5],
-        },
-      });
+        map.addLayer({
+          id: ROUTE_LAYER_ID,
+          type: "line",
+          source: ROUTE_SOURCE_ID,
+          paint: {
+            "line-color": "#38bdf8",
+            "line-opacity": [
+              "interpolate",
+              ["linear"],
+              ["get", "trainCount"],
+              1,
+              0.2,
+              8,
+              0.55,
+              24,
+              0.85,
+            ],
+            "line-width": [
+              "interpolate",
+              ["linear"],
+              ["get", "trainCount"],
+              1,
+              1.25,
+              8,
+              2.75,
+              24,
+              5,
+            ],
+          },
+        });
 
       map.addLayer({
         id: ROUTE_HIT_LAYER_ID,
@@ -295,15 +319,7 @@ export default function TrainMap({
         type: "circle",
         source: STATION_SOURCE_ID,
         paint: {
-          "circle-radius": [
-            "interpolate",
-            ["linear"],
-            ["zoom"],
-            6,
-            ["case", ["get", "selected"], 7, 2.5],
-            10,
-            ["case", ["get", "selected"], 7, 5],
-          ],
+          "circle-radius": STATION_RADIUS,
           "circle-color": [
             "match",
             ["get", "stationType"],
@@ -403,7 +419,13 @@ export default function TrainMap({
         },
       });
 
-      setMapReady(true);
+        setMapReady(true);
+      } catch (error) {
+        setMapReady(false);
+        setMapError(error instanceof Error ? error.message : "Map unavailable");
+        map.remove();
+        mapRef.current = null;
+      }
     });
 
     mapRef.current = map;
@@ -660,6 +682,13 @@ export default function TrainMap({
   return (
     <div className="relative h-full w-full">
       <div ref={containerRef} className="h-full w-full" />
+      {mapError ? (
+        <div className="absolute inset-0 flex items-center justify-center bg-[var(--rail-bg)]">
+          <div className="rounded-lg border border-[var(--rail-border)] bg-[var(--rail-surface)] px-4 py-3 text-sm text-[var(--rail-muted)]">
+            Map unavailable
+          </div>
+        </div>
+      ) : null}
       <div className="pointer-events-none absolute bottom-4 left-4 max-w-[calc(100%-2rem)] rounded-lg border border-[var(--rail-border)] bg-[var(--rail-surface)]/95 px-3 py-2 shadow-lg backdrop-blur">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-[var(--rail-muted)]">
           <span>
