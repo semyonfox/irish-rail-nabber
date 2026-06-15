@@ -84,6 +84,8 @@ Environment knobs:
 - `CHAT_ROUTE_MIN_TRAINS` (default `3`)
 - `CHAT_LIVE_TRAINS_LIMIT` (default `200`)
 
+Docker Compose forwards both the `LLM_*` names and the fallback OpenAI-compatible names. Production should set either the `LLM_*` group or the fallback group in `/home/semyon/jenkins/env/irish-rail-nabber.env`; the tracked `.env.production` file is only a placeholder template.
+
 ## Notes
 
 - Tool calls are capped per request and logged back in response.

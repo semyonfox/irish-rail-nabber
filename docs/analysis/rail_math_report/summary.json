@@ -1,0 +1,52 @@
+{
+  "generated_at": "2026-05-22T15:57:47",
+  "window_days": 14,
+  "cleaned_summary": {
+    "n": 146537,
+    "trains": 10901,
+    "stations": 161,
+    "routes": 146,
+    "avg": 1.8335642192756778,
+    "sd": 6.298505139604062,
+    "p50": 0.0,
+    "p75": 2.0,
+    "p90": 5.0,
+    "p95": 8.0,
+    "max": 180.0,
+    "within5": 90.39218763861687,
+    "over15": 1.2774930563611921
+  },
+  "graph_base": {
+    "components": 12,
+    "largest_component": 154,
+    "edges": 210,
+    "isolated": 9,
+    "cycle_rank": 55,
+    "largest_lambda2": 0.0013270687953765828
+  },
+  "hacon_summary": {
+    "n": 279929,
+    "avg": 2.6350135212857544,
+    "p50": 1.4,
+    "p90": 6.5,
+    "p95": 9.1,
+    "over5": 15.602885017272238
+  },
+  "top_chokepoint": {
+    "prev_code": "ATMON",
+    "prev_name": "Attymon",
+    "next_code": "ATHRY",
+    "next_name": "Athenry",
+    "observations": "59",
+    "prev_avg": "2.559",
+    "next_avg": "25.068",
+    "delta_avg": "22.508",
+    "delta_p50": "7",
+    "delta_p75": "45",
+    "delta_p90": "61",
+    "delta_p95": "64",
+    "pct_gain_gt2": "79.661",
+    "pct_bad_after_ok": "50.000",
+    "score": "63.845013"
+  }
+}

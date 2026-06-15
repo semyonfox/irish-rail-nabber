@@ -87,6 +87,16 @@ function delayLabel(minutes: number | null) {
   return `+${minutes}`;
 }
 
+function pressureScore(row: BoardEvent) {
+  const delay = row.lateMinutes ?? 0;
+  const due = row.dueIn ?? 999;
+  if (delay >= 15) return 8;
+  if (delay >= 5) return 5;
+  if (due >= 0 && due <= 5) return 3;
+  if (due >= 0 && due <= 10) return 2;
+  return 0;
+}
+
 function rowTone(row: BoardEvent) {
   if ((row.lateMinutes ?? 0) >= 15) return "border-l-[var(--rail-red)] bg-red-950/20";
   if ((row.lateMinutes ?? 0) >= 5) return "border-l-[var(--rail-orange)] bg-orange-950/20";
@@ -102,11 +112,63 @@ export default function CountryBoard({ limit = 90, minutes = 45, compact = false
     pollInterval: 15000,
   });
 
-  const rows = data?.countryBoard ?? [];
+  const rows = useMemo(() => data?.countryBoard ?? [], [data?.countryBoard]);
   const delayedRows = rows.filter((row) => (row.lateMinutes ?? 0) >= 5);
   const severeRows = rows.filter((row) => (row.lateMinutes ?? 0) >= 15);
   const dueRows = rows.filter((row) => row.dueIn != null && row.dueIn >= 0 && row.dueIn <= 10);
-  const worstDelay = rows.reduce((max, row) => Math.max(max, row.lateMinutes ?? 0), 0);
+  const topDelay =
+    rows.reduce<BoardEvent | null>((top, row) => {
+      if (!top) return row;
+      return (row.lateMinutes ?? 0) > (top.lateMinutes ?? 0) ? row : top;
+    }, null) ?? null;
+  const worstDelay = topDelay?.lateMinutes ?? 0;
+  const hasDelaySpotlight = topDelay != null && worstDelay > 0;
+  const busiestStation = useMemo(() => {
+    const stations = new Map<
+      string,
+      {
+        stationCode: string;
+        stationDesc: string;
+        due: number;
+        late: number;
+        severe: number;
+        score: number;
+        worstDelay: number;
+      }
+    >();
+
+    for (const row of rows) {
+      const current = stations.get(row.stationCode) ?? {
+        stationCode: row.stationCode,
+        stationDesc: row.stationDesc,
+        due: 0,
+        late: 0,
+        severe: 0,
+        score: 0,
+        worstDelay: 0,
+      };
+      const delay = row.lateMinutes ?? 0;
+      if (row.dueIn != null && row.dueIn >= 0 && row.dueIn <= 10) current.due += 1;
+      if (delay >= 5) current.late += 1;
+      if (delay >= 15) current.severe += 1;
+      current.score += pressureScore(row);
+      current.worstDelay = Math.max(current.worstDelay, delay);
+      stations.set(row.stationCode, current);
+    }
+
+    return [...stations.values()]
+      .filter((station) => station.score > 0)
+      .sort((a, b) => b.score - a.score || b.worstDelay - a.worstDelay)
+      .slice(0, compact ? 2 : 4);
+  }, [compact, rows]);
+  const boardState =
+    severeRows.length > 0
+      ? `${severeRows.length} severe delays need attention`
+      : delayedRows.length > 0
+        ? `${delayedRows.length} delayed services on the board`
+        : dueRows.length > 0
+          ? `${dueRows.length} services due inside 10 minutes`
+          : "Board is quiet in the current window";
 
   const visibleRows = useMemo(() => {
     const filtered =
@@ -132,6 +194,7 @@ export default function CountryBoard({ limit = 90, minutes = 45, compact = false
               Country board
             </p>
             <h2 className="text-lg font-semibold text-white">Live arrivals and departures</h2>
+            <p className="mt-1 text-sm text-[var(--rail-muted)]">{boardState}</p>
           </div>
           <div className="inline-flex rounded-md border border-[var(--rail-border)] bg-[var(--rail-bg)] p-1">
             {modes.map((item) => (
@@ -153,8 +216,8 @@ export default function CountryBoard({ limit = 90, minutes = 45, compact = false
 
         <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
           <div className="rounded border border-[var(--rail-border)] bg-[var(--rail-bg)] px-3 py-2">
-            <div className="text-xs text-[var(--rail-muted)]">Board</div>
-            <div className="text-xl font-semibold text-white">{rows.length}</div>
+            <div className="text-xs text-[var(--rail-muted)]">Due soon</div>
+            <div className="text-xl font-semibold text-white">{dueRows.length}</div>
           </div>
           <div className="rounded border border-[var(--rail-border)] bg-[var(--rail-bg)] px-3 py-2">
             <div className="text-xs text-[var(--rail-muted)]">Late</div>
@@ -168,9 +231,72 @@ export default function CountryBoard({ limit = 90, minutes = 45, compact = false
           </div>
           <div className="rounded border border-[var(--rail-border)] bg-[var(--rail-bg)] px-3 py-2">
             <div className="text-xs text-[var(--rail-muted)]">Worst</div>
-            <div className="text-xl font-semibold text-white">+{worstDelay}m</div>
+            <div className="text-xl font-semibold text-white">
+              {worstDelay > 0 ? `+${worstDelay}m` : "RT"}
+            </div>
           </div>
         </div>
+
+        {(hasDelaySpotlight || busiestStation.length > 0) && (
+          <div
+            className={`mt-3 grid gap-2 ${compact ? "grid-cols-1" : "lg:grid-cols-[minmax(0,1fr)_360px]"}`}
+          >
+            {hasDelaySpotlight && (
+              <div className="rounded border border-[var(--rail-border)] bg-[var(--rail-bg)] px-3 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-xs uppercase text-[var(--rail-muted)]">Biggest drag</div>
+                    <div className="mt-1 truncate text-sm font-semibold text-white">
+                      {topDelay.trainCode} · {routeLabel(topDelay)}
+                    </div>
+                    <div className="mt-1 truncate text-xs text-[var(--rail-muted)]">
+                      {topDelay.stationDesc} · {eventTime(topDelay)} ·{" "}
+                      {topDelay.lastLocation || topDelay.status || "location pending"}
+                    </div>
+                  </div>
+                  <div
+                    className="shrink-0 rounded border border-current px-3 py-2 text-right"
+                    style={{ color: delayColor(topDelay.lateMinutes) }}
+                  >
+                    <div className="text-xl font-bold">
+                      {topDelay.lateMinutes == null
+                        ? "-"
+                        : topDelay.lateMinutes <= 0
+                          ? "RT"
+                          : `+${topDelay.lateMinutes}m`}
+                    </div>
+                    <div className="text-xs">late</div>
+                  </div>
+                </div>
+              </div>
+            )}
+            {!compact && busiestStation.length > 0 && (
+              <div className="rounded border border-[var(--rail-border)] bg-[var(--rail-bg)] px-3 py-3">
+                <div className="mb-2 text-xs uppercase text-[var(--rail-muted)]">
+                  Station pressure
+                </div>
+                <div className="space-y-2">
+                  {busiestStation.map((station) => (
+                    <div
+                      key={station.stationCode}
+                      className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 text-sm"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate font-medium text-white">{station.stationDesc}</div>
+                        <div className="text-xs text-[var(--rail-muted)]">
+                          {station.due} due · {station.late} late · {station.severe} severe
+                        </div>
+                      </div>
+                      <div className="font-semibold text-[var(--rail-orange)]">
+                        +{station.worstDelay}m
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {fetching && rows.length === 0 ? (

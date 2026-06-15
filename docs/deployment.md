@@ -54,6 +54,13 @@ CHAT_MAX_TOOL_ITERATIONS=3
 CHAT_MAX_TOOL_CALLS_PER_TURN=3
 CHAT_TOOL_RESULT_MAX_CHARS=3500
 
+# Alternative fallback names, if reusing an OpenAI-style env file instead:
+# OPENAI_BASE_URL=https://api.openai.com
+# OPENAI_API_KEY=<provider-key>
+# CHAT_MODEL=gpt-4o-mini
+# CHAT_REQUEST_TIMEOUT_SECONDS=45
+# CHAT_MAX_TOKENS=1200
+
 # billing (Polar.sh — primary, see auth-billing.md)
 POLAR_ACCESS_TOKEN=polar_at_...
 POLAR_WEBHOOK_SECRET=polar_wh_...
@@ -72,7 +79,7 @@ STRIPE_PRO_PRICE_ID=
 CLOUDFLARE_TUNNEL_TOKEN=...
 ```
 
-The Jenkins pipeline also loads `/home/semyon/jenkins/env/irish-rail-nabber.env` when present, matching the OghmaNotes deployment pattern. Put production `LLM_*` values there instead of committing secrets.
+The Jenkins pipeline also loads `/home/semyon/jenkins/env/irish-rail-nabber.env` when present, matching the OghmaNotes deployment pattern. Put production `LLM_*` values there, or the fallback OpenAI-compatible names above, instead of committing secrets.
 
 Full description of each variable is in [auth-billing.md](auth-billing.md#polar-config-env) and [api.md](api.md#environment).
 
