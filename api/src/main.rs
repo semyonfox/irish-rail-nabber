@@ -3,8 +3,8 @@ mod billing;
 mod chat;
 mod db;
 mod models;
-mod schema;
 mod rate_limit;
+mod schema;
 mod state;
 
 use async_graphql::http::{playground_source, GraphQLPlaygroundConfig};
@@ -17,6 +17,7 @@ use axum::{
     routing::{get, post},
     Extension, Router,
 };
+use std::path::Path;
 use tower_http::cors::CorsLayer;
 
 use models::AuthUser;
@@ -42,11 +43,21 @@ async fn health() -> impl IntoResponse {
     (StatusCode::OK, "ok")
 }
 
-#[tokio::main]
-async fn main() {
-    // try .env.local first (local overrides), then .env
+fn load_dotenv() {
     dotenvy::from_filename(".env.local").ok();
     dotenvy::dotenv().ok();
+
+    if let Some(repo_root) =
+        option_env!("CARGO_MANIFEST_DIR").and_then(|dir| Path::new(dir).parent())
+    {
+        dotenvy::from_path(repo_root.join(".env.local")).ok();
+        dotenvy::from_path(repo_root.join(".env")).ok();
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    load_dotenv();
 
     tracing_subscriber::fmt()
         .with_env_filter("irish_rail_api=info")
@@ -95,12 +106,10 @@ async fn main() {
 
     let app = Router::new()
         .merge(graphql_routes)
-        .merge(
-            chat_routes.layer(axum_middleware::from_fn_with_state(
-                app_state.clone(),
-                rate_limit::graphql_rate_limit,
-            )),
-        )
+        .merge(chat_routes.layer(axum_middleware::from_fn_with_state(
+            app_state.clone(),
+            rate_limit::graphql_rate_limit,
+        )))
         .nest("/auth", auth_routes)
         .nest("/billing", billing_routes)
         .route("/billing/webhook", post(billing::handlers::webhook))
