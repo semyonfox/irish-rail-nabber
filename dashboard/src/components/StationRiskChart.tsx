@@ -1,12 +1,4 @@
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { STATION_DELAY_STATS } from "../graphql/queries";
 import { usePollingQuery } from "../utils/usePollingQuery";
 import { formatPct } from "../utils/format";
@@ -58,15 +50,13 @@ export default function StationRiskChart() {
 
   return (
     <ResponsiveContainer width="100%" height={360}>
-      <BarChart data={chartData} layout="vertical" margin={{ top: 8, right: 16, left: 24, bottom: 0 }}>
+      <BarChart
+        data={chartData}
+        layout="vertical"
+        margin={{ top: 8, right: 16, left: 24, bottom: 0 }}
+      >
         <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
-        <XAxis
-          type="number"
-          stroke="#94a3b8"
-          fontSize={12}
-          tickLine={false}
-          unit="m"
-        />
+        <XAxis type="number" stroke="#94a3b8" fontSize={12} tickLine={false} unit="m" />
         <YAxis
           type="category"
           dataKey="stationLabel"

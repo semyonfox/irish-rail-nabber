@@ -96,7 +96,8 @@ export default function ChatAssistant() {
       };
       setMessages((current) => [...current, assistantMessage]);
     } catch (err) {
-      const message = err instanceof ApiError ? err.message : "Failed to get a reply from the model.";
+      const message =
+        err instanceof ApiError ? err.message : "Failed to get a reply from the model.";
       setError(message);
       setMessages((current) => [
         ...current,
@@ -131,7 +132,8 @@ export default function ChatAssistant() {
             Irish Rail AI chat is available on Coffee and Pro plans.
           </p>
           <p className="mt-2 text-sm text-[var(--rail-muted)]">
-            Sign in with an upgraded role or continue on the free path for live maps and station tools.
+            Sign in with an upgraded role or continue on the free path for live maps and station
+            tools.
           </p>
           <div className="mt-6 flex gap-3">
             <Link
@@ -169,7 +171,9 @@ export default function ChatAssistant() {
                     : "border-[var(--rail-border)] bg-[var(--rail-surface)]"
               }`}
             >
-              <p className={`text-xs font-semibold ${message.role === "user" ? "text-[var(--rail-green)]" : "text-[var(--rail-muted)]"}`}>
+              <p
+                className={`text-xs font-semibold ${message.role === "user" ? "text-[var(--rail-green)]" : "text-[var(--rail-muted)]"}`}
+              >
                 {message.role === "user" ? "You" : "RailGPT"}
               </p>
               <p className="mt-1 whitespace-pre-wrap text-sm text-white">{message.text}</p>

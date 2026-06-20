@@ -78,9 +78,7 @@ export default function AccountPage() {
             </div>
             <div>
               <p className="text-[var(--rail-muted)]">Member since</p>
-              <p className="mt-1 text-white">
-                {new Date(user.created_at).toLocaleDateString()}
-              </p>
+              <p className="mt-1 text-white">{new Date(user.created_at).toLocaleDateString()}</p>
             </div>
           </div>
         </section>
@@ -91,9 +89,7 @@ export default function AccountPage() {
             <p className="text-sm text-[var(--rail-muted)]">Loading usage…</p>
           ) : usage ? (
             <div className="space-y-2">
-              <p className="text-white">
-                {usageText} requests
-              </p>
+              <p className="text-white">{usageText} requests</p>
               <p className="text-sm text-[var(--rail-muted)]">{usageRemainingText}</p>
               <p className="text-xs text-[var(--rail-muted)]">{usageResetText}</p>
               {usage.limit !== null ? (
