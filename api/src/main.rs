@@ -56,7 +56,7 @@ fn load_dotenv() {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     load_dotenv();
 
     tracing_subscriber::fmt()
@@ -121,6 +121,8 @@ async fn main() {
     let addr = "0.0.0.0:8000";
     tracing::info!("listening on {}", addr);
 
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, app).await?;
+
+    Ok(())
 }
