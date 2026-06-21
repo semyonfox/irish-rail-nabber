@@ -351,13 +351,16 @@ fn request_timeout_secs() -> u64 {
     parse_env_i64("CHAT_REQUEST_TIMEOUT_SECONDS", 45) as u64
 }
 
+fn chat_provider_unconfigured_error() -> (StatusCode, Json<ErrorResponse>) {
+    json_error(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "chat is temporarily unavailable because no LLM provider is configured",
+    )
+}
+
 fn chat_config() -> Result<ChatConfig, (StatusCode, Json<ErrorResponse>)> {
-    let api_key = first_env_var(&["LLM_API_KEY", "OPENAI_API_KEY"]).ok_or_else(|| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "LLM_API_KEY is not configured (or fallback OPENAI_API_KEY)",
-        )
-    })?;
+    let api_key = first_env_var(&["LLM_API_KEY", "OPENAI_API_KEY"])
+        .ok_or_else(chat_provider_unconfigured_error)?;
 
     let limits = ToolLimits {
         station_board_limit: parse_env_i64("CHAT_STATION_BOARD_LIMIT", 120),
@@ -1071,7 +1074,9 @@ pub async fn chat(
 
 #[cfg(test)]
 mod tests {
-    use super::non_blank_env_value;
+    use axum::http::StatusCode;
+
+    use super::{chat_provider_unconfigured_error, non_blank_env_value};
 
     #[test]
     fn non_blank_env_value_ignores_empty_or_whitespace() {
@@ -1086,5 +1091,11 @@ mod tests {
             non_blank_env_value("  https://api.moonshot.ai/v1  ".to_string()),
             Some("https://api.moonshot.ai/v1".to_string())
         );
+    }
+
+    #[test]
+    fn chat_provider_unconfigured_returns_service_unavailable() {
+        let (status, _) = chat_provider_unconfigured_error();
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     }
 }
