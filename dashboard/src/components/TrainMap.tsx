@@ -291,133 +291,133 @@ export default function TrainMap({
           },
         });
 
-      map.addLayer({
-        id: ROUTE_HIT_LAYER_ID,
-        type: "line",
-        source: ROUTE_SOURCE_ID,
-        paint: {
-          "line-color": "#ffffff",
-          "line-opacity": 0,
-          "line-width": 16,
-        },
-      });
+        map.addLayer({
+          id: ROUTE_HIT_LAYER_ID,
+          type: "line",
+          source: ROUTE_SOURCE_ID,
+          paint: {
+            "line-color": "#ffffff",
+            "line-opacity": 0,
+            "line-width": 16,
+          },
+        });
 
-      map.addLayer({
-        id: SELECTED_ROUTE_LAYER_ID,
-        type: "line",
-        source: SELECTED_ROUTE_SOURCE_ID,
-        paint: {
-          "line-color": "#facc15",
-          "line-opacity": 0.95,
-          "line-width": 5,
-          "line-blur": 0.5,
-        },
-      });
+        map.addLayer({
+          id: SELECTED_ROUTE_LAYER_ID,
+          type: "line",
+          source: SELECTED_ROUTE_SOURCE_ID,
+          paint: {
+            "line-color": "#facc15",
+            "line-opacity": 0.95,
+            "line-width": 5,
+            "line-blur": 0.5,
+          },
+        });
 
-      map.addLayer({
-        id: STATION_LAYER_ID,
-        type: "circle",
-        source: STATION_SOURCE_ID,
-        paint: {
-          "circle-radius": STATION_RADIUS,
-          "circle-color": [
-            "match",
-            ["get", "stationType"],
-            "D",
-            "#22c55e",
-            "M",
-            "#38bdf8",
-            "S",
-            "#f59e0b",
-            "#94a3b8",
-          ],
-          "circle-opacity": 0.88,
-          "circle-stroke-color": ["case", ["get", "selected"], "#f8fafc", "#0f172a"],
-          "circle-stroke-width": ["case", ["get", "selected"], 2.5, 1.25],
-        },
-      });
+        map.addLayer({
+          id: STATION_LAYER_ID,
+          type: "circle",
+          source: STATION_SOURCE_ID,
+          paint: {
+            "circle-radius": STATION_RADIUS,
+            "circle-color": [
+              "match",
+              ["get", "stationType"],
+              "D",
+              "#22c55e",
+              "M",
+              "#38bdf8",
+              "S",
+              "#f59e0b",
+              "#94a3b8",
+            ],
+            "circle-opacity": 0.88,
+            "circle-stroke-color": ["case", ["get", "selected"], "#f8fafc", "#0f172a"],
+            "circle-stroke-width": ["case", ["get", "selected"], 2.5, 1.25],
+          },
+        });
 
-      map.addLayer({
-        id: STATION_LABEL_LAYER_ID,
-        type: "symbol",
-        source: STATION_SOURCE_ID,
-        minzoom: 8.5,
-        layout: {
-          "text-field": ["get", "name"],
-          "text-size": 11,
-          "text-offset": [0, 1.25],
-          "text-anchor": "top",
-        },
-        paint: {
-          "text-color": "#e2e8f0",
-          "text-halo-color": "#020617",
-          "text-halo-width": 1.25,
-        },
-      });
+        map.addLayer({
+          id: STATION_LABEL_LAYER_ID,
+          type: "symbol",
+          source: STATION_SOURCE_ID,
+          minzoom: 8.5,
+          layout: {
+            "text-field": ["get", "name"],
+            "text-size": 11,
+            "text-offset": [0, 1.25],
+            "text-anchor": "top",
+          },
+          paint: {
+            "text-color": "#e2e8f0",
+            "text-halo-color": "#020617",
+            "text-halo-width": 1.25,
+          },
+        });
 
-      map.addLayer({
-        id: SELECTED_STOP_LAYER_ID,
-        type: "circle",
-        source: SELECTED_STOP_SOURCE_ID,
-        paint: {
-          "circle-radius": 5,
-          "circle-color": "#facc15",
-          "circle-stroke-color": "#020617",
-          "circle-stroke-width": 2,
-        },
-      });
+        map.addLayer({
+          id: SELECTED_STOP_LAYER_ID,
+          type: "circle",
+          source: SELECTED_STOP_SOURCE_ID,
+          paint: {
+            "circle-radius": 5,
+            "circle-color": "#facc15",
+            "circle-stroke-color": "#020617",
+            "circle-stroke-width": 2,
+          },
+        });
 
-      map.addLayer({
-        id: TRAIN_HALO_LAYER_ID,
-        type: "circle",
-        source: TRAIN_SOURCE_ID,
-        paint: {
-          "circle-radius": ["case", ["get", "selected"], 18, 12],
-          "circle-color": ["case", ["get", "selected"], "#facc15", "#f8fafc"],
-          "circle-opacity": ["case", ["get", "selected"], 0.45, 0.58],
-          "circle-blur": 0.25,
-        },
-      });
+        map.addLayer({
+          id: TRAIN_HALO_LAYER_ID,
+          type: "circle",
+          source: TRAIN_SOURCE_ID,
+          paint: {
+            "circle-radius": ["case", ["get", "selected"], 18, 12],
+            "circle-color": ["case", ["get", "selected"], "#facc15", "#f8fafc"],
+            "circle-opacity": ["case", ["get", "selected"], 0.45, 0.58],
+            "circle-blur": 0.25,
+          },
+        });
 
-      map.addLayer({
-        id: TRAIN_LAYER_ID,
-        type: "circle",
-        source: TRAIN_SOURCE_ID,
-        paint: {
-          "circle-radius": ["case", ["get", "selected"], 11, 7.5],
-          "circle-color": [
-            "match",
-            ["get", "trainType"],
-            "DART",
-            "#22c55e",
-            "Mainline",
-            "#60a5fa",
-            "Suburban",
-            "#f97316",
-            "#f8fafc",
-          ],
-          "circle-stroke-color": ["case", ["get", "selected"], "#facc15", "#020617"],
-          "circle-stroke-width": ["case", ["get", "selected"], 3.5, 2.5],
-        },
-      });
+        map.addLayer({
+          id: TRAIN_LAYER_ID,
+          type: "circle",
+          source: TRAIN_SOURCE_ID,
+          paint: {
+            "circle-radius": ["case", ["get", "selected"], 11, 7.5],
+            "circle-color": [
+              "match",
+              ["get", "trainType"],
+              "DART",
+              "#22c55e",
+              "Mainline",
+              "#60a5fa",
+              "Suburban",
+              "#f97316",
+              "#f8fafc",
+            ],
+            "circle-stroke-color": ["case", ["get", "selected"], "#facc15", "#020617"],
+            "circle-stroke-width": ["case", ["get", "selected"], 3.5, 2.5],
+          },
+        });
 
-      map.addLayer({
-        id: TRAIN_LABEL_LAYER_ID,
-        type: "symbol",
-        source: TRAIN_SOURCE_ID,
-        minzoom: 7.5,
-        layout: {
-          "text-field": ["get", "trainCode"],
-          "text-size": 11,
-          "text-offset": [0, 1.1],
-          "text-anchor": "top",
-        },
-        paint: {
-          "text-color": "#ffffff",
-          "text-halo-color": "#020617",
-          "text-halo-width": 1.5,
-        },
-      });
+        map.addLayer({
+          id: TRAIN_LABEL_LAYER_ID,
+          type: "symbol",
+          source: TRAIN_SOURCE_ID,
+          minzoom: 7.5,
+          layout: {
+            "text-field": ["get", "trainCode"],
+            "text-size": 11,
+            "text-offset": [0, 1.1],
+            "text-anchor": "top",
+          },
+          paint: {
+            "text-color": "#ffffff",
+            "text-halo-color": "#020617",
+            "text-halo-width": 1.5,
+          },
+        });
 
         setMapReady(true);
       } catch (error) {
