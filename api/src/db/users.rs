@@ -50,6 +50,7 @@ pub async fn find_user_by_id(pool: &PgPool, id: Uuid) -> Result<Option<UserRow>,
     .await
 }
 
+#[allow(dead_code)]
 pub async fn find_user_by_stripe_customer(
     pool: &PgPool,
     customer_id: &str,
