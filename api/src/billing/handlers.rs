@@ -192,8 +192,8 @@ async fn handle_checkout_completed(
     };
 
     // fetch subscription from stripe to determine role from the actual price
-    let key = std::env::var("STRIPE_SECRET_KEY")
-        .map_err(|_| "missing STRIPE_SECRET_KEY".to_string())?;
+    let key =
+        std::env::var("STRIPE_SECRET_KEY").map_err(|_| "missing STRIPE_SECRET_KEY".to_string())?;
     let client = StripeClient::new(key);
     let sub = stripe::Subscription::retrieve(&client, &subscription.id(), &[])
         .await
@@ -204,14 +204,14 @@ async fn handle_checkout_completed(
         .data
         .first()
         .and_then(|item| item.price.as_ref())
-        .map(|price| role_from_price(&price.id.to_string()))
+        .map(|price| role_from_price(price.id.as_ref()))
         .unwrap_or("free");
 
     users::update_user_subscription(
         &state.pool,
         user_id,
-        &customer.id().to_string(),
-        &subscription.id().to_string(),
+        customer.id().as_ref(),
+        subscription.id().as_ref(),
         role,
     )
     .await
@@ -224,13 +224,12 @@ async fn handle_subscription_change(
     state: &AppState,
     subscription: stripe::Subscription,
 ) -> Result<(), String> {
-    let customer_id = subscription.customer.id().to_string();
     let role = subscription
         .items
         .data
         .first()
         .and_then(|item| item.price.as_ref())
-        .map(|price| role_from_price(&price.id.to_string()))
+        .map(|price| role_from_price(price.id.as_ref()))
         .unwrap_or("free");
 
     let is_cancelled = matches!(
@@ -242,9 +241,13 @@ async fn handle_subscription_change(
 
     let applied_role = if is_cancelled { "free" } else { role };
 
-    users::update_role_by_customer(&state.pool, &customer_id, applied_role)
-        .await
-        .map_err(|err| err.to_string())?;
+    users::update_role_by_customer(
+        &state.pool,
+        subscription.customer.id().as_ref(),
+        applied_role,
+    )
+    .await
+    .map_err(|err| err.to_string())?;
 
     Ok(())
 }
