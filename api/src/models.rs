@@ -113,6 +113,7 @@ impl std::fmt::Debug for UserRow {
     }
 }
 
+#[allow(dead_code)]
 #[derive(sqlx::FromRow, Debug)]
 pub struct RefreshTokenRow {
     pub id: uuid::Uuid,
