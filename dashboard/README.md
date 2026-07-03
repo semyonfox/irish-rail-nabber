@@ -1,73 +1,50 @@
-# React + TypeScript + Vite
+# Irish Rail Dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React 19 + TypeScript dashboard for the Irish Public Data API. The dashboard is the browser UI for exploring the Irish Rail collector data exposed by the repo's API layer.
 
-Currently, two official plugins are available:
+## What lives here
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- `src/` contains the Vite+ React application.
+- `package.json` uses `pnpm` through the Vite+ (`vp`) workflow.
+- `eslint.config.js`, `tsconfig*.json`, and `vite.config.ts` contain the frontend build/check configuration.
 
-## React Compiler
+For the collector, database, API, and analysis context, start with the [root README](../README.md) and `docs/analysis/`.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Local development
 
-## Expanding the ESLint configuration
+From this `dashboard/` directory:
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(["dist"]),
-  {
-    files: ["**/*.{ts,tsx}"],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ["./tsconfig.node.json", "./tsconfig.app.json"],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-]);
+```bash
+vp install
+vp dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Use the development server printed by `vp dev`. The dashboard expects the local API stack from the repository root when features need live GraphQL/data responses:
 
-```js
-// eslint.config.js
-import reactX from "eslint-plugin-react-x";
-import reactDom from "eslint-plugin-react-dom";
-
-export default defineConfig([
-  globalIgnores(["dist"]),
-  {
-    files: ["**/*.{ts,tsx}"],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs["recommended-typescript"],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ["./tsconfig.node.json", "./tsconfig.app.json"],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-]);
+```bash
+cd ..
+docker-compose up -d
 ```
+
+## Verification
+
+Run the frontend check before opening a PR:
+
+```bash
+vp check
+```
+
+If you only changed documentation, also run a whitespace check from the repo root:
+
+```bash
+git diff --check
+```
+
+## Build and preview
+
+```bash
+vp build
+vp preview
+```
+
+`vp build` produces the production frontend bundle; `vp preview` serves that built output locally for a smoke test.
