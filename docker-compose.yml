@@ -3,15 +3,15 @@ services:
     image: timescale/timescaledb:2.25.2-pg18
     container_name: irish_rail_db
     environment:
-      POSTGRES_USER: irish_data
-      POSTGRES_PASSWORD: secure_password
-      POSTGRES_DB: ireland_public
+      POSTGRES_USER: ${POSTGRES_USER:-irish_data}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure_password}
+      POSTGRES_DB: ${POSTGRES_DB:-ireland_public}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "9898:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U irish_data"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-irish_data}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -22,10 +22,11 @@ services:
       dockerfile: Dockerfile
     container_name: irish_rail_daemon
     environment:
-      DATABASE_URL: postgresql://irish_data:secure_password@db:5432/ireland_public
-      POSTGRES_USER: irish_data
-      POSTGRES_PASSWORD: secure_password
-      POSTGRES_DB: ireland_public
+      DATABASE_URL: postgresql://${POSTGRES_USER:-irish_data}:${POSTGRES_PASSWORD:-secure_password}@db:5432/${POSTGRES_DB:-ireland_public}
+      POSTGRES_USER: ${POSTGRES_USER:-irish_data}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure_password}
+      POSTGRES_DB: ${POSTGRES_DB:-ireland_public}
+      POSTGRES_HOST: db
     depends_on:
       db:
         condition: service_healthy
@@ -56,7 +57,7 @@ services:
       dockerfile: Dockerfile
     container_name: irish_rail_api
     environment:
-      DATABASE_URL: postgresql://irish_data:secure_password@db:5432/ireland_public
+      DATABASE_URL: postgresql://${POSTGRES_USER:-irish_data}:${POSTGRES_PASSWORD:-secure_password}@db:5432/${POSTGRES_DB:-ireland_public}
       JWT_SECRET: ${JWT_SECRET:-dev-change-me}
       JWT_ACCESS_EXPIRY: "900"
       JWT_REFRESH_EXPIRY: "604800"
