@@ -890,11 +890,26 @@ class IrishRailDaemon:
             await self.close()
 
 
+def database_url_from_env() -> str:
+    """Return an explicit DATABASE_URL or build one from Postgres settings.
+
+    The fallback intentionally uses the same POSTGRES_* inputs as Compose
+    instead of a redacted placeholder password that would be treated as a real
+    runtime credential.
+    """
+    if database_url := os.getenv("DATABASE_URL"):
+        return database_url
+
+    user = os.getenv("POSTGRES_USER", "irish_data")
+    password = os.getenv("POSTGRES_PASSWORD", "secure_password")
+    database = os.getenv("POSTGRES_DB", "ireland_public")
+    host = os.getenv("POSTGRES_HOST", "localhost")
+    port = os.getenv("POSTGRES_PORT", "5432")
+    return f"postgresql://{user}:{password}@{host}:{port}/{database}"
+
+
 async def main():
-    db_url = os.getenv(
-        "DATABASE_URL",
-        "postgresql://irish_data:secure_password@localhost:5432/ireland_public",
-    )
+    db_url = database_url_from_env()
 
     daemon = IrishRailDaemon(db_url)
     await daemon.run()

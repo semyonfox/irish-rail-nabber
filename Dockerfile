@@ -16,7 +16,7 @@ RUN chmod +x docker-entrypoint.sh
 ENV POSTGRES_USER=irish_data
 ENV POSTGRES_PASSWORD=secure_password
 ENV POSTGRES_DB=ireland_public
-ENV DATABASE_URL=postgresql://irish_data:secure_password@db:5432/ireland_public
+ENV POSTGRES_HOST=db
 
 ENTRYPOINT ["./docker-entrypoint.sh"]
 CMD ["python", "daemon.py"]
