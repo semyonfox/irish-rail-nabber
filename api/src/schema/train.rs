@@ -2,6 +2,7 @@ use async_graphql::{Context, Object, Result};
 use chrono::NaiveDate;
 use sqlx::PgPool;
 
+use super::bounds::{clamp_i32, TRAIN_HISTORY_HOURS};
 use super::types::{RouteSegment, TrainMovement, TrainPosition};
 use crate::models::{RouteSegmentRow, TrainMovementRow, TrainPositionRow};
 
@@ -98,6 +99,7 @@ impl TrainQuery {
         #[graphql(default = 24)] hours: i32,
     ) -> Result<Vec<TrainPosition>> {
         let pool = ctx.data::<PgPool>()?;
+        let bounded_hours = clamp_i32(hours, TRAIN_HISTORY_HOURS.0, TRAIN_HISTORY_HOURS.1);
 
         let rows = sqlx::query_as::<_, TrainPositionRow>(
             "SELECT train_code, latitude, longitude, train_status, direction, train_type, fetched_at
@@ -108,7 +110,7 @@ impl TrainQuery {
              LIMIT 500",
         )
         .bind(&train_code)
-        .bind(hours)
+        .bind(bounded_hours)
         .fetch_all(pool)
         .await?;
 
