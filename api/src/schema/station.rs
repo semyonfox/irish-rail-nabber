@@ -1,6 +1,7 @@
 use async_graphql::{Context, Object, Result};
 use sqlx::PgPool;
 
+use super::bounds::{clamp_i32, STATION_BOARD_LIMIT};
 use super::types::{CountryBoardEvent, Station, StationEvent};
 use crate::models::CountryBoardEventRow;
 use crate::models::StationEventRow;
@@ -98,6 +99,7 @@ impl StationQuery {
         #[graphql(default = 20)] limit: i32,
     ) -> Result<Vec<StationEvent>> {
         let pool = ctx.data::<PgPool>()?;
+        let bounded_limit = clamp_i32(limit, STATION_BOARD_LIMIT.0, STATION_BOARD_LIMIT.1);
 
         let rows = sqlx::query_as::<_, StationEventRow>(
             "SELECT DISTINCT ON (train_code)
@@ -121,7 +123,7 @@ impl StationQuery {
              LIMIT $2",
         )
         .bind(station_code.trim().to_uppercase())
-        .bind(limit as i64)
+        .bind(bounded_limit as i64)
         .fetch_all(pool)
         .await?;
 

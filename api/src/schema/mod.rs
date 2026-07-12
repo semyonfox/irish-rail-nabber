@@ -1,4 +1,5 @@
 pub mod analytics;
+pub(crate) mod bounds;
 pub mod station;
 pub mod train;
 pub mod types;

@@ -111,6 +111,21 @@ async fn delay_history(&self, ctx: &Context<'_>, ...) -> Result<Vec<DelayBucket>
 
 This keeps anonymous queries working while letting individual fields enforce a paywall.
 
+### Numeric query bounds
+
+GraphQL numeric inputs are clamped before SQL binding so direct callers cannot
+bypass the service's query-cost limits:
+
+| Field | Inclusive range |
+|---|---|
+| `stationBoard.limit` | 1–200 |
+| `trainHistory.hours` | 1–168 |
+| `hourlyDelays.hours` | 1–168 |
+| `stationDelayStats.hours` | 1–168 |
+| `stationDelayStats.limit` | 1–100 |
+| `routeReliability.hours` | 1–720 |
+| `routeReliability.minTrains` | 1–20 |
+
 ## Auth middleware
 
 `auth::middleware::auth_middleware` runs once per request:

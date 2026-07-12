@@ -1,6 +1,10 @@
 use async_graphql::{Context, Object, Result};
 use sqlx::PgPool;
 
+use super::bounds::{
+    clamp_i32, ANALYTICS_HOURS, ROUTE_RELIABILITY_HOURS, ROUTE_RELIABILITY_MIN_TRAINS,
+    STATION_DELAY_STATS_LIMIT,
+};
 use super::types::*;
 use crate::models::AuthUser;
 use crate::models::{FetchHistoryRow, HourlyDelayRow};
@@ -28,6 +32,7 @@ impl AnalyticsQuery {
     ) -> Result<Vec<HourlyDelay>> {
         ensure_premium(ctx)?;
         let pool = ctx.data::<PgPool>()?;
+        let bounded_hours = clamp_i32(hours, ANALYTICS_HOURS.0, ANALYTICS_HOURS.1);
 
         let rows = if let Some(sc) = station_code {
             sqlx::query_as::<_, HourlyDelayRow>(
@@ -36,7 +41,7 @@ impl AnalyticsQuery {
                  WHERE hour > NOW() - make_interval(hours => $1) AND station_code = $2
                  ORDER BY hour DESC",
             )
-            .bind(hours)
+            .bind(bounded_hours)
             .bind(&sc)
             .fetch_all(pool)
             .await?
@@ -47,7 +52,7 @@ impl AnalyticsQuery {
                  WHERE hour > NOW() - make_interval(hours => $1)
                  ORDER BY hour DESC",
             )
-            .bind(hours)
+            .bind(bounded_hours)
             .fetch_all(pool)
             .await?
         };
@@ -64,6 +69,12 @@ impl AnalyticsQuery {
     ) -> Result<Vec<StationDelayStats>> {
         ensure_premium(ctx)?;
         let pool = ctx.data::<PgPool>()?;
+        let bounded_hours = clamp_i32(hours, ANALYTICS_HOURS.0, ANALYTICS_HOURS.1);
+        let bounded_limit = clamp_i32(
+            limit,
+            STATION_DELAY_STATS_LIMIT.0,
+            STATION_DELAY_STATS_LIMIT.1,
+        );
 
         let rows = sqlx::query_as::<_, StationDelayStatsRow>(
             "WITH recent AS (
@@ -97,8 +108,8 @@ impl AnalyticsQuery {
             ORDER BY avg_late_minutes DESC
             LIMIT $2"
         )
-        .bind(hours)
-        .bind(limit as i64)
+        .bind(bounded_hours)
+        .bind(bounded_limit as i64)
         .fetch_all(pool)
         .await?;
 
@@ -177,6 +188,12 @@ impl AnalyticsQuery {
     ) -> Result<Vec<RouteReliability>> {
         ensure_premium(ctx)?;
         let pool = ctx.data::<PgPool>()?;
+        let bounded_hours = clamp_i32(hours, ROUTE_RELIABILITY_HOURS.0, ROUTE_RELIABILITY_HOURS.1);
+        let bounded_min_trains = clamp_i32(
+            min_trains,
+            ROUTE_RELIABILITY_MIN_TRAINS.0,
+            ROUTE_RELIABILITY_MIN_TRAINS.1,
+        );
 
         let rows = sqlx::query_as::<_, RouteReliabilityRow>(
             "WITH recent AS (
@@ -208,8 +225,8 @@ impl AnalyticsQuery {
             HAVING COUNT(DISTINCT train_code) >= $2
             ORDER BY avg_late_minutes DESC"
         )
-        .bind(hours)
-        .bind(min_trains as i64)
+        .bind(bounded_hours)
+        .bind(bounded_min_trains as i64)
         .fetch_all(pool)
         .await?;
 
