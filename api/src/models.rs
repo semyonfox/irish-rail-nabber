@@ -110,6 +110,16 @@ pub struct HourlyDelayRow {
 }
 
 #[derive(sqlx::FromRow, Debug)]
+pub struct DelayHistoryRow {
+    pub bucket: NaiveDateTime,
+    pub avg_late_minutes: Option<f64>,
+    pub p95_late_minutes: Option<f64>,
+    pub max_late_minutes: Option<i32>,
+    pub on_time_pct: Option<f64>,
+    pub event_count: Option<i64>,
+}
+
+#[derive(sqlx::FromRow, Debug)]
 #[allow(dead_code)]
 pub struct FetchHistoryRow {
     pub endpoint: Option<String>,

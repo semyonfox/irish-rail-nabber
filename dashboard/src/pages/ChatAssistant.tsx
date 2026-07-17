@@ -96,8 +96,12 @@ export default function ChatAssistant() {
       };
       setMessages((current) => [...current, assistantMessage]);
     } catch (err) {
-      const message =
-        err instanceof ApiError ? err.message : "Failed to get a reply from the model.";
+      const rateLimited = err instanceof ApiError && err.status === 429;
+      const message = rateLimited
+        ? "You’ve reached today’s request limit. It resets automatically, or you can upgrade for a larger allowance."
+        : err instanceof ApiError
+          ? err.message
+          : "Failed to get a reply from the model.";
       setError(message);
       setMessages((current) => [
         ...current,
@@ -248,7 +252,16 @@ export default function ChatAssistant() {
         </div>
       </form>
 
-      {error ? <p className="mt-2 text-sm text-[var(--rail-red)]">{error}</p> : null}
+      {error ? (
+        <div className="mt-2 flex items-center justify-between gap-3 text-sm text-[var(--rail-red)]">
+          <p>{error}</p>
+          {/request limit/i.test(error) ? (
+            <Link to="/pricing" className="shrink-0 text-[var(--rail-green)]">
+              View plans
+            </Link>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

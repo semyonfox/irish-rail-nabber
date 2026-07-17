@@ -2,6 +2,7 @@ import CountryBoard from "../components/CountryBoard";
 import DelayChart from "../components/DelayChart";
 import RouteReliabilityChart from "../components/RouteReliabilityChart";
 import StationRiskChart from "../components/StationRiskChart";
+import RequestError from "../components/RequestError";
 import { ROUTE_RELIABILITY, STATION_DELAY_STATS } from "../graphql/queries";
 import { usePollingQuery } from "../utils/usePollingQuery";
 import { delayColor, formatPct } from "../utils/format";
@@ -76,17 +77,19 @@ function BarMeter({ value, max, tone }: { value: number; max: number; tone: stri
 }
 
 export default function Analytics() {
-  const [{ data: routeData }] = usePollingQuery<RouteReliabilityData>({
-    query: ROUTE_RELIABILITY,
-    variables: { hours: 24, minTrains: 3 },
-    pollInterval: 60000,
-  });
+  const [{ data: routeData, error: routeError }, retryRoutes] =
+    usePollingQuery<RouteReliabilityData>({
+      query: ROUTE_RELIABILITY,
+      variables: { hours: 24, minTrains: 3 },
+      pollInterval: 60000,
+    });
 
-  const [{ data: stationData }] = usePollingQuery<StationDelayStatsData>({
-    query: STATION_DELAY_STATS,
-    variables: { hours: 24, limit: 20 },
-    pollInterval: 60000,
-  });
+  const [{ data: stationData, error: stationError }, retryStations] =
+    usePollingQuery<StationDelayStatsData>({
+      query: STATION_DELAY_STATS,
+      variables: { hours: 24, limit: 20 },
+      pollInterval: 60000,
+    });
 
   const routes = routeData?.routeReliability ?? [];
   const stations = stationData?.stationDelayStats ?? [];
@@ -118,6 +121,22 @@ export default function Analytics() {
     .slice(0, 10);
   const maxRouteImpact = routeImpact[0]?.impact ?? 0;
   const maxStationImpact = stationImpact[0]?.impact ?? 0;
+  const blockingError = !routeData && !stationData ? routeError || stationError : null;
+
+  if (blockingError) {
+    return (
+      <div className="mx-auto max-w-4xl p-6">
+        <RequestError
+          error={blockingError}
+          title="Network board unavailable"
+          onRetry={() => {
+            retryRoutes({ requestPolicy: "network-only" });
+            retryStations({ requestPolicy: "network-only" });
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="h-full overflow-auto p-4 md:p-6">
@@ -125,7 +144,7 @@ export default function Analytics() {
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase text-[var(--rail-green)]">
-              Network board
+              Live network
             </p>
             <h1 className="text-2xl font-semibold text-white">Ireland live rail operations</h1>
           </div>

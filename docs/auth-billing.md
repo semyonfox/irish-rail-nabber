@@ -15,6 +15,12 @@ Tier checks live in three places:
 
 - Per-resolver in the Rust API for paywalled GraphQL fields ([api.md](api.md#auth-in-resolvers)).
 - At the chatbot service entrypoint, which rejects `free` outright ([chatbot.md](chatbot.md#rate-limiting-and-cost-control)).
+
+Authentication routes (`/auth/login`, `/auth/register`, `/auth/refresh`, and `/auth/logout`) are
+outside the daily GraphQL usage quota. The default quota is sized for the polling dashboard:
+25,000 requests/day for free accounts and 100,000 requests/day for coffee accounts; pro and admin
+roles are unlimited. Deployments can override these values with the existing
+`API_RATE_LIMIT_*_TIER_LIMIT` environment variables.
 - In the dashboard's `ProtectedRoute` for paid pages ([dashboard.md](dashboard.md#auth-flow)).
 
 ## Schema

@@ -11,12 +11,7 @@ use chrono::{Duration, TimeZone, Utc};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-use crate::{
-    auth::tokens,
-    models::AuthUser,
-    db::usage as usage_store,
-    state::AppState,
-};
+use crate::{auth::tokens, db::usage as usage_store, models::AuthUser, state::AppState};
 
 #[derive(Debug, Serialize)]
 struct RateLimitPayload {
@@ -27,8 +22,10 @@ struct RateLimitPayload {
     reset_at: i64,
 }
 
-const FREE_TIER_LIMIT: i64 = 1_000;
-const COFFEE_TIER_LIMIT: i64 = 10_000;
+// The live dashboard polls several GraphQL queries continuously. These limits are
+// deliberately sized for an always-open operations screen, not a typical page view.
+const FREE_TIER_LIMIT: i64 = 25_000;
+const COFFEE_TIER_LIMIT: i64 = 100_000;
 
 #[derive(Debug, Serialize)]
 pub struct RateLimitPolicy {
@@ -63,8 +60,14 @@ pub fn plan_limit(role: &str) -> Option<i64> {
     }
 
     match role.as_str() {
-        "coffee" => Some(env_limit_value("API_RATE_LIMIT_COFFEE_TIER_LIMIT", COFFEE_TIER_LIMIT)),
-        _ => Some(env_limit_value("API_RATE_LIMIT_FREE_TIER_LIMIT", FREE_TIER_LIMIT)),
+        "coffee" => Some(env_limit_value(
+            "API_RATE_LIMIT_COFFEE_TIER_LIMIT",
+            COFFEE_TIER_LIMIT,
+        )),
+        _ => Some(env_limit_value(
+            "API_RATE_LIMIT_FREE_TIER_LIMIT",
+            FREE_TIER_LIMIT,
+        )),
     }
 }
 
@@ -114,10 +117,9 @@ fn resolve_subject_and_role(
         return (format!("user:{}", user.id), user.role.clone());
     }
 
-    if let Some(token) = jar
-        .get("access_token")
-        .and_then(|cookie| tokens::verify_access_token(cookie.value(), &env::var("JWT_SECRET").ok()?).ok())
-    {
+    if let Some(token) = jar.get("access_token").and_then(|cookie| {
+        tokens::verify_access_token(cookie.value(), &env::var("JWT_SECRET").ok()?).ok()
+    }) {
         return (format!("user:{}", token.sub), token.role);
     }
 

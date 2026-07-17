@@ -7,7 +7,7 @@ use super::bounds::{
 };
 use super::types::*;
 use crate::models::AuthUser;
-use crate::models::{FetchHistoryRow, HourlyDelayRow};
+use crate::models::{DelayHistoryRow, FetchHistoryRow, HourlyDelayRow};
 
 #[derive(Default)]
 pub struct AnalyticsQuery;
@@ -23,6 +23,58 @@ fn ensure_premium(ctx: &Context<'_>) -> Result<()> {
 
 #[Object]
 impl AnalyticsQuery {
+    /// Delay trend buckets from the retained station-event history.
+    /// `hours = 0` means all retained history; callers can choose hour, day, or week buckets.
+    async fn delay_history(
+        &self,
+        ctx: &Context<'_>,
+        station_code: Option<String>,
+        #[graphql(default = 168)] hours: i32,
+        #[graphql(default = "hour")] bucket: String,
+    ) -> Result<Vec<DelayHistoryPoint>> {
+        ensure_premium(ctx)?;
+        let pool = ctx.data::<PgPool>()?;
+
+        if !(hours == 0 || (1..=8_784).contains(&hours)) {
+            return Err("hours must be between 1 and 8784, or 0 for all retained history".into());
+        }
+        if !matches!(bucket.as_str(), "hour" | "day" | "week") {
+            return Err("bucket must be hour, day, or week".into());
+        }
+
+        let rows = sqlx::query_as::<_, DelayHistoryRow>(
+            "SELECT
+                date_trunc($3, fetched_at) AS bucket,
+                AVG(late_minutes)::float8 AS avg_late_minutes,
+                percentile_cont(0.95) WITHIN GROUP (ORDER BY late_minutes)::float8 AS p95_late_minutes,
+                MAX(late_minutes) AS max_late_minutes,
+                (COUNT(*) FILTER (WHERE late_minutes <= 5) * 100.0 / NULLIF(COUNT(*), 0))::float8 AS on_time_pct,
+                COUNT(*) AS event_count
+             FROM station_events
+             WHERE ($1 = 0 OR fetched_at > NOW() - make_interval(hours => $1))
+                AND ($2 IS NULL OR station_code = $2)
+                AND late_minutes IS NOT NULL
+                AND NOT (
+                    ABS(late_minutes) > 720
+                    OR (
+                        late_minutes < -60
+                        AND COALESCE(expected_arrival, expected_departure) IS NOT NULL
+                        AND COALESCE(NULLIF(scheduled_arrival, TIME '00:00'), NULLIF(scheduled_departure, TIME '00:00'), scheduled_arrival, scheduled_departure) IS NOT NULL
+                        AND COALESCE(expected_arrival, expected_departure) < COALESCE(NULLIF(scheduled_arrival, TIME '00:00'), NULLIF(scheduled_departure, TIME '00:00'), scheduled_arrival, scheduled_departure)
+                    )
+                )
+             GROUP BY 1
+             ORDER BY 1",
+        )
+        .bind(hours)
+        .bind(station_code)
+        .bind(bucket)
+        .fetch_all(pool)
+        .await?;
+
+        Ok(rows.into_iter().map(DelayHistoryPoint::from).collect())
+    }
+
     // hourly delay aggregates from the continuous aggregate
     async fn hourly_delays(
         &self,
