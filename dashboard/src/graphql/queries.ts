@@ -108,6 +108,19 @@ export const HOURLY_DELAYS = gql`
   }
 `;
 
+export const DELAY_HISTORY = gql`
+  query DelayHistory($stationCode: String, $hours: Int, $bucket: String) {
+    delayHistory(stationCode: $stationCode, hours: $hours, bucket: $bucket) {
+      bucket
+      avgLateMinutes
+      p95LateMinutes
+      maxLateMinutes
+      onTimePct
+      eventCount
+    }
+  }
+`;
+
 export const ROUTE_RELIABILITY = gql`
   query RouteReliability($hours: Int, $minTrains: Int) {
     routeReliability(hours: $hours, minTrains: $minTrains) {

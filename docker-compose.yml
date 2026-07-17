@@ -61,8 +61,8 @@ services:
       COOKIE_SECURE: "true"
       CORS_ORIGINS: "https://traein.semyon.ie"
       APP_URL: "https://traein.semyon.ie"
-      API_RATE_LIMIT_FREE_TIER_LIMIT: ${API_RATE_LIMIT_FREE_TIER_LIMIT:-1000}
-      API_RATE_LIMIT_COFFEE_TIER_LIMIT: ${API_RATE_LIMIT_COFFEE_TIER_LIMIT:-10000}
+      API_RATE_LIMIT_FREE_TIER_LIMIT: ${API_RATE_LIMIT_FREE_TIER_LIMIT:-25000}
+      API_RATE_LIMIT_COFFEE_TIER_LIMIT: ${API_RATE_LIMIT_COFFEE_TIER_LIMIT:-100000}
       API_RATE_LIMIT_UNLIMITED_ROLES: ${API_RATE_LIMIT_UNLIMITED_ROLES:-pro,admin}
       API_RATE_LIMIT_IP_SALT: ${API_RATE_LIMIT_IP_SALT:-rail-salt}
       LLM_API_URL: ${LLM_API_URL:-}
@@ -86,6 +86,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    ports:
+      - "127.0.0.1:8001:8000"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]

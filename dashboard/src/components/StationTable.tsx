@@ -10,6 +10,7 @@ import {
 import { STATION_DELAY_STATS } from "../graphql/queries";
 import { usePollingQuery } from "../utils/usePollingQuery";
 import { formatPct, delayColor } from "../utils/format";
+import RequestError from "./RequestError";
 
 interface StationStats {
   stationCode: string;
@@ -29,7 +30,7 @@ const col = createColumnHelper<StationStats>();
 export default function StationTable() {
   const [sorting, setSorting] = useState<SortingState>([{ id: "avgLateMinutes", desc: true }]);
 
-  const [{ data, fetching }] = usePollingQuery<StationDelayStatsData>({
+  const [{ data, fetching, error }, retry] = usePollingQuery<StationDelayStatsData>({
     query: STATION_DELAY_STATS,
     variables: { hours: 24, limit: 171 },
     pollInterval: 30000,
@@ -76,6 +77,16 @@ export default function StationTable() {
     return <div className="p-8 text-center text-[var(--rail-muted)]">Loading station data...</div>;
   }
 
+  if (error && !data) {
+    return (
+      <RequestError
+        error={error}
+        onRetry={() => retry({ requestPolicy: "network-only" })}
+        title="Station data unavailable"
+      />
+    );
+  }
+
   return (
     <div className="overflow-auto">
       <table className="w-full text-sm">
@@ -108,6 +119,16 @@ export default function StationTable() {
               ))}
             </tr>
           ))}
+          {!fetching && table.getRowModel().rows.length === 0 ? (
+            <tr>
+              <td
+                colSpan={columns.length}
+                className="px-4 py-10 text-center text-[var(--rail-muted)]"
+              >
+                No station performance records were returned for the last 24 hours.
+              </td>
+            </tr>
+          ) : null}
         </tbody>
       </table>
     </div>

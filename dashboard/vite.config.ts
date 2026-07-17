@@ -27,13 +27,13 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      "/graphql": "http://localhost:8000",
+      "/graphql": "http://localhost:8001",
       "/api/chat": {
-        target: "http://localhost:8000",
+        target: "http://localhost:8001",
         rewrite: (path) => path.replace(/^\/api\/chat/, "/chat"),
       },
-      "/auth": "http://localhost:8000",
-      "/billing": "http://localhost:8000",
+      "/auth": "http://localhost:8001",
+      "/billing": "http://localhost:8001",
     },
   },
 });

@@ -10,6 +10,7 @@ React 19 SPA. Built and served with [Vite+](https://vitejs.dev/) under `dashboar
 /login             LoginPage       public
 /register          RegisterPage    public
 /pricing           PricingPage     public
+/history           History         protected (coffee/pro)
 /account           AccountPage     protected (any signed-in user)
 /analytics         Analytics       protected + paid (coffee/pro)
 /chat              Chat Assistant   protected + paid (uses live tools)

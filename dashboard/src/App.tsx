@@ -14,6 +14,7 @@ const PricingPage = lazy(() => import("./billing/PricingPage"));
 const ChatAssistant = lazy(() => import("./pages/ChatAssistant"));
 const Stations = lazy(() => import("./pages/Stations"));
 const Analytics = lazy(() => import("./pages/Analytics"));
+const History = lazy(() => import("./pages/History"));
 
 function RouteFallback() {
   return (
@@ -22,7 +23,6 @@ function RouteFallback() {
     </div>
   );
 }
-
 export default function App() {
   return (
     <Provider value={client}>
@@ -37,6 +37,14 @@ export default function App() {
                 <Route path="register" element={<RegisterPage />} />
                 <Route path="pricing" element={<PricingPage />} />
                 <Route path="analytics" element={<Analytics />} />
+                <Route
+                  path="history"
+                  element={
+                    <ProtectedRoute>
+                      <History />
+                    </ProtectedRoute>
+                  }
+                />
                 <Route
                   path="chat"
                   element={

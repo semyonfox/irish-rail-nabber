@@ -256,6 +256,29 @@ impl From<HourlyDelayRow> for HourlyDelay {
 }
 
 #[derive(SimpleObject)]
+pub struct DelayHistoryPoint {
+    pub bucket: String,
+    pub avg_late_minutes: f64,
+    pub p95_late_minutes: f64,
+    pub max_late_minutes: i32,
+    pub on_time_pct: f64,
+    pub event_count: i64,
+}
+
+impl From<DelayHistoryRow> for DelayHistoryPoint {
+    fn from(r: DelayHistoryRow) -> Self {
+        Self {
+            bucket: r.bucket.format("%Y-%m-%dT%H:%M:%S").to_string(),
+            avg_late_minutes: r.avg_late_minutes.unwrap_or(0.0),
+            p95_late_minutes: r.p95_late_minutes.unwrap_or(0.0),
+            max_late_minutes: r.max_late_minutes.unwrap_or(0),
+            on_time_pct: r.on_time_pct.unwrap_or(0.0),
+            event_count: r.event_count.unwrap_or(0),
+        }
+    }
+}
+
+#[derive(SimpleObject)]
 pub struct StationDelayStats {
     pub station_code: String,
     pub station_desc: String,
