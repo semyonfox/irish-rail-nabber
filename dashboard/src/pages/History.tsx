@@ -111,7 +111,8 @@ export default function History() {
       : chartData.reduce((total, point) => total + point.onTimePct * point.eventCount, 0) /
         chartData.reduce((total, point) => total + point.eventCount, 0);
   const peak = chartData.reduce<DelayPoint | undefined>(
-    (highest, point) => (!highest || point.p95LateMinutes > highest.p95LateMinutes ? point : highest),
+    (highest, point) =>
+      !highest || point.p95LateMinutes > highest.p95LateMinutes ? point : highest,
     undefined,
   );
 
@@ -138,7 +139,9 @@ export default function History() {
       <div className="mx-auto max-w-7xl space-y-5">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase text-[var(--rail-green)]">Historical analysis</p>
+            <p className="text-xs font-semibold uppercase text-[var(--rail-green)]">
+              Historical analysis
+            </p>
             <h1 className="text-2xl font-semibold text-white">Delay history & trends</h1>
             <p className="mt-1 text-sm text-[var(--rail-muted)]">
               Explore retained Irish Rail board observations by network or station.
@@ -151,7 +154,10 @@ export default function History() {
 
         <section className="flex flex-wrap items-end gap-4 rounded-lg border border-[var(--rail-border)] bg-[var(--rail-surface)] p-4">
           <div>
-            <label className="mb-2 block text-xs font-semibold uppercase text-[var(--rail-muted)]" htmlFor="history-range">
+            <label
+              className="mb-2 block text-xs font-semibold uppercase text-[var(--rail-muted)]"
+              htmlFor="history-range"
+            >
               Range
             </label>
             <select
@@ -160,11 +166,18 @@ export default function History() {
               onChange={(event) => changeRange(event.target.value as RangeId)}
               className="rounded border border-[var(--rail-border)] bg-[var(--rail-bg)] px-3 py-2 text-sm text-white"
             >
-              {ranges.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+              {ranges.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.label}
+                </option>
+              ))}
             </select>
           </div>
           <div>
-            <label className="mb-2 block text-xs font-semibold uppercase text-[var(--rail-muted)]" htmlFor="history-bucket">
+            <label
+              className="mb-2 block text-xs font-semibold uppercase text-[var(--rail-muted)]"
+              htmlFor="history-bucket"
+            >
               Detail
             </label>
             <select
@@ -179,7 +192,10 @@ export default function History() {
             </select>
           </div>
           <div className="min-w-56 flex-1">
-            <label className="mb-2 block text-xs font-semibold uppercase text-[var(--rail-muted)]" htmlFor="history-station">
+            <label
+              className="mb-2 block text-xs font-semibold uppercase text-[var(--rail-muted)]"
+              htmlFor="history-station"
+            >
               Scope
             </label>
             <select
@@ -190,7 +206,9 @@ export default function History() {
             >
               <option value="">All-Ireland network</option>
               {(stationData?.stations ?? []).map((station) => (
-                <option key={station.stationCode} value={station.stationCode}>{station.stationDesc}</option>
+                <option key={station.stationCode} value={station.stationCode}>
+                  {station.stationDesc}
+                </option>
               ))}
             </select>
           </div>
@@ -199,15 +217,21 @@ export default function History() {
         <section className="grid gap-3 md:grid-cols-3">
           <div className="rounded-lg border border-[var(--rail-border)] bg-[var(--rail-surface)] p-4">
             <div className="text-xs uppercase text-[var(--rail-muted)]">Weighted average delay</div>
-            <div className="mt-1 text-2xl font-semibold text-[var(--rail-yellow)]">+{avgDelay.toFixed(1)}m</div>
+            <div className="mt-1 text-2xl font-semibold text-[var(--rail-yellow)]">
+              +{avgDelay.toFixed(1)}m
+            </div>
           </div>
           <div className="rounded-lg border border-[var(--rail-border)] bg-[var(--rail-surface)] p-4">
             <div className="text-xs uppercase text-[var(--rail-muted)]">On-time performance</div>
-            <div className="mt-1 text-2xl font-semibold text-[var(--rail-green)]">{formatPct(onTime)}</div>
+            <div className="mt-1 text-2xl font-semibold text-[var(--rail-green)]">
+              {formatPct(onTime)}
+            </div>
           </div>
           <div className="rounded-lg border border-[var(--rail-border)] bg-[var(--rail-surface)] p-4">
             <div className="text-xs uppercase text-[var(--rail-muted)]">Highest p95 delay</div>
-            <div className="mt-1 text-2xl font-semibold text-[var(--rail-orange)]">{peak ? `+${peak.p95LateMinutes.toFixed(1)}m` : "-"}</div>
+            <div className="mt-1 text-2xl font-semibold text-[var(--rail-orange)]">
+              {peak ? `+${peak.p95LateMinutes.toFixed(1)}m` : "-"}
+            </div>
           </div>
         </section>
 
@@ -223,14 +247,54 @@ export default function History() {
               <ResponsiveContainer width="100%" height={340}>
                 <ComposedChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis dataKey="label" stroke="#94a3b8" fontSize={11} tickLine={false} minTickGap={32} />
+                  <XAxis
+                    dataKey="label"
+                    stroke="#94a3b8"
+                    fontSize={11}
+                    tickLine={false}
+                    minTickGap={32}
+                  />
                   <YAxis yAxisId="delay" stroke="#94a3b8" fontSize={12} tickLine={false} unit="m" />
-                  <YAxis yAxisId="events" orientation="right" stroke="#64748b" fontSize={12} tickLine={false} />
-                  <Tooltip contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #334155", borderRadius: "8px" }} />
+                  <YAxis
+                    yAxisId="events"
+                    orientation="right"
+                    stroke="#64748b"
+                    fontSize={12}
+                    tickLine={false}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#1e293b",
+                      border: "1px solid #334155",
+                      borderRadius: "8px",
+                    }}
+                  />
                   <Legend wrapperStyle={{ color: "#cbd5e1", fontSize: 12 }} />
-                  <Bar yAxisId="events" dataKey="eventCount" name="Board observations" fill="#334155" radius={[3, 3, 0, 0]} />
-                  <Line yAxisId="delay" type="monotone" dataKey="avgLateMinutes" name="Average delay" stroke="#22c55e" strokeWidth={2} dot={false} />
-                  <Line yAxisId="delay" type="monotone" dataKey="p95LateMinutes" name="p95 delay" stroke="#f97316" strokeWidth={2} dot={false} />
+                  <Bar
+                    yAxisId="events"
+                    dataKey="eventCount"
+                    name="Board observations"
+                    fill="#334155"
+                    radius={[3, 3, 0, 0]}
+                  />
+                  <Line
+                    yAxisId="delay"
+                    type="monotone"
+                    dataKey="avgLateMinutes"
+                    name="Average delay"
+                    stroke="#22c55e"
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                  <Line
+                    yAxisId="delay"
+                    type="monotone"
+                    dataKey="p95LateMinutes"
+                    name="p95 delay"
+                    stroke="#f97316"
+                    strokeWidth={2}
+                    dot={false}
+                  />
                 </ComposedChart>
               </ResponsiveContainer>
             </ChartFrame>
@@ -239,10 +303,35 @@ export default function History() {
               <ResponsiveContainer width="100%" height={340}>
                 <LineChart data={chartData} margin={{ top: 8, right: 20, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis dataKey="label" stroke="#94a3b8" fontSize={11} tickLine={false} minTickGap={32} />
-                  <YAxis domain={[0, 100]} stroke="#94a3b8" fontSize={12} tickLine={false} unit="%" />
-                  <Tooltip contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #334155", borderRadius: "8px" }} />
-                  <Line type="monotone" dataKey="onTimePct" name="Within 5 minutes" stroke="#22c55e" strokeWidth={2.5} dot={false} />
+                  <XAxis
+                    dataKey="label"
+                    stroke="#94a3b8"
+                    fontSize={11}
+                    tickLine={false}
+                    minTickGap={32}
+                  />
+                  <YAxis
+                    domain={[0, 100]}
+                    stroke="#94a3b8"
+                    fontSize={12}
+                    tickLine={false}
+                    unit="%"
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#1e293b",
+                      border: "1px solid #334155",
+                      borderRadius: "8px",
+                    }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="onTimePct"
+                    name="Within 5 minutes"
+                    stroke="#22c55e"
+                    strokeWidth={2.5}
+                    dot={false}
+                  />
                 </LineChart>
               </ResponsiveContainer>
             </ChartFrame>
