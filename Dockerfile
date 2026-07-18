@@ -1,6 +1,8 @@
-FROM python:3.11-slim
+FROM python:3.13-slim@sha256:6771159cd4fa5d9bba1258caf0b82e6b73458c694d178ad97c5e925c2d0e1a91
 
-RUN apt-get update && apt-get install -y postgresql-client && rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -12,11 +14,6 @@ COPY daemon.py .
 COPY migrations/ ./migrations/
 COPY docker-entrypoint.sh .
 RUN chmod +x docker-entrypoint.sh
-
-ENV POSTGRES_USER=irish_data
-ENV POSTGRES_PASSWORD=secure_password
-ENV POSTGRES_DB=ireland_public
-ENV DATABASE_URL=postgresql://irish_data:secure_password@db:5432/ireland_public
 
 ENTRYPOINT ["./docker-entrypoint.sh"]
 CMD ["python", "daemon.py"]
