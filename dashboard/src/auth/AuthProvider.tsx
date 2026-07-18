@@ -1,6 +1,6 @@
 import { createContext, useCallback, useEffect, useState, type ReactNode } from "react";
 
-import { api, ApiError, type MeUser } from "../graphql/api";
+import { api, type MeUser } from "../graphql/api";
 
 export interface AuthContextValue {
   user: MeUser | null;
@@ -19,20 +19,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshUser = useCallback(async () => {
     try {
-      const me = await api.me();
-      setUser(me);
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 401) {
-        try {
-          await api.refresh();
-          const me = await api.me();
-          setUser(me);
-          return;
-        } catch {
-          setUser(null);
-          return;
-        }
-      }
+      const session = await api.session();
+      setUser(session.user);
+    } catch {
       setUser(null);
     }
   }, []);

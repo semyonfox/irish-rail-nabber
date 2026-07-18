@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
-import { LIVE_TRAINS, ROUTE_SEGMENTS, STATIONS, TRAIN_JOURNEY } from "../graphql/queries";
+import { LIVE_TRAINS, STATIONS, TRAIN_JOURNEY } from "../graphql/queries";
 import { usePollingQuery } from "../utils/usePollingQuery";
+import { loadRailLines, trackPathThrough, type RailCoordinate } from "../utils/railGeometry";
 
 interface Train {
   trainCode: string;
@@ -22,19 +23,6 @@ interface Station {
   longitude: number | null;
 }
 
-interface RouteSegment {
-  fromStationCode: string;
-  fromStationName: string;
-  fromLatitude: number | null;
-  fromLongitude: number | null;
-  toStationCode: string;
-  toStationName: string;
-  toLatitude: number | null;
-  toLongitude: number | null;
-  trainCount: number;
-  lastSeen: string | null;
-}
-
 interface Movement {
   locationCode: string | null;
   locationFullName: string | null;
@@ -47,10 +35,6 @@ interface TrainsData {
 
 interface StationsData {
   stations: Station[];
-}
-
-interface RouteSegmentsData {
-  routeSegments: RouteSegment[];
 }
 
 interface TrainJourneyData {
@@ -88,7 +72,6 @@ type FeatureProperties = Record<string, string | number | boolean | null>;
 
 const IRELAND_CENTER: [number, number] = [-7.5, 53.4];
 const POLL_MS = 5000;
-const ROUTE_POLL_MS = 60000;
 const ROUTE_SOURCE_ID = "route-segments";
 const SELECTED_ROUTE_SOURCE_ID = "selected-train-route";
 const SELECTED_STOP_SOURCE_ID = "selected-train-stops";
@@ -169,6 +152,21 @@ export default function TrainMap({
   const fittedTrainRef = useRef<string | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
+  const [railLines, setRailLines] = useState<RailCoordinate[][]>([]);
+
+  useEffect(() => {
+    let active = true;
+    loadRailLines()
+      .then((lines) => {
+        if (active) setRailLines(lines);
+      })
+      .catch((error: unknown) => {
+        console.warn("Detailed rail geometry unavailable; using station links", error);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     onTrainClickRef.current = onTrainClick;
@@ -189,12 +187,6 @@ export default function TrainMap({
 
   const [{ data: stationsData }] = usePollingQuery<StationsData>({
     query: STATIONS,
-  });
-
-  const [{ data: routeSegmentsData }] = usePollingQuery<RouteSegmentsData>({
-    query: ROUTE_SEGMENTS,
-    variables: { hours: 12, limit: 350 },
-    pollInterval: ROUTE_POLL_MS,
   });
 
   const [{ data: journeyData }] = usePollingQuery<TrainJourneyData>({
@@ -233,9 +225,21 @@ export default function TrainMap({
           },
           layers: [
             {
+              id: "control-background",
+              type: "background",
+              paint: { "background-color": "#07100d" },
+            },
+            {
               id: "osm",
               type: "raster",
               source: "osm",
+              paint: {
+                "raster-opacity": 0.72,
+                "raster-saturation": -0.35,
+                "raster-contrast": 0.08,
+                "raster-brightness-min": 0.08,
+                "raster-brightness-max": 0.78,
+              },
             },
           ],
         },
@@ -265,29 +269,9 @@ export default function TrainMap({
           type: "line",
           source: ROUTE_SOURCE_ID,
           paint: {
-            "line-color": "#38bdf8",
-            "line-opacity": [
-              "interpolate",
-              ["linear"],
-              ["get", "trainCount"],
-              1,
-              0.2,
-              8,
-              0.55,
-              24,
-              0.85,
-            ],
-            "line-width": [
-              "interpolate",
-              ["linear"],
-              ["get", "trainCount"],
-              1,
-              1.25,
-              8,
-              2.75,
-              24,
-              5,
-            ],
+            "line-color": "#28785b",
+            "line-opacity": 0,
+            "line-width": 0,
           },
         });
 
@@ -372,9 +356,9 @@ export default function TrainMap({
           type: "circle",
           source: TRAIN_SOURCE_ID,
           paint: {
-            "circle-radius": ["case", ["get", "selected"], 18, 12],
+            "circle-radius": ["case", ["get", "selected"], 12, 8],
             "circle-color": ["case", ["get", "selected"], "#facc15", "#f8fafc"],
-            "circle-opacity": ["case", ["get", "selected"], 0.45, 0.58],
+            "circle-opacity": ["case", ["get", "selected"], 0.35, 0.28],
             "circle-blur": 0.25,
           },
         });
@@ -384,7 +368,7 @@ export default function TrainMap({
           type: "circle",
           source: TRAIN_SOURCE_ID,
           paint: {
-            "circle-radius": ["case", ["get", "selected"], 11, 7.5],
+            "circle-radius": ["case", ["get", "selected"], 8, 5],
             "circle-color": [
               "match",
               ["get", "trainType"],
@@ -397,7 +381,7 @@ export default function TrainMap({
               "#f8fafc",
             ],
             "circle-stroke-color": ["case", ["get", "selected"], "#facc15", "#020617"],
-            "circle-stroke-width": ["case", ["get", "selected"], 3.5, 2.5],
+            "circle-stroke-width": ["case", ["get", "selected"], 2.5, 1.5],
           },
         });
 
@@ -528,34 +512,8 @@ export default function TrainMap({
 
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
-
-    const features = (routeSegmentsData?.routeSegments ?? [])
-      .filter(
-        (segment) =>
-          segment.fromLatitude != null &&
-          segment.fromLongitude != null &&
-          segment.toLatitude != null &&
-          segment.toLongitude != null,
-      )
-      .map((segment) =>
-        lineFeature(
-          [
-            [segment.fromLongitude!, segment.fromLatitude!],
-            [segment.toLongitude!, segment.toLatitude!],
-          ],
-          {
-            fromStationCode: segment.fromStationCode,
-            fromStationName: segment.fromStationName,
-            toStationCode: segment.toStationCode,
-            toStationName: segment.toStationName,
-            trainCount: segment.trainCount,
-            lastSeen: segment.lastSeen,
-          },
-        ),
-      );
-
-    setSourceData(mapRef.current, ROUTE_SOURCE_ID, featureCollection(features));
-  }, [mapReady, routeSegmentsData]);
+    setSourceData(mapRef.current, ROUTE_SOURCE_ID, emptyCollection());
+  }, [mapReady]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
@@ -610,8 +568,8 @@ export default function TrainMap({
       coordinates.push([station.longitude, station.latitude]);
     }
 
-    return coordinates;
-  }, [journeyData, stationsByCode]);
+    return trackPathThrough(railLines, coordinates);
+  }, [journeyData, railLines, stationsByCode]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
@@ -676,7 +634,6 @@ export default function TrainMap({
   const mappedTrainCount =
     trainsData?.liveTrains?.filter((train) => train.latitude != null && train.longitude != null)
       .length ?? 0;
-  const routeCount = routeSegmentsData?.routeSegments?.length ?? 0;
   const stationCount = stationsData?.stations?.length ?? 0;
 
   return (
@@ -689,33 +646,14 @@ export default function TrainMap({
           </div>
         </div>
       ) : null}
-      <div className="pointer-events-none absolute bottom-4 left-4 max-w-[calc(100%-2rem)] rounded-lg border border-[var(--rail-border)] bg-[var(--rail-surface)]/95 px-3 py-2 shadow-lg backdrop-blur">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-[var(--rail-muted)]">
-          <span>
-            <span className="font-semibold text-white">{liveTrainCount}</span> live trains
-          </span>
-          <span>
-            <span className="font-semibold text-white">{mappedTrainCount}</span> mapped
-          </span>
-          <span>
-            <span className="font-semibold text-white">{stationCount}</span> stations
-          </span>
-          <span>
-            <span className="font-semibold text-white">{routeCount}</span> active links
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-[var(--rail-green)]" />
-            DART
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-blue-400" />
-            Mainline
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-orange-500" />
-            Suburban
-          </span>
-        </div>
+      <div className="map-status-bar">
+        <span className="map-status-title">
+          <i /> Track feed
+        </span>
+        <span>
+          {mappedTrainCount}/{liveTrainCount} trains plotted
+        </span>
+        <span className="hidden sm:inline">{stationCount} control points</span>
       </div>
     </div>
   );

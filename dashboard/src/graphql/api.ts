@@ -10,6 +10,10 @@ export interface MeUser extends User {
   created_at: string;
 }
 
+export interface SessionInfo {
+  user: MeUser | null;
+}
+
 export interface UsageInfo {
   used: number;
   limit: number | null;
@@ -100,6 +104,10 @@ export const api = {
 
   me() {
     return request<MeUser>("/auth/me");
+  },
+
+  session() {
+    return request<SessionInfo>("/auth/session");
   },
 
   checkout(price_id: string) {

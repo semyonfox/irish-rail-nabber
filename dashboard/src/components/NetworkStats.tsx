@@ -45,22 +45,19 @@ export default function NetworkStats() {
   const delayed = board.filter((row) => (row.lateMinutes ?? 0) >= 5).length;
   const severe = board.filter((row) => (row.lateMinutes ?? 0) >= 15).length;
 
-  const cards = [
+  const stats = [
     { label: "Live trains", value: trains.length, tone: "text-white" },
-    { label: "Late board", value: delayed, tone: "text-[var(--rail-orange)]" },
+    { label: "Delayed", value: delayed, tone: "text-[var(--rail-orange)]" },
     { label: "Severe", value: severe, tone: "text-[var(--rail-red)]" },
-    { label: "Stations", value: stations.length, tone: "text-white" },
+    { label: "Control points", value: stations.length, tone: "text-white" },
   ];
 
   return (
-    <div className="pointer-events-auto grid grid-cols-2 gap-2 md:flex md:gap-3">
-      {cards.map((card) => (
-        <div
-          key={card.label}
-          className="rounded-lg border border-[var(--rail-border)] bg-[var(--rail-surface)]/95 px-4 py-2 shadow-lg backdrop-blur"
-        >
-          <div className="text-xs text-[var(--rail-muted)]">{card.label}</div>
-          <div className={`text-lg font-semibold ${card.tone}`}>{card.value}</div>
+    <div className="network-readout pointer-events-auto" aria-label="Live network summary">
+      {stats.map((stat) => (
+        <div key={stat.label} className="network-readout-item">
+          <span className={`network-readout-value ${stat.tone}`}>{stat.value}</span>
+          <span className="network-readout-label">{stat.label}</span>
         </div>
       ))}
     </div>

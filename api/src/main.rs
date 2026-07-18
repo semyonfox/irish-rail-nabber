@@ -87,6 +87,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/login", post(auth::handlers::login))
         .route("/refresh", post(auth::handlers::refresh))
         .route("/logout", post(auth::handlers::logout))
+        .route("/session", get(auth::handlers::session))
         .route("/me", get(auth::handlers::me));
 
     let billing_routes = Router::new()
