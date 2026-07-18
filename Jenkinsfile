@@ -11,7 +11,7 @@ pipeline {
   }
 
   environment {
-    DOCKER_BUILDKIT         = '0'
+    DOCKER_BUILDKIT         = '1'
     COMPOSE_PROJECT_NAME    = 'irish-rail-nabber'
     ENV_FILE                = '/home/semyon/jenkins/env/irish-rail-nabber.env'
     CLOUDFLARE_TUNNEL_TOKEN = credentials('cloudflare-tunnel-token')
