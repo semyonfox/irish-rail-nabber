@@ -46,6 +46,11 @@ pub struct MeResponse {
 }
 
 #[derive(Debug, Serialize)]
+pub struct SessionResponse {
+    pub user: Option<MeResponse>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct ErrorResponse {
     pub error: String,
 }
@@ -243,6 +248,14 @@ pub async fn refresh(
     State(state): State<AppState>,
     jar: CookieJar,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    let (jar, user) = rotate_refresh_token(&state, jar).await?;
+    Ok((jar, Json(as_user_response(&user))))
+}
+
+async fn rotate_refresh_token(
+    state: &AppState,
+    jar: CookieJar,
+) -> Result<(CookieJar, crate::models::UserRow), (StatusCode, Json<ErrorResponse>)> {
     let raw_refresh = jar
         .get("refresh_token")
         .ok_or_else(|| json_error(StatusCode::UNAUTHORIZED, "missing refresh token"))?
@@ -298,7 +311,7 @@ pub async fn refresh(
     let jar = jar
         .add(access_cookie(&new_access))
         .add(refresh_cookie(&new_refresh));
-    Ok((jar, Json(as_user_response(&user))))
+    Ok((jar, user))
 }
 
 pub async fn logout(
@@ -337,4 +350,33 @@ pub async fn me(
         stripe_customer_id: user.stripe_customer_id,
         created_at: user.created_at.to_rfc3339(),
     }))
+}
+
+pub async fn session(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Extension(auth_user): Extension<Option<AuthUser>>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    let (jar, user) = if let Some(auth_user) = auth_user {
+        let user = users::find_user_by_id(&state.pool, auth_user.id)
+            .await
+            .map_err(|_| json_error(StatusCode::INTERNAL_SERVER_ERROR, "database error"))?;
+        (jar, user)
+    } else if jar.get("refresh_token").is_some() {
+        let (jar, user) = rotate_refresh_token(&state, jar).await?;
+        (jar, Some(user))
+    } else {
+        (jar, None)
+    };
+
+    let user = user.map(|user| MeResponse {
+        id: user.id.to_string(),
+        email: user.email,
+        display_name: user.display_name,
+        role: user.role,
+        stripe_customer_id: user.stripe_customer_id,
+        created_at: user.created_at.to_rfc3339(),
+    });
+
+    Ok((jar, Json(SessionResponse { user })))
 }
