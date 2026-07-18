@@ -143,9 +143,7 @@ export default function Analytics() {
       <div className="mx-auto max-w-7xl space-y-5">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase text-[var(--rail-green)]">
-              Live network
-            </p>
+            <p className="text-xs font-semibold uppercase text-[var(--rail-green)]">Live network</p>
             <h1 className="text-2xl font-semibold text-white">Ireland live rail operations</h1>
           </div>
           <div className="rounded-lg border border-[var(--rail-border)] bg-[var(--rail-surface)] px-4 py-3 text-sm">
