@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
 import {
   Bar,
-  BarChart,
   CartesianGrid,
+  ComposedChart,
   Legend,
   Line,
   LineChart,
@@ -13,7 +13,7 @@ import {
 } from "recharts";
 import RequestError from "../components/RequestError";
 import { DELAY_HISTORY, STATIONS } from "../graphql/queries";
-import { CHART, CHART_TOOLTIP_STYLE, delayColor, formatPct } from "../utils/format";
+import { formatPct } from "../utils/format";
 import { usePollingQuery } from "../utils/usePollingQuery";
 
 type RangeId = "day" | "week" | "month" | "all";
@@ -240,7 +240,7 @@ export default function History() {
           </div>
         ) : (
           <div className="grid gap-5 xl:grid-cols-2">
-            <ChartFrame eyebrow="Delay trend" title="Average delay and disruption spikes">
+            <ChartFrame title="Delay trend" detail="Average delay and disruption spikes">
               <ResponsiveContainer width="100%" height={340}>
                 <ComposedChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
