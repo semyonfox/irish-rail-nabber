@@ -109,8 +109,8 @@ export const HOURLY_DELAYS = gql`
 `;
 
 export const DELAY_HISTORY = gql`
-  query DelayHistory($stationCode: String, $hours: Int, $bucket: String) {
-    delayHistory(stationCode: $stationCode, hours: $hours, bucket: $bucket) {
+  query DelayHistory($stationCode: String, $hours: Int, $bucket: String, $since: String) {
+    delayHistory(stationCode: $stationCode, hours: $hours, bucket: $bucket, since: $since) {
       bucket
       avgLateMinutes
       p95LateMinutes

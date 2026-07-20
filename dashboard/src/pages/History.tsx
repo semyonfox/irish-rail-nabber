@@ -1,25 +1,13 @@
 import { useMemo, useState } from "react";
 import HistoryCharts from "../components/HistoryCharts";
 import RequestError from "../components/RequestError";
-import { DELAY_HISTORY, STATIONS } from "../graphql/queries";
+import { STATIONS } from "../graphql/queries";
 import { formatPct } from "../utils/format";
+import { type StoredDelayPoint, useHistorySync } from "../utils/useHistorySync";
 import { usePollingQuery } from "../utils/usePollingQuery";
 
 type RangeId = "day" | "week" | "month" | "all";
 type Bucket = "hour" | "day" | "week";
-
-interface DelayPoint {
-  bucket: string;
-  avgLateMinutes: number;
-  p95LateMinutes: number;
-  maxLateMinutes: number;
-  onTimePct: number;
-  eventCount: number;
-}
-
-interface DelayHistoryData {
-  delayHistory: DelayPoint[];
-}
 
 interface StationData {
   stations: { stationCode: string; stationDesc: string }[];
@@ -47,6 +35,40 @@ function bucketLabel(value: string, bucket: Bucket) {
   return new Intl.DateTimeFormat("en-IE", { day: "numeric", month: "short" }).format(date);
 }
 
+function aggregateHistory(points: StoredDelayPoint[], hours: number, bucket: Bucket) {
+  const cutoff = hours === 0 ? 0 : Date.now() - hours * 60 * 60 * 1000;
+  const groups = new Map<string, StoredDelayPoint[]>();
+
+  for (const point of points) {
+    const date = new Date(point.bucket);
+    if (date.getTime() < cutoff) continue;
+    if (bucket === "day") date.setUTCHours(0, 0, 0, 0);
+    if (bucket === "week") {
+      date.setUTCHours(0, 0, 0, 0);
+      date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7));
+    }
+    const key = bucket === "hour" ? point.bucket : date.toISOString().slice(0, 19);
+    groups.set(key, [...(groups.get(key) ?? []), point]);
+  }
+
+  return [...groups.entries()].map(([groupBucket, values]) => {
+    const events = values.reduce((sum, value) => sum + value.eventCount, 0);
+    const weighted = (field: "avgLateMinutes" | "p95LateMinutes" | "onTimePct") =>
+      events === 0
+        ? 0
+        : values.reduce((sum, value) => sum + value[field] * value.eventCount, 0) / events;
+    return {
+      bucket: groupBucket,
+      label: bucketLabel(groupBucket, bucket),
+      avgLateMinutes: weighted("avgLateMinutes"),
+      p95LateMinutes: weighted("p95LateMinutes"),
+      maxLateMinutes: Math.max(...values.map((value) => value.maxLateMinutes)),
+      onTimePct: weighted("onTimePct"),
+      eventCount: events,
+    };
+  });
+}
+
 export default function History() {
   const [range, setRange] = useState<RangeId>("week");
   const [bucket, setBucket] = useState<Bucket>("hour");
@@ -54,20 +76,12 @@ export default function History() {
   const selectedRange = ranges.find((item) => item.id === range) ?? ranges[1];
   const selectedStation = stationCode || undefined;
 
-  const [{ data, fetching, error }, retry] = usePollingQuery<DelayHistoryData>({
-    query: DELAY_HISTORY,
-    variables: { stationCode: selectedStation, hours: selectedRange.hours, bucket },
-    pollInterval: 300000,
-  });
+  const { points, fetching, error, retry } = useHistorySync(selectedStation);
   const [{ data: stationData }] = usePollingQuery<StationData>({ query: STATIONS });
 
   const chartData = useMemo(
-    () =>
-      (data?.delayHistory ?? []).map((point) => ({
-        ...point,
-        label: bucketLabel(point.bucket, bucket),
-      })),
-    [bucket, data?.delayHistory],
+    () => aggregateHistory(points, selectedRange.hours, bucket),
+    [bucket, points, selectedRange.hours],
   );
   const avgDelay =
     chartData.length === 0
@@ -79,7 +93,7 @@ export default function History() {
       ? 0
       : chartData.reduce((total, point) => total + point.onTimePct * point.eventCount, 0) /
         chartData.reduce((total, point) => total + point.eventCount, 0);
-  const peak = chartData.reduce<DelayPoint | undefined>(
+  const peak = chartData.reduce<(typeof chartData)[number] | undefined>(
     (highest, point) =>
       !highest || point.p95LateMinutes > highest.p95LateMinutes ? point : highest,
     undefined,
@@ -91,7 +105,7 @@ export default function History() {
     setBucket(nextRange.bucket);
   }
 
-  if (error && !data) {
+  if (error && points.length === 0) {
     return (
       <div className="mx-auto max-w-4xl p-6">
         <RequestError

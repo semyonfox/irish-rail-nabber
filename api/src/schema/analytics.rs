@@ -33,6 +33,7 @@ impl AnalyticsQuery {
         station_code: Option<String>,
         #[graphql(default = 168)] hours: i32,
         #[graphql(default = "hour")] bucket: String,
+        since: Option<String>,
     ) -> Result<Vec<DelayHistoryPoint>> {
         ensure_premium(ctx)?;
         let pool = ctx.data::<PgPool>()?;
@@ -44,13 +45,20 @@ impl AnalyticsQuery {
         if !matches!(bucket.as_str(), "hour" | "day" | "week") {
             return Err("bucket must be hour, day, or week".into());
         }
+        let since = since
+            .map(|value| {
+                chrono::NaiveDateTime::parse_from_str(&value, "%Y-%m-%dT%H:%M:%S")
+                    .map_err(|_| async_graphql::Error::new("since must be an ISO local timestamp"))
+            })
+            .transpose()?;
 
         let station_code = station_code.map(|code| code.trim().to_uppercase());
         let cache_key = format!(
-            "{}:{}:{}",
+            "{}:{}:{}:{}",
             station_code.as_deref().unwrap_or("*"),
             hours,
-            bucket
+            bucket,
+            since.map(|value| value.to_string()).unwrap_or_default()
         );
         let pool = pool.clone();
         let result = cache.delay_history.try_get_with(cache_key, async move {
@@ -65,6 +73,7 @@ impl AnalyticsQuery {
              FROM station_events
              WHERE ($1 = 0 OR fetched_at > NOW() - make_interval(hours => $1))
                 AND ($2 IS NULL OR station_code = $2)
+                AND ($4 IS NULL OR fetched_at >= $4)
                 AND late_minutes IS NOT NULL
                 AND NOT (
                     ABS(late_minutes) > 720
@@ -81,6 +90,7 @@ impl AnalyticsQuery {
         .bind(hours)
         .bind(station_code)
         .bind(bucket)
+        .bind(since)
             .fetch_all(&pool)
             .await?;
 
