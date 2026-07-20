@@ -109,7 +109,7 @@ export default function StationDetail({ station, onClose }: Props) {
         <button
           type="button"
           onClick={onClose}
-          className="rounded-lg px-2 py-1.5 text-sm text-[var(--rail-muted)] hover:bg-[var(--rail-bg)] hover:text-white"
+          className="px-2 py-1.5 text-sm text-[var(--rail-muted)] hover:bg-[var(--rail-bg)] hover:text-white"
           aria-label="Close station panel"
         >
           X
@@ -117,26 +117,26 @@ export default function StationDetail({ station, onClose }: Props) {
       </div>
 
       <div className="mb-4 grid grid-cols-2 gap-2 text-sm">
-        <div className="rounded-lg border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3">
+        <div className="border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3">
           <div className="text-xs text-[var(--rail-muted)]">Due inside 10m</div>
           <div className="text-xl font-semibold text-white">{dueSoon.length}</div>
         </div>
-        <div className="rounded-lg border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3">
+        <div className="border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3">
           <div className="text-xs text-[var(--rail-muted)]">Delayed</div>
-          <div className="text-xl font-semibold text-[var(--rail-orange)]">{delayed.length}</div>
+          <div className="text-xl font-semibold text-[var(--rail-warn)]">{delayed.length}</div>
         </div>
-        <div className="rounded-lg border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3">
+        <div className="border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3">
           <div className="text-xs text-[var(--rail-muted)]">Severe</div>
           <div className="text-xl font-semibold text-[var(--rail-red)]">{severe.length}</div>
         </div>
-        <div className="rounded-lg border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3">
+        <div className="border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3">
           <div className="text-xs text-[var(--rail-muted)]">Worst delay</div>
           <div className="text-xl font-semibold text-white">+{worstDelay}m</div>
         </div>
       </div>
 
       {nextEvent && (
-        <div className="mb-4 rounded-lg border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3">
+        <div className="mb-4 border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3">
           <div className="mb-1 text-xs uppercase text-[var(--rail-muted)]">Next movement</div>
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -169,7 +169,7 @@ export default function StationDetail({ station, onClose }: Props) {
 
       <div className="space-y-2">
         {board.length === 0 && !fetching && (
-          <p className="rounded-lg border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3 text-sm text-[var(--rail-muted)]">
+          <p className="border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3 text-sm text-[var(--rail-muted)]">
             No live board rows in the latest poll window.
           </p>
         )}
@@ -181,7 +181,7 @@ export default function StationDetail({ station, onClose }: Props) {
           return (
             <div
               key={`${event.trainCode}-${scheduled}-${expected}`}
-              className="rounded-lg border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3 hover:border-slate-500"
+              className="border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3 hover:border-[var(--rail-border-strong)]"
             >
               <div className="mb-1 flex items-center justify-between gap-3">
                 <div className="min-w-0">

@@ -18,7 +18,7 @@ const History = lazy(() => import("./pages/History"));
 
 function RouteFallback() {
   return (
-    <div className="flex h-full items-center justify-center p-8 text-sm text-slate-500">
+    <div className="flex h-full items-center justify-center p-8 text-sm text-[var(--rail-muted)]">
       Loading…
     </div>
   );

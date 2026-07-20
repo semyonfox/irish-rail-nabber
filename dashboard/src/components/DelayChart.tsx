@@ -1,16 +1,18 @@
 import {
   Bar,
-  ComposedChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
+  BarChart,
   CartesianGrid,
   Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
 } from "recharts";
 import { HOURLY_DELAYS } from "../graphql/queries";
 import { usePollingQuery } from "../utils/usePollingQuery";
+import { CHART, CHART_TOOLTIP_STYLE } from "../utils/format";
 
 interface HourlyDelay {
   hour: string;
@@ -80,72 +82,65 @@ export default function DelayChart({ stationCode, hours = 24 }: Props) {
     );
   }
 
+  const tooltipLabel = (_: unknown, payload?: readonly { payload?: { hour?: string } }[]) =>
+    payload?.[0]?.payload?.hour?.replace("T", " ") ?? "";
+
   return (
-    <ResponsiveContainer width="100%" height={320}>
-      <ComposedChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-        <XAxis dataKey="label" stroke="#94a3b8" fontSize={12} tickLine={false} />
-        <YAxis
-          yAxisId="delay"
-          stroke="#94a3b8"
-          fontSize={12}
-          tickLine={false}
-          label={{
-            value: "Avg delay (min)",
-            angle: -90,
-            position: "insideLeft",
-            style: { fill: "#94a3b8", fontSize: 12 },
-          }}
-        />
-        <YAxis
-          yAxisId="events"
-          orientation="right"
-          stroke="#64748b"
-          fontSize={12}
-          tickLine={false}
-          axisLine={false}
-        />
-        <Tooltip
-          labelFormatter={(_, payload) => payload?.[0]?.payload?.hour?.replace("T", " ") ?? ""}
-          formatter={(value, name) => {
-            if (name === "Train-stops") return [Number(value).toLocaleString(), name];
-            return [`${Number(value).toFixed(1)} min`, name];
-          }}
-          contentStyle={{
-            backgroundColor: "#1e293b",
-            border: "1px solid #334155",
-            borderRadius: "8px",
-            color: "#f1f5f9",
-          }}
-        />
-        <Legend wrapperStyle={{ color: "#cbd5e1", fontSize: 12 }} />
-        <Bar
-          yAxisId="events"
-          dataKey="events"
-          name="Train-stops"
-          fill="#334155"
-          radius={[3, 3, 0, 0]}
-        />
-        <Line
-          yAxisId="delay"
-          type="monotone"
-          dataKey="avgDelay"
-          stroke="#22c55e"
-          strokeWidth={2}
-          dot={false}
-          name="Weighted avg delay"
-        />
-        <Line
-          yAxisId="delay"
-          type="monotone"
-          dataKey="maxDelay"
-          stroke="#f97316"
-          strokeWidth={2}
-          strokeDasharray="4 4"
-          dot={false}
-          name="Worst stop"
-        />
-      </ComposedChart>
-    </ResponsiveContainer>
+    <div>
+      <ResponsiveContainer width="100%" height={240}>
+        <LineChart
+          data={chartData}
+          syncId="delay-load"
+          margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+        >
+          <CartesianGrid stroke={CHART.grid} vertical={false} />
+          <XAxis dataKey="label" hide />
+          <YAxis stroke={CHART.axis} fontSize={11} tickLine={false} unit="m" width={44} />
+          <Tooltip
+            labelFormatter={tooltipLabel}
+            formatter={(value, name) => [`${Number(value).toFixed(1)} min`, name]}
+            contentStyle={CHART_TOOLTIP_STYLE}
+          />
+          <Legend wrapperStyle={{ color: CHART.axis, fontSize: 11 }} />
+          <Line
+            type="monotone"
+            dataKey="avgDelay"
+            stroke={CHART.series1}
+            strokeWidth={2}
+            dot={false}
+            name="Weighted avg delay"
+          />
+          <Line
+            type="monotone"
+            dataKey="maxDelay"
+            stroke={CHART.series2}
+            strokeWidth={2}
+            strokeDasharray="4 4"
+            dot={false}
+            name="Worst stop"
+          />
+        </LineChart>
+      </ResponsiveContainer>
+      <div className="px-2 pt-1 text-[9px] uppercase tracking-widest text-[var(--rail-muted)]">
+        Board observations / hr
+      </div>
+      <ResponsiveContainer width="100%" height={72}>
+        <BarChart
+          data={chartData}
+          syncId="delay-load"
+          margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
+        >
+          <XAxis dataKey="label" stroke={CHART.axis} fontSize={10} tickLine={false} />
+          <YAxis hide />
+          <Tooltip
+            labelFormatter={tooltipLabel}
+            formatter={(value) => [Number(value).toLocaleString(), "Observations"]}
+            contentStyle={CHART_TOOLTIP_STYLE}
+            cursor={{ fill: "rgba(255,255,255,0.04)" }}
+          />
+          <Bar dataKey="events" name="Observations" fill={CHART.volume} radius={[2, 2, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
   );
 }

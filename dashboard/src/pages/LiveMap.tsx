@@ -40,7 +40,7 @@ export default function LiveMap() {
           <i /> LIVE
         </span>
       </div>
-      <div className="relative min-h-0 flex-1 overflow-hidden border border-[var(--rail-border)] bg-[var(--rail-surface)] shadow-2xl">
+      <div className="relative min-h-0 flex-1 overflow-hidden border border-[var(--rail-border)] bg-[var(--rail-surface)]">
         <TrainMap
           selectedTrainCode={selectedTrain}
           selectedStationCode={selectedStation?.stationCode}
@@ -60,8 +60,6 @@ export default function LiveMap() {
         {selectedRoute && (
           <RouteDetail route={selectedRoute} onClose={() => setSelectedRoute(null)} />
         )}
-        <div className="screen-corner screen-corner-tl" />
-        <div className="screen-corner screen-corner-br" />
       </div>
     </div>
   );
