@@ -19,7 +19,7 @@ const DB_NAME = "irish-rail-history";
 const STORE_NAME = "snapshots";
 
 function openDatabase(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
+  return new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, 1);
     request.onupgradeneeded = () => request.result.createObjectStore(STORE_NAME);
     request.onsuccess = () => resolve(request.result);
@@ -29,9 +29,10 @@ function openDatabase(): Promise<IDBDatabase> {
 
 async function readSnapshot(scope: string): Promise<StoredDelayPoint[]> {
   const database = await openDatabase();
-  return new Promise((resolve, reject) => {
+  return new Promise<StoredDelayPoint[]>((resolve, reject) => {
     const request = database.transaction(STORE_NAME).objectStore(STORE_NAME).get(scope);
-    request.onsuccess = () => resolve(request.result ?? []);
+    request.onsuccess = () =>
+      resolve((request.result as StoredDelayPoint[] | undefined) ?? []);
     request.onerror = () => reject(request.error);
   }).finally(() => database.close());
 }
