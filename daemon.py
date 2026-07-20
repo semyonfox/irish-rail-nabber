@@ -1120,6 +1120,50 @@ class IrishRailDaemon:
     # schedulers
     # ====================================================================
 
+    async def refresh_delay_history_rollups(self):
+        """Recompute only recent mutable hourly history buckets."""
+        async with self.pool.connection() as conn:
+            cursor = await conn.execute(
+                """INSERT INTO delay_history_hourly (
+                       bucket, scope_code, avg_late_minutes, p95_late_minutes,
+                       max_late_minutes, on_time_pct, event_count, refreshed_at
+                   )
+                   SELECT
+                       date_trunc('hour', fetched_at),
+                       CASE WHEN GROUPING(station_code) = 1 THEN '' ELSE station_code END,
+                       AVG(late_minutes)::float8,
+                       percentile_cont(0.95) WITHIN GROUP (ORDER BY late_minutes)::float8,
+                       MAX(late_minutes),
+                       (COUNT(*) FILTER (WHERE late_minutes <= 5) * 100.0 / COUNT(*))::float8,
+                       COUNT(*),
+                       NOW()
+                   FROM station_events
+                   WHERE fetched_at >= date_trunc('hour', NOW()) - INTERVAL '2 hours'
+                       AND late_minutes IS NOT NULL
+                       AND station_code IS NOT NULL
+                       AND NOT (
+                           ABS(late_minutes) > 720
+                           OR (
+                               late_minutes < -60
+                               AND COALESCE(expected_arrival, expected_departure) IS NOT NULL
+                               AND COALESCE(NULLIF(scheduled_arrival, TIME '00:00'), NULLIF(scheduled_departure, TIME '00:00'), scheduled_arrival, scheduled_departure) IS NOT NULL
+                               AND COALESCE(expected_arrival, expected_departure) < COALESCE(NULLIF(scheduled_arrival, TIME '00:00'), NULLIF(scheduled_departure, TIME '00:00'), scheduled_arrival, scheduled_departure)
+                           )
+                       )
+                   GROUP BY GROUPING SETS (
+                       (date_trunc('hour', fetched_at), station_code),
+                       (date_trunc('hour', fetched_at))
+                   )
+                   ON CONFLICT (scope_code, bucket) DO UPDATE SET
+                       avg_late_minutes = EXCLUDED.avg_late_minutes,
+                       p95_late_minutes = EXCLUDED.p95_late_minutes,
+                       max_late_minutes = EXCLUDED.max_late_minutes,
+                       on_time_pct = EXCLUDED.on_time_pct,
+                       event_count = EXCLUDED.event_count,
+                       refreshed_at = EXCLUDED.refreshed_at"""
+            )
+            logger.info(f"history rollups: {cursor.rowcount} hourly scopes refreshed")
+
     async def schedule_task(self, name: str, func, interval_seconds: int):
         """repeatedly call a function at fixed intervals, respecting shutdown"""
         logger.info(f"starting task '{name}' every {interval_seconds}s")
@@ -1165,6 +1209,11 @@ class IrishRailDaemon:
                 asyncio.create_task(
                     self.schedule_task(
                         "hash-cleanup", self.cleanup_stale_hashes, HASH_CLEANUP_INTERVAL
+                    )
+                ),
+                asyncio.create_task(
+                    self.schedule_task(
+                        "history-rollups", self.refresh_delay_history_rollups, 300
                     )
                 ),
             ]
