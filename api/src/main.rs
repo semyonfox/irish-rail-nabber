@@ -21,7 +21,7 @@ use std::path::Path;
 use tower_http::cors::CorsLayer;
 
 use models::AuthUser;
-use state::AppState;
+use state::{AppState, QueryCache};
 
 async fn graphql_handler(
     State(state): State<AppState>,
@@ -66,7 +66,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pool = db::create_pool().await;
     tracing::info!("connected to database");
 
-    let schema = schema::build_schema(pool.clone());
+    let schema = schema::build_schema(pool.clone(), QueryCache::new());
     let app_state = AppState { pool, schema };
 
     let cors_origins = std::env::var("CORS_ORIGINS")
