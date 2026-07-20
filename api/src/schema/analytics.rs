@@ -60,35 +60,26 @@ impl AnalyticsQuery {
             bucket,
             since.map(|value| value.to_string()).unwrap_or_default()
         );
+        let scope_code = station_code.unwrap_or_default();
         let pool = pool.clone();
         let result = cache.delay_history.try_get_with(cache_key, async move {
             let rows = sqlx::query_as::<_, DelayHistoryRow>(
             "SELECT
-                date_trunc($3, fetched_at) AS bucket,
-                AVG(late_minutes)::float8 AS avg_late_minutes,
-                percentile_cont(0.95) WITHIN GROUP (ORDER BY late_minutes)::float8 AS p95_late_minutes,
-                MAX(late_minutes) AS max_late_minutes,
-                (COUNT(*) FILTER (WHERE late_minutes <= 5) * 100.0 / NULLIF(COUNT(*), 0))::float8 AS on_time_pct,
-                COUNT(*) AS event_count
-             FROM station_events
-             WHERE ($1 = 0 OR fetched_at > NOW() - make_interval(hours => $1))
-                AND ($2 IS NULL OR station_code = $2)
-                AND ($4 IS NULL OR fetched_at >= $4)
-                AND late_minutes IS NOT NULL
-                AND NOT (
-                    ABS(late_minutes) > 720
-                    OR (
-                        late_minutes < -60
-                        AND COALESCE(expected_arrival, expected_departure) IS NOT NULL
-                        AND COALESCE(NULLIF(scheduled_arrival, TIME '00:00'), NULLIF(scheduled_departure, TIME '00:00'), scheduled_arrival, scheduled_departure) IS NOT NULL
-                        AND COALESCE(expected_arrival, expected_departure) < COALESCE(NULLIF(scheduled_arrival, TIME '00:00'), NULLIF(scheduled_departure, TIME '00:00'), scheduled_arrival, scheduled_departure)
-                    )
-                )
+                date_trunc($3, bucket) AS bucket,
+                (SUM(avg_late_minutes * event_count) / NULLIF(SUM(event_count), 0))::float8 AS avg_late_minutes,
+                (SUM(p95_late_minutes * event_count) / NULLIF(SUM(event_count), 0))::float8 AS p95_late_minutes,
+                MAX(max_late_minutes) AS max_late_minutes,
+                (SUM(on_time_pct * event_count) / NULLIF(SUM(event_count), 0))::float8 AS on_time_pct,
+                SUM(event_count)::int8 AS event_count
+             FROM delay_history_hourly
+             WHERE ($1 = 0 OR bucket > NOW() - make_interval(hours => $1))
+                AND scope_code = $2
+                AND ($4 IS NULL OR bucket >= $4)
              GROUP BY 1
              ORDER BY 1",
         )
         .bind(hours)
-        .bind(station_code)
+        .bind(scope_code)
         .bind(bucket)
         .bind(since)
             .fetch_all(&pool)

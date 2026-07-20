@@ -213,6 +213,21 @@ WITH NO DATA;
 CREATE INDEX IF NOT EXISTS idx_hourly_delays_hour ON hourly_delays(hour DESC);
 CREATE INDEX IF NOT EXISTS idx_hourly_delays_station ON hourly_delays(station_code, hour DESC);
 
+CREATE TABLE IF NOT EXISTS delay_history_hourly (
+    bucket TIMESTAMP NOT NULL,
+    scope_code TEXT NOT NULL,
+    avg_late_minutes DOUBLE PRECISION NOT NULL,
+    p95_late_minutes DOUBLE PRECISION NOT NULL,
+    max_late_minutes INTEGER NOT NULL,
+    on_time_pct DOUBLE PRECISION NOT NULL,
+    event_count BIGINT NOT NULL,
+    refreshed_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (scope_code, bucket)
+);
+
+CREATE INDEX IF NOT EXISTS idx_delay_history_hourly_bucket
+    ON delay_history_hourly (bucket DESC);
+
 -- Keep completed hourly buckets fresh without repeatedly scanning old history.
 SELECT remove_continuous_aggregate_policy('hourly_delays', if_exists => TRUE);
 SELECT add_continuous_aggregate_policy('hourly_delays',
