@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
 import {
   Bar,
+  BarChart,
   CartesianGrid,
-  ComposedChart,
   Legend,
   Line,
   LineChart,
@@ -13,7 +13,7 @@ import {
 } from "recharts";
 import RequestError from "../components/RequestError";
 import { DELAY_HISTORY, STATIONS } from "../graphql/queries";
-import { formatPct } from "../utils/format";
+import { CHART, CHART_TOOLTIP_STYLE, delayColor, formatPct } from "../utils/format";
 import { usePollingQuery } from "../utils/usePollingQuery";
 
 type RangeId = "day" | "week" | "month" | "all";
@@ -59,19 +59,19 @@ function bucketLabel(value: string, bucket: Bucket) {
 }
 
 function ChartFrame({
-  eyebrow,
   title,
+  detail,
   children,
 }: {
-  eyebrow: string;
   title: string;
+  detail: string;
   children: React.ReactNode;
 }) {
   return (
-    <section className="overflow-hidden rounded-lg border border-[var(--rail-border)] bg-[var(--rail-surface)]">
-      <div className="border-b border-[var(--rail-border)] px-4 py-3">
-        <p className="text-xs font-semibold uppercase text-[var(--rail-green)]">{eyebrow}</p>
-        <h2 className="text-lg font-semibold text-white">{title}</h2>
+    <section className="term-panel overflow-hidden">
+      <div className="term-panel-head">
+        {title}
+        <small>{detail}</small>
       </div>
       <div className="px-2 py-4">{children}</div>
     </section>
@@ -136,7 +136,7 @@ export default function History() {
 
   return (
     <div className="h-full overflow-auto p-4 md:p-6">
-      <div className="mx-auto max-w-7xl space-y-5">
+      <div className="mx-auto max-w-7xl space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase text-[var(--rail-green)]">
@@ -147,12 +147,9 @@ export default function History() {
               Explore retained Irish Rail board observations by network or station.
             </p>
           </div>
-          <div className="text-xs text-[var(--rail-muted)]">
-            Updates every 5 minutes · On time means within 5 minutes
-          </div>
         </div>
 
-        <section className="flex flex-wrap items-end gap-4 rounded-lg border border-[var(--rail-border)] bg-[var(--rail-surface)] p-4">
+        <section className="term-panel flex flex-wrap items-end gap-4 p-3">
           <div>
             <label
               className="mb-2 block text-xs font-semibold uppercase text-[var(--rail-muted)]"
@@ -164,7 +161,7 @@ export default function History() {
               id="history-range"
               value={range}
               onChange={(event) => changeRange(event.target.value as RangeId)}
-              className="rounded border border-[var(--rail-border)] bg-[var(--rail-bg)] px-3 py-2 text-sm text-white"
+              className="term-control"
             >
               {ranges.map((item) => (
                 <option key={item.id} value={item.id}>
@@ -184,7 +181,7 @@ export default function History() {
               id="history-bucket"
               value={bucket}
               onChange={(event) => setBucket(event.target.value as Bucket)}
-              className="rounded border border-[var(--rail-border)] bg-[var(--rail-bg)] px-3 py-2 text-sm text-white"
+              className="term-control"
             >
               <option value="hour">Hourly</option>
               <option value="day">Daily</option>
@@ -202,7 +199,7 @@ export default function History() {
               id="history-station"
               value={stationCode}
               onChange={(event) => setStationCode(event.target.value)}
-              className="w-full rounded border border-[var(--rail-border)] bg-[var(--rail-bg)] px-3 py-2 text-sm text-white"
+              className="term-control w-full"
             >
               <option value="">All-Ireland network</option>
               {(stationData?.stations ?? []).map((station) => (
@@ -238,7 +235,7 @@ export default function History() {
         {fetching && chartData.length === 0 ? (
           <div className="py-16 text-center text-[var(--rail-muted)]">Loading history…</div>
         ) : chartData.length === 0 ? (
-          <div className="rounded-lg border border-[var(--rail-border)] bg-[var(--rail-surface)] py-16 text-center text-[var(--rail-muted)]">
+          <div className="term-panel py-16 text-center text-[var(--rail-muted)]">
             No delay observations are available for this selection.
           </div>
         ) : (
@@ -299,7 +296,7 @@ export default function History() {
               </ResponsiveContainer>
             </ChartFrame>
 
-            <ChartFrame eyebrow="Reliability" title="On-time performance over time">
+            <ChartFrame title="Reliability" detail="Share of stops within 5 minutes">
               <ResponsiveContainer width="100%" height={340}>
                 <LineChart data={chartData} margin={{ top: 8, right: 20, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#334155" />

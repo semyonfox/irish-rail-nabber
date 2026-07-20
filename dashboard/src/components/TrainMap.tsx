@@ -227,18 +227,18 @@ export default function TrainMap({
             {
               id: "control-background",
               type: "background",
-              paint: { "background-color": "#07100d" },
+              paint: { "background-color": "#0a0c0b" },
             },
             {
               id: "osm",
               type: "raster",
               source: "osm",
               paint: {
-                "raster-opacity": 0.72,
-                "raster-saturation": -0.35,
+                "raster-opacity": 0.6,
+                "raster-saturation": -0.75,
                 "raster-contrast": 0.08,
                 "raster-brightness-min": 0.08,
-                "raster-brightness-max": 0.78,
+                "raster-brightness-max": 0.72,
               },
             },
           ],
@@ -291,10 +291,9 @@ export default function TrainMap({
           type: "line",
           source: SELECTED_ROUTE_SOURCE_ID,
           paint: {
-            "line-color": "#facc15",
-            "line-opacity": 0.95,
-            "line-width": 5,
-            "line-blur": 0.5,
+            "line-color": "#fab219",
+            "line-opacity": 0.9,
+            "line-width": 4,
           },
         });
 
@@ -304,19 +303,9 @@ export default function TrainMap({
           source: STATION_SOURCE_ID,
           paint: {
             "circle-radius": STATION_RADIUS,
-            "circle-color": [
-              "match",
-              ["get", "stationType"],
-              "D",
-              "#22c55e",
-              "M",
-              "#38bdf8",
-              "S",
-              "#f59e0b",
-              "#94a3b8",
-            ],
-            "circle-opacity": 0.88,
-            "circle-stroke-color": ["case", ["get", "selected"], "#f8fafc", "#0f172a"],
+            "circle-color": ["case", ["get", "selected"], "#fab219", "#8b958e"],
+            "circle-opacity": 0.85,
+            "circle-stroke-color": "#0a0c0b",
             "circle-stroke-width": ["case", ["get", "selected"], 2.5, 1.25],
           },
         });
@@ -333,8 +322,8 @@ export default function TrainMap({
             "text-anchor": "top",
           },
           paint: {
-            "text-color": "#e2e8f0",
-            "text-halo-color": "#020617",
+            "text-color": "#d8ded9",
+            "text-halo-color": "#0a0c0b",
             "text-halo-width": 1.25,
           },
         });
@@ -345,8 +334,8 @@ export default function TrainMap({
           source: SELECTED_STOP_SOURCE_ID,
           paint: {
             "circle-radius": 5,
-            "circle-color": "#facc15",
-            "circle-stroke-color": "#020617",
+            "circle-color": "#fab219",
+            "circle-stroke-color": "#0a0c0b",
             "circle-stroke-width": 2,
           },
         });
@@ -357,9 +346,8 @@ export default function TrainMap({
           source: TRAIN_SOURCE_ID,
           paint: {
             "circle-radius": ["case", ["get", "selected"], 12, 8],
-            "circle-color": ["case", ["get", "selected"], "#facc15", "#f8fafc"],
-            "circle-opacity": ["case", ["get", "selected"], 0.35, 0.28],
-            "circle-blur": 0.25,
+            "circle-color": ["case", ["get", "selected"], "#fab219", "#d8ded9"],
+            "circle-opacity": ["case", ["get", "selected"], 0.3, 0.18],
           },
         });
 
@@ -369,18 +357,8 @@ export default function TrainMap({
           source: TRAIN_SOURCE_ID,
           paint: {
             "circle-radius": ["case", ["get", "selected"], 8, 5],
-            "circle-color": [
-              "match",
-              ["get", "trainType"],
-              "DART",
-              "#22c55e",
-              "Mainline",
-              "#60a5fa",
-              "Suburban",
-              "#f97316",
-              "#f8fafc",
-            ],
-            "circle-stroke-color": ["case", ["get", "selected"], "#facc15", "#020617"],
+            "circle-color": ["case", ["get", "selected"], "#fab219", "#e6ece8"],
+            "circle-stroke-color": "#0a0c0b",
             "circle-stroke-width": ["case", ["get", "selected"], 2.5, 1.5],
           },
         });
@@ -397,8 +375,8 @@ export default function TrainMap({
             "text-anchor": "top",
           },
           paint: {
-            "text-color": "#ffffff",
-            "text-halo-color": "#020617",
+            "text-color": "#d8ded9",
+            "text-halo-color": "#0a0c0b",
             "text-halo-width": 1.5,
           },
         });
@@ -641,7 +619,7 @@ export default function TrainMap({
       <div ref={containerRef} className="h-full w-full" />
       {mapError ? (
         <div className="absolute inset-0 flex items-center justify-center bg-[var(--rail-bg)]">
-          <div className="rounded-lg border border-[var(--rail-border)] bg-[var(--rail-surface)] px-4 py-3 text-sm text-[var(--rail-muted)]">
+          <div className="border border-[var(--rail-border)] bg-[var(--rail-surface)] px-4 py-3 text-sm text-[var(--rail-muted)]">
             Map unavailable
           </div>
         </div>
