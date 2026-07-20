@@ -255,7 +255,7 @@ impl From<HourlyDelayRow> for HourlyDelay {
     }
 }
 
-#[derive(SimpleObject)]
+#[derive(Clone, SimpleObject)]
 pub struct DelayHistoryPoint {
     pub bucket: String,
     pub avg_late_minutes: f64,
@@ -278,7 +278,7 @@ impl From<DelayHistoryRow> for DelayHistoryPoint {
     }
 }
 
-#[derive(SimpleObject)]
+#[derive(Clone, SimpleObject)]
 pub struct StationDelayStats {
     pub station_code: String,
     pub station_desc: String,
@@ -288,7 +288,7 @@ pub struct StationDelayStats {
     pub total_events: i64,
 }
 
-#[derive(SimpleObject)]
+#[derive(Clone, SimpleObject)]
 pub struct NetworkSummary {
     pub active_trains: i64,
     pub total_stations: i64,
@@ -297,7 +297,7 @@ pub struct NetworkSummary {
     pub last_updated: Option<String>,
 }
 
-#[derive(SimpleObject)]
+#[derive(Clone, SimpleObject)]
 pub struct RouteReliability {
     pub origin: String,
     pub destination: String,

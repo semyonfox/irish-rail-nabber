@@ -1,11 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useQuery, type AnyVariables, type DocumentInput } from "urql";
 
 // urql doesn't have a built-in pollInterval, so we roll our own
 // by re-executing the query on an interval.
-// uses cache-and-network for the base query to avoid infinite
-// re-fetch loops (network-only never caches, so each re-render
-// would trigger another fetch)
 export function usePollingQuery<
   Data = unknown,
   Variables extends AnyVariables = AnyVariables,
@@ -18,18 +15,44 @@ export function usePollingQuery<
   const [result, reexecute] = useQuery<Data, Variables>({
     query: opts.query,
     variables: opts.variables as Variables,
-    requestPolicy: "cache-and-network",
+    requestPolicy: "cache-first",
     pause: opts.pause,
   });
+
+  const fetchingRef = useRef(result.fetching);
+  fetchingRef.current = result.fetching;
 
   useEffect(() => {
     if (!opts.pollInterval || opts.pause) return;
 
-    const id = setInterval(() => {
-      reexecute({ requestPolicy: "network-only" });
-    }, opts.pollInterval);
+    let timeout: ReturnType<typeof setTimeout>;
+    const schedule = () => {
+      // Small jitter prevents every mounted widget and browser tab from
+      // hammering the API at the same instant.
+      const jitter = 0.9 + Math.random() * 0.2;
+      timeout = setTimeout(poll, opts.pollInterval! * jitter);
+    };
+    const poll = () => {
+      if (document.visibilityState === "visible" && navigator.onLine && !fetchingRef.current) {
+        reexecute({ requestPolicy: "network-only" });
+      }
+      schedule();
+    };
+    const resume = () => {
+      if (document.visibilityState === "visible" && navigator.onLine && !fetchingRef.current) {
+        reexecute({ requestPolicy: "network-only" });
+      }
+    };
 
-    return () => clearInterval(id);
+    schedule();
+    document.addEventListener("visibilitychange", resume);
+    window.addEventListener("online", resume);
+
+    return () => {
+      clearTimeout(timeout);
+      document.removeEventListener("visibilitychange", resume);
+      window.removeEventListener("online", resume);
+    };
   }, [opts.pollInterval, opts.pause, reexecute]);
 
   return [result, reexecute] as const;

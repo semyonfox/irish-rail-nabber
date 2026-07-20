@@ -1,5 +1,6 @@
 use async_graphql::{Context, Object, Result};
 use sqlx::PgPool;
+use std::sync::Arc;
 
 use super::bounds::{
     clamp_i32, ANALYTICS_HOURS, ROUTE_RELIABILITY_HOURS, ROUTE_RELIABILITY_MIN_TRAINS,
@@ -8,6 +9,7 @@ use super::bounds::{
 use super::types::*;
 use crate::models::AuthUser;
 use crate::models::{DelayHistoryRow, FetchHistoryRow, HourlyDelayRow};
+use crate::state::QueryCache;
 
 #[derive(Default)]
 pub struct AnalyticsQuery;
@@ -34,6 +36,7 @@ impl AnalyticsQuery {
     ) -> Result<Vec<DelayHistoryPoint>> {
         ensure_premium(ctx)?;
         let pool = ctx.data::<PgPool>()?;
+        let cache = ctx.data::<QueryCache>()?;
 
         if !(hours == 0 || (1..=8_784).contains(&hours)) {
             return Err("hours must be between 1 and 8784, or 0 for all retained history".into());
@@ -42,7 +45,16 @@ impl AnalyticsQuery {
             return Err("bucket must be hour, day, or week".into());
         }
 
-        let rows = sqlx::query_as::<_, DelayHistoryRow>(
+        let station_code = station_code.map(|code| code.trim().to_uppercase());
+        let cache_key = format!(
+            "{}:{}:{}",
+            station_code.as_deref().unwrap_or("*"),
+            hours,
+            bucket
+        );
+        let pool = pool.clone();
+        let result = cache.delay_history.try_get_with(cache_key, async move {
+            let rows = sqlx::query_as::<_, DelayHistoryRow>(
             "SELECT
                 date_trunc($3, fetched_at) AS bucket,
                 AVG(late_minutes)::float8 AS avg_late_minutes,
@@ -69,10 +81,15 @@ impl AnalyticsQuery {
         .bind(hours)
         .bind(station_code)
         .bind(bucket)
-        .fetch_all(pool)
-        .await?;
+            .fetch_all(&pool)
+            .await?;
 
-        Ok(rows.into_iter().map(DelayHistoryPoint::from).collect())
+            Ok::<_, sqlx::Error>(Arc::new(
+                rows.into_iter().map(DelayHistoryPoint::from).collect(),
+            ))
+        }).await.map_err(|error| async_graphql::Error::new(error.to_string()))?;
+
+        Ok((*result).clone())
     }
 
     // hourly delay aggregates from the continuous aggregate
@@ -121,6 +138,7 @@ impl AnalyticsQuery {
     ) -> Result<Vec<StationDelayStats>> {
         ensure_premium(ctx)?;
         let pool = ctx.data::<PgPool>()?;
+        let cache = ctx.data::<QueryCache>()?;
         let bounded_hours = clamp_i32(hours, ANALYTICS_HOURS.0, ANALYTICS_HOURS.1);
         let bounded_limit = clamp_i32(
             limit,
@@ -128,7 +146,10 @@ impl AnalyticsQuery {
             STATION_DELAY_STATS_LIMIT.1,
         );
 
-        let rows = sqlx::query_as::<_, StationDelayStatsRow>(
+        let cache_key = format!("{bounded_hours}:{bounded_limit}");
+        let pool = pool.clone();
+        let result = cache.station_delay_stats.try_get_with(cache_key, async move {
+            let rows = sqlx::query_as::<_, StationDelayStatsRow>(
             "WITH recent AS (
                 SELECT DISTINCT ON (train_code, station_code)
                     train_code, station_code, late_minutes
@@ -162,28 +183,34 @@ impl AnalyticsQuery {
         )
         .bind(bounded_hours)
         .bind(bounded_limit as i64)
-        .fetch_all(pool)
-        .await?;
+            .fetch_all(&pool)
+            .await?;
 
-        Ok(rows
-            .into_iter()
-            .map(|r| StationDelayStats {
-                station_code: r.station_code,
-                station_desc: r.station_desc,
-                avg_late_minutes: r.avg_late_minutes.unwrap_or(0.0),
-                max_late_minutes: r.max_late_minutes.unwrap_or(0),
-                on_time_pct: r.on_time_pct.unwrap_or(0.0),
-                total_events: r.total_events.unwrap_or(0),
-            })
-            .collect())
+            Ok::<_, sqlx::Error>(Arc::new(rows
+                .into_iter()
+                .map(|r| StationDelayStats {
+                    station_code: r.station_code,
+                    station_desc: r.station_desc,
+                    avg_late_minutes: r.avg_late_minutes.unwrap_or(0.0),
+                    max_late_minutes: r.max_late_minutes.unwrap_or(0),
+                    on_time_pct: r.on_time_pct.unwrap_or(0.0),
+                    total_events: r.total_events.unwrap_or(0),
+                })
+                .collect()))
+        }).await.map_err(|error| async_graphql::Error::new(error.to_string()))?;
+
+        Ok((*result).clone())
     }
 
     // network-wide summary
     async fn network_summary(&self, ctx: &Context<'_>) -> Result<NetworkSummary> {
         ensure_premium(ctx)?;
         let pool = ctx.data::<PgPool>()?;
+        let cache = ctx.data::<QueryCache>()?;
 
-        let row = sqlx::query_as::<_, NetworkSummaryRow>(
+        let pool = pool.clone();
+        let result = cache.network_summary.try_get_with((), async move {
+            let row = sqlx::query_as::<_, NetworkSummaryRow>(
             "WITH active AS (
                 SELECT DISTINCT ON (train_code) train_code, fetched_at
                 FROM train_snapshots
@@ -217,18 +244,21 @@ impl AnalyticsQuery {
                 ) AS on_time_pct,
                 (SELECT MAX(fetched_at) FROM active) AS last_updated"
         )
-        .fetch_one(pool)
-        .await?;
+            .fetch_one(&pool)
+            .await?;
 
-        Ok(NetworkSummary {
-            active_trains: row.active_trains.unwrap_or(0),
-            total_stations: row.total_stations.unwrap_or(0),
-            avg_delay_minutes: row.avg_delay_minutes.unwrap_or(0.0),
-            on_time_pct: row.on_time_pct.unwrap_or(0.0),
-            last_updated: row
-                .last_updated
-                .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S").to_string()),
-        })
+            Ok::<_, sqlx::Error>(Arc::new(NetworkSummary {
+                active_trains: row.active_trains.unwrap_or(0),
+                total_stations: row.total_stations.unwrap_or(0),
+                avg_delay_minutes: row.avg_delay_minutes.unwrap_or(0.0),
+                on_time_pct: row.on_time_pct.unwrap_or(0.0),
+                last_updated: row
+                    .last_updated
+                    .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S").to_string()),
+            }))
+        }).await.map_err(|error| async_graphql::Error::new(error.to_string()))?;
+
+        Ok((*result).clone())
     }
 
     // route reliability grouped by origin-destination
@@ -240,6 +270,7 @@ impl AnalyticsQuery {
     ) -> Result<Vec<RouteReliability>> {
         ensure_premium(ctx)?;
         let pool = ctx.data::<PgPool>()?;
+        let cache = ctx.data::<QueryCache>()?;
         let bounded_hours = clamp_i32(hours, ROUTE_RELIABILITY_HOURS.0, ROUTE_RELIABILITY_HOURS.1);
         let bounded_min_trains = clamp_i32(
             min_trains,
@@ -247,7 +278,10 @@ impl AnalyticsQuery {
             ROUTE_RELIABILITY_MIN_TRAINS.1,
         );
 
-        let rows = sqlx::query_as::<_, RouteReliabilityRow>(
+        let cache_key = format!("{bounded_hours}:{bounded_min_trains}");
+        let pool = pool.clone();
+        let result = cache.route_reliability.try_get_with(cache_key, async move {
+            let rows = sqlx::query_as::<_, RouteReliabilityRow>(
             "WITH recent AS (
                 SELECT DISTINCT ON (train_code, station_code)
                     train_code, origin, destination, late_minutes
@@ -279,19 +313,22 @@ impl AnalyticsQuery {
         )
         .bind(bounded_hours)
         .bind(bounded_min_trains as i64)
-        .fetch_all(pool)
-        .await?;
+            .fetch_all(&pool)
+            .await?;
 
-        Ok(rows
-            .into_iter()
-            .map(|r| RouteReliability {
-                origin: r.origin,
-                destination: r.destination,
-                avg_late_minutes: r.avg_late_minutes.unwrap_or(0.0),
-                on_time_pct: r.on_time_pct.unwrap_or(0.0),
-                train_count: r.train_count.unwrap_or(0),
-            })
-            .collect())
+            Ok::<_, sqlx::Error>(Arc::new(rows
+                .into_iter()
+                .map(|r| RouteReliability {
+                    origin: r.origin,
+                    destination: r.destination,
+                    avg_late_minutes: r.avg_late_minutes.unwrap_or(0.0),
+                    on_time_pct: r.on_time_pct.unwrap_or(0.0),
+                    train_count: r.train_count.unwrap_or(0),
+                })
+                .collect()))
+        }).await.map_err(|error| async_graphql::Error::new(error.to_string()))?;
+
+        Ok((*result).clone())
     }
 
     // fetch status for monitoring
