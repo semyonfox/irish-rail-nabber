@@ -1,50 +1,53 @@
-# irish-rail-nabber
+# Irish Rail Nabber
 
-Real-time Irish Rail data, exposed as a GraphQL API, a live dashboard, and an AI chatbot you can ask questions in plain English.
+A multi-service rail-data platform built to explore asynchronous ingestion, time-series storage, Rust APIs and containerized delivery.
 
-Live at [traein.semyon.ie](https://traein.semyon.ie).
-
-## Quick start
-
-```bash
-git clone <repo>
-cd irish-rail-nabber
-cp docs/deployment.md /dev/null         # read it: env template lives there
-docker compose up -d
-sleep 30
-docker compose logs --tail=50
+```text
+Irish Rail realtime XML
+        │
+        ▼
+Python ingestion daemon ───► PostgreSQL / TimescaleDB
+                                      │
+                                      ▼
+                         Rust API (GraphQL + REST)
+                                      │
+                                      ▼
+                           React dashboard
 ```
 
-Verify with the smoke test in [docs/testing.md](docs/testing.md).
+## Engineering highlights
 
-## What's in the box
+- **Ingestion:** a Python daemon polls Irish Rail realtime endpoints, normalizes records, deduplicates updates with content hashes and writes time-series data.
+- **Backend:** Rust, Axum, Tokio, SQLx and async-graphql provide GraphQL queries alongside REST endpoints for account, billing and chat integrations.
+- **Data model:** PostgreSQL with TimescaleDB migrations models historical train positions, station data and time-series queries.
+- **Dashboard:** a React 19/Vite client provides live-map, station, history, analytics and account workflows.
+- **Operational shape:** Docker Compose defines the database, daemon, API, dashboard and tunnel services; the API exposes health checks.
+- **Quality gates:** GitHub Actions is configured to check and test Rust, type-check/build the dashboard, and compile Python sources. A Jenkinsfile defines container-image build and deployment stages.
 
-| Component | What it does | Doc |
-|-----------|--------------|-----|
-| **daemon** | Polls Irish Rail every 10–60s, dedups, writes to TimescaleDB | [docs/scraper.md](docs/scraper.md) |
-| **api** | Rust GraphQL + REST (auth, billing) on Axum | [docs/api.md](docs/api.md) |
-| **dashboard** | React 19 SPA: live map, station boards, account | [docs/dashboard.md](docs/dashboard.md) |
-| **chatbot** | Natural-language queries via tool calls against the DB | [docs/chatbot.md](docs/chatbot.md) |
-| **db** | PostgreSQL 18 + TimescaleDB, time-series hypertables | [docs/scraper.md#schema](docs/scraper.md#schema) |
+## Repository map
 
-System diagram and request flows: [docs/architecture.md](docs/architecture.md).
+| Path | Purpose |
+| --- | --- |
+| `daemon.py` | asynchronous Irish Rail ingestion and normalization |
+| `api/` | Rust/Axum GraphQL and REST service |
+| `dashboard/` | React client |
+| `migrations/` | PostgreSQL/TimescaleDB schema evolution |
+| `docs/` | architecture, API, data-ingestion and operations notes |
+| `docker-compose.yml` | local/container service topology |
 
-## Paid tiers
+## Development and scope
 
-| Tier | Price | What you get |
-|------|-------|--------------|
-| free | €0 | live map, station boards, anonymous GraphQL, 1 k req/day |
-| coffee | €5/mo | + analytics, history, limited chatbot |
-| pro | €25/mo | + unlimited chatbot, exports, priority support |
+This is an actively developed portfolio system. Runtime availability, LLM configuration and billing integrations are environment-dependent; the repository should not be read as a public uptime or pricing commitment.
 
-Billed through [Polar.sh](https://polar.sh) (merchant of record — handles VAT). Stripe is the legacy provider, still in code. Full details: [docs/auth-billing.md](docs/auth-billing.md).
+The current implementation contains Stripe integration code. Any alternative billing-provider documentation is planning material until its implementation and configuration land together.
 
 ## Documentation
 
-Everything is under [docs/](docs/). Start at [docs/README.md](docs/README.md).
+Start at [docs/README.md](./docs/README.md). Useful entry points:
 
-Roadmap and revenue phasing: [ROADMAP.md](ROADMAP.md).
-
-## License
-
-MIT
+- [Architecture](./docs/architecture.md)
+- [Data ingestion](./docs/scraper.md)
+- [API](./docs/api.md)
+- [Dashboard](./docs/dashboard.md)
+- [Testing](./docs/testing.md)
+- [Deployment](./docs/deployment.md)
