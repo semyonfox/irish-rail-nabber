@@ -214,6 +214,7 @@ CREATE INDEX IF NOT EXISTS idx_hourly_delays_hour ON hourly_delays(hour DESC);
 CREATE INDEX IF NOT EXISTS idx_hourly_delays_station ON hourly_delays(station_code, hour DESC);
 
 -- Keep completed hourly buckets fresh without repeatedly scanning old history.
+SELECT remove_continuous_aggregate_policy('hourly_delays', if_exists => TRUE);
 SELECT add_continuous_aggregate_policy('hourly_delays',
     start_offset => INTERVAL '3 hours',
     end_offset => INTERVAL '1 minute',
