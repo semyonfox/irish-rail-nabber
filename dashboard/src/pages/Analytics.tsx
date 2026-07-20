@@ -147,13 +147,15 @@ export default function Analytics() {
       <div className="mx-auto max-w-7xl space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-lg font-bold uppercase tracking-[0.1em] text-[var(--rail-text)]">
-              Live network operations
-            </h1>
-            <p className="mt-1 text-xs text-[var(--rail-muted)]">
-              24h route sample: {routeEvents.toLocaleString()} train reads ·{" "}
-              {formatPct(weightedRouteOnTime)} within 5m
-            </p>
+            <p className="text-xs font-semibold uppercase text-[var(--rail-green)]">Live network</p>
+            <h1 className="text-2xl font-semibold text-white">Ireland live rail operations</h1>
+          </div>
+          <div className="rounded-lg border border-[var(--rail-border)] bg-[var(--rail-surface)] px-4 py-3 text-sm">
+            <div className="text-xs uppercase text-[var(--rail-muted)]">24h route sample</div>
+            <div className="mt-1 text-white">
+              <span className="font-semibold">{routeEvents.toLocaleString()}</span> train reads ·{" "}
+              <span className="font-semibold">{formatPct(weightedRouteOnTime)}</span> within 5m
+            </div>
           </div>
         </div>
 

@@ -139,19 +139,22 @@ export default function History() {
       <div className="mx-auto max-w-7xl space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-lg font-bold uppercase tracking-[0.1em] text-[var(--rail-text)]">
-              Delay history &amp; trends
-            </h1>
-            <p className="mt-1 text-xs text-[var(--rail-muted)]">
-              Retained board observations by network or station · updates every 5 minutes · on time
-              means within 5 minutes
+            <p className="text-xs font-semibold uppercase text-[var(--rail-green)]">
+              Historical analysis
+            </p>
+            <h1 className="text-2xl font-semibold text-white">Delay history & trends</h1>
+            <p className="mt-1 text-sm text-[var(--rail-muted)]">
+              Explore retained Irish Rail board observations by network or station.
             </p>
           </div>
         </div>
 
         <section className="term-panel flex flex-wrap items-end gap-4 p-3">
           <div>
-            <label className="term-label" htmlFor="history-range">
+            <label
+              className="mb-2 block text-xs font-semibold uppercase text-[var(--rail-muted)]"
+              htmlFor="history-range"
+            >
               Range
             </label>
             <select
@@ -168,7 +171,10 @@ export default function History() {
             </select>
           </div>
           <div>
-            <label className="term-label" htmlFor="history-bucket">
+            <label
+              className="mb-2 block text-xs font-semibold uppercase text-[var(--rail-muted)]"
+              htmlFor="history-bucket"
+            >
               Detail
             </label>
             <select
@@ -183,7 +189,10 @@ export default function History() {
             </select>
           </div>
           <div className="min-w-56 flex-1">
-            <label className="term-label" htmlFor="history-station">
+            <label
+              className="mb-2 block text-xs font-semibold uppercase text-[var(--rail-muted)]"
+              htmlFor="history-station"
+            >
               Scope
             </label>
             <select
@@ -202,23 +211,22 @@ export default function History() {
           </div>
         </section>
 
-        <section className="grid gap-2 md:grid-cols-3">
-          <div className="stat-tile">
-            <div className="stat-tile-label">Weighted average delay</div>
-            <div className="stat-tile-value" style={{ color: delayColor(avgDelay) }}>
+        <section className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-lg border border-[var(--rail-border)] bg-[var(--rail-surface)] p-4">
+            <div className="text-xs uppercase text-[var(--rail-muted)]">Weighted average delay</div>
+            <div className="mt-1 text-2xl font-semibold text-[var(--rail-yellow)]">
               +{avgDelay.toFixed(1)}m
             </div>
           </div>
-          <div className="stat-tile">
-            <div className="stat-tile-label">On-time performance</div>
-            <div className="stat-tile-value">{formatPct(onTime)}</div>
+          <div className="rounded-lg border border-[var(--rail-border)] bg-[var(--rail-surface)] p-4">
+            <div className="text-xs uppercase text-[var(--rail-muted)]">On-time performance</div>
+            <div className="mt-1 text-2xl font-semibold text-[var(--rail-green)]">
+              {formatPct(onTime)}
+            </div>
           </div>
-          <div className="stat-tile">
-            <div className="stat-tile-label">Highest p95 delay</div>
-            <div
-              className="stat-tile-value"
-              style={{ color: delayColor(peak?.p95LateMinutes ?? null) }}
-            >
+          <div className="rounded-lg border border-[var(--rail-border)] bg-[var(--rail-surface)] p-4">
+            <div className="text-xs uppercase text-[var(--rail-muted)]">Highest p95 delay</div>
+            <div className="mt-1 text-2xl font-semibold text-[var(--rail-orange)]">
               {peak ? `+${peak.p95LateMinutes.toFixed(1)}m` : "-"}
             </div>
           </div>
@@ -231,101 +239,94 @@ export default function History() {
             No delay observations are available for this selection.
           </div>
         ) : (
-          <div className="grid gap-4 xl:grid-cols-2">
-            <ChartFrame title="Delay trend" detail="Average delay and disruption spikes">
-              <ResponsiveContainer width="100%" height={260}>
-                <LineChart
-                  data={chartData}
-                  syncId="history-delay"
-                  margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
-                >
-                  <CartesianGrid stroke={CHART.grid} vertical={false} />
-                  <XAxis dataKey="label" hide />
-                  <YAxis stroke={CHART.axis} fontSize={11} tickLine={false} unit="m" width={44} />
-                  <Tooltip
-                    formatter={(value, name) => [`${Number(value).toFixed(1)} min`, name]}
-                    contentStyle={CHART_TOOLTIP_STYLE}
-                  />
-                  <Legend wrapperStyle={{ color: CHART.axis, fontSize: 11 }} />
-                  <Line
-                    type="monotone"
-                    dataKey="avgLateMinutes"
-                    name="Average delay"
-                    stroke={CHART.series1}
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="p95LateMinutes"
-                    name="p95 delay"
-                    stroke={CHART.series2}
-                    strokeWidth={2}
-                    strokeDasharray="4 4"
-                    dot={false}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-              <div className="px-2 pt-1 text-[9px] uppercase tracking-widest text-[var(--rail-muted)]">
-                Board observations
-              </div>
-              <ResponsiveContainer width="100%" height={72}>
-                <BarChart
-                  data={chartData}
-                  syncId="history-delay"
-                  margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
-                >
+          <div className="grid gap-5 xl:grid-cols-2">
+            <ChartFrame eyebrow="Delay trend" title="Average delay and disruption spikes">
+              <ResponsiveContainer width="100%" height={340}>
+                <ComposedChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
                   <XAxis
                     dataKey="label"
-                    stroke={CHART.axis}
-                    fontSize={10}
+                    stroke="#94a3b8"
+                    fontSize={11}
                     tickLine={false}
                     minTickGap={32}
                   />
-                  <YAxis hide />
+                  <YAxis yAxisId="delay" stroke="#94a3b8" fontSize={12} tickLine={false} unit="m" />
+                  <YAxis
+                    yAxisId="events"
+                    orientation="right"
+                    stroke="#64748b"
+                    fontSize={12}
+                    tickLine={false}
+                  />
                   <Tooltip
-                    formatter={(value) => [Number(value).toLocaleString(), "Observations"]}
-                    contentStyle={CHART_TOOLTIP_STYLE}
-                    cursor={{ fill: "rgba(255,255,255,0.04)" }}
+                    contentStyle={{
+                      backgroundColor: "#1e293b",
+                      border: "1px solid #334155",
+                      borderRadius: "8px",
+                    }}
                   />
+                  <Legend wrapperStyle={{ color: "#cbd5e1", fontSize: 12 }} />
                   <Bar
+                    yAxisId="events"
                     dataKey="eventCount"
-                    name="Observations"
-                    fill={CHART.volume}
-                    radius={[2, 2, 0, 0]}
+                    name="Board observations"
+                    fill="#334155"
+                    radius={[3, 3, 0, 0]}
                   />
-                </BarChart>
+                  <Line
+                    yAxisId="delay"
+                    type="monotone"
+                    dataKey="avgLateMinutes"
+                    name="Average delay"
+                    stroke="#22c55e"
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                  <Line
+                    yAxisId="delay"
+                    type="monotone"
+                    dataKey="p95LateMinutes"
+                    name="p95 delay"
+                    stroke="#f97316"
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                </ComposedChart>
               </ResponsiveContainer>
             </ChartFrame>
 
             <ChartFrame title="Reliability" detail="Share of stops within 5 minutes">
               <ResponsiveContainer width="100%" height={340}>
                 <LineChart data={chartData} margin={{ top: 8, right: 20, left: 0, bottom: 0 }}>
-                  <CartesianGrid stroke={CHART.grid} vertical={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
                   <XAxis
                     dataKey="label"
-                    stroke={CHART.axis}
+                    stroke="#94a3b8"
                     fontSize={11}
                     tickLine={false}
                     minTickGap={32}
                   />
                   <YAxis
                     domain={[0, 100]}
-                    stroke={CHART.axis}
-                    fontSize={11}
+                    stroke="#94a3b8"
+                    fontSize={12}
                     tickLine={false}
                     unit="%"
                   />
                   <Tooltip
-                    formatter={(value) => [`${Number(value).toFixed(1)}%`, "Within 5 minutes"]}
-                    contentStyle={CHART_TOOLTIP_STYLE}
+                    contentStyle={{
+                      backgroundColor: "#1e293b",
+                      border: "1px solid #334155",
+                      borderRadius: "8px",
+                    }}
                   />
                   <Line
                     type="monotone"
                     dataKey="onTimePct"
                     name="Within 5 minutes"
-                    stroke={CHART.series1}
-                    strokeWidth={2}
+                    stroke="#22c55e"
+                    strokeWidth={2.5}
                     dot={false}
                   />
                 </LineChart>
