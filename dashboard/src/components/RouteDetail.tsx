@@ -103,7 +103,7 @@ export default function RouteDetail({ route, onClose }: Props) {
         <button
           type="button"
           onClick={onClose}
-          className="rounded-lg px-2 py-1.5 text-sm text-[var(--rail-muted)] hover:bg-[var(--rail-bg)] hover:text-white"
+          className="px-2 py-1.5 text-sm text-[var(--rail-muted)] hover:bg-[var(--rail-bg)] hover:text-white"
           aria-label="Close route panel"
         >
           X
@@ -111,26 +111,26 @@ export default function RouteDetail({ route, onClose }: Props) {
       </div>
 
       <div className="mb-4 grid grid-cols-2 gap-2 text-sm">
-        <div className="rounded-lg border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3">
+        <div className="border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3">
           <div className="text-xs text-[var(--rail-muted)]">Recent trains</div>
           <div className="text-xl font-semibold text-white">{route.trainCount}</div>
         </div>
-        <div className="rounded-lg border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3">
+        <div className="border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3">
           <div className="text-xs text-[var(--rail-muted)]">Last seen</div>
           <div className="text-sm font-medium text-white">{formatLastSeen(route.lastSeen)}</div>
         </div>
-        <div className="rounded-lg border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3">
+        <div className="border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3">
           <div className="text-xs text-[var(--rail-muted)]">Endpoint delays</div>
-          <div className="text-xl font-semibold text-[var(--rail-orange)]">{delayed}</div>
+          <div className="text-xl font-semibold text-[var(--rail-warn)]">{delayed}</div>
         </div>
-        <div className="rounded-lg border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3">
+        <div className="border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3">
           <div className="text-xs text-[var(--rail-muted)]">Worst endpoint</div>
           <div className="text-xl font-semibold text-white">+{worstDelay}m</div>
         </div>
       </div>
 
       {severe > 0 && (
-        <div className="mb-4 rounded-lg border border-red-500/50 bg-red-950/20 p-3 text-sm text-red-100">
+        <div className="mb-4 border border-[var(--rail-red)] bg-[rgba(208,59,59,0.08)] p-3 text-sm text-[var(--rail-text)]">
           {severe} severe endpoint delays on this link
         </div>
       )}
@@ -142,14 +142,14 @@ export default function RouteDetail({ route, onClose }: Props) {
 
       <div className="space-y-2">
         {endpointRows.length === 0 && !loading && (
-          <p className="rounded-lg border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3 text-sm text-[var(--rail-muted)]">
+          <p className="border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3 text-sm text-[var(--rail-muted)]">
             No live endpoint board rows in the latest poll window.
           </p>
         )}
         {endpointRows.slice(0, 10).map((event) => (
           <div
             key={`${event.endpointCode}-${event.trainCode}-${event.dueIn}-${event.lateMinutes}`}
-            className="rounded-lg border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3"
+            className="border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3"
           >
             <div className="mb-1 flex items-start justify-between gap-3">
               <div className="min-w-0">

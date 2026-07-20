@@ -27,12 +27,16 @@ interface StationDelayStatsData {
 
 const col = createColumnHelper<StationStats>();
 
+const hoursOptions = [6, 24, 72, 168];
+
 export default function StationTable() {
   const [sorting, setSorting] = useState<SortingState>([{ id: "avgLateMinutes", desc: true }]);
+  const [search, setSearch] = useState("");
+  const [hours, setHours] = useState(24);
 
   const [{ data, fetching, error }, retry] = usePollingQuery<StationDelayStatsData>({
     query: STATION_DELAY_STATS,
-    variables: { hours: 24, limit: 171 },
+    variables: { hours, limit: 171 },
     pollInterval: 30000,
   });
 
@@ -40,32 +44,55 @@ export default function StationTable() {
     () => [
       col.accessor("stationDesc", {
         header: "Station",
-        cell: (info) => <span className="font-medium text-white">{info.getValue()}</span>,
+        cell: (info) => (
+          <span>
+            <span className="font-medium text-[var(--rail-text)]">{info.getValue()}</span>{" "}
+            <span className="text-xs text-[var(--rail-muted)]">
+              {info.row.original.stationCode}
+            </span>
+          </span>
+        ),
       }),
       col.accessor("avgLateMinutes", {
-        header: "Avg Delay",
+        header: "Avg delay",
         cell: (info) => {
           const v = info.getValue();
-          return <span style={{ color: delayColor(v) }}>{v.toFixed(1)} min</span>;
+          return (
+            <span className="tabular-nums" style={{ color: delayColor(v) }}>
+              {v.toFixed(1)} min
+            </span>
+          );
         },
       }),
       col.accessor("maxLateMinutes", {
-        header: "Max Delay",
-        cell: (info) => `${info.getValue()} min`,
+        header: "Max delay",
+        cell: (info) => <span className="tabular-nums">{info.getValue()} min</span>,
       }),
       col.accessor("onTimePct", {
-        header: "On Time %",
-        cell: (info) => formatPct(info.getValue()),
+        header: "On time %",
+        cell: (info) => <span className="tabular-nums">{formatPct(info.getValue())}</span>,
       }),
       col.accessor("totalEvents", {
         header: "Events",
+        cell: (info) => <span className="tabular-nums">{info.getValue()}</span>,
       }),
     ],
     [],
   );
 
+  const needle = search.trim().toLowerCase();
+  const rows = useMemo(() => {
+    const all = data?.stationDelayStats ?? [];
+    if (!needle) return all;
+    return all.filter(
+      (station) =>
+        station.stationDesc.toLowerCase().includes(needle) ||
+        station.stationCode.toLowerCase().includes(needle),
+    );
+  }, [data?.stationDelayStats, needle]);
+
   const table = useReactTable({
-    data: data?.stationDelayStats ?? [],
+    data: rows,
     columns,
     state: { sorting },
     onSortingChange: setSorting,
@@ -88,49 +115,73 @@ export default function StationTable() {
   }
 
   return (
-    <div className="overflow-auto">
-      <table className="w-full text-sm">
-        <thead>
-          {table.getHeaderGroups().map((hg) => (
-            <tr key={hg.id} className="border-b border-[var(--rail-border)]">
-              {hg.headers.map((h) => (
-                <th
-                  key={h.id}
-                  onClick={h.column.getToggleSortingHandler()}
-                  className="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[var(--rail-muted)] hover:text-white"
+    <div>
+      <div className="flex flex-wrap items-center gap-2 border-b border-[var(--rail-border)] px-3 py-2">
+        <input
+          type="search"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Filter by station name or code"
+          className="term-control w-64 max-w-full"
+          aria-label="Filter stations"
+        />
+        <select
+          value={hours}
+          onChange={(event) => setHours(Number(event.target.value))}
+          className="term-control"
+          aria-label="Statistics window"
+        >
+          {hoursOptions.map((option) => (
+            <option key={option} value={option}>
+              Last {option >= 24 ? `${option / 24}d` : `${option}h`}
+            </option>
+          ))}
+        </select>
+        <span className="ml-auto text-xs text-[var(--rail-muted)]">
+          {rows.length} stations · sort by clicking headers
+        </span>
+      </div>
+      <div className="overflow-auto">
+        <table className="term-table">
+          <thead>
+            {table.getHeaderGroups().map((hg) => (
+              <tr key={hg.id}>
+                {hg.headers.map((h) => (
+                  <th
+                    key={h.id}
+                    onClick={h.column.getToggleSortingHandler()}
+                    className="cursor-pointer hover:text-[var(--rail-text)]"
+                  >
+                    {flexRender(h.column.columnDef.header, h.getContext())}
+                    {{ asc: " ↑", desc: " ↓" }[h.column.getIsSorted() as string] ?? ""}
+                  </th>
+                ))}
+              </tr>
+            ))}
+          </thead>
+          <tbody>
+            {table.getRowModel().rows.map((row) => (
+              <tr key={row.id}>
+                {row.getVisibleCells().map((cell) => (
+                  <td key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
+                ))}
+              </tr>
+            ))}
+            {!fetching && table.getRowModel().rows.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={columns.length}
+                  className="px-4 py-10 text-center text-[var(--rail-muted)]"
                 >
-                  {flexRender(h.column.columnDef.header, h.getContext())}
-                  {{ asc: " ↑", desc: " ↓" }[h.column.getIsSorted() as string] ?? ""}
-                </th>
-              ))}
-            </tr>
-          ))}
-        </thead>
-        <tbody>
-          {table.getRowModel().rows.map((row) => (
-            <tr
-              key={row.id}
-              className="border-b border-[var(--rail-border)] hover:bg-[var(--rail-surface)]"
-            >
-              {row.getVisibleCells().map((cell) => (
-                <td key={cell.id} className="px-4 py-3">
-                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  {needle
+                    ? `No stations match "${search.trim()}"`
+                    : `No station performance records were returned for the selected window.`}
                 </td>
-              ))}
-            </tr>
-          ))}
-          {!fetching && table.getRowModel().rows.length === 0 ? (
-            <tr>
-              <td
-                colSpan={columns.length}
-                className="px-4 py-10 text-center text-[var(--rail-muted)]"
-              >
-                No station performance records were returned for the last 24 hours.
-              </td>
-            </tr>
-          ) : null}
-        </tbody>
-      </table>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

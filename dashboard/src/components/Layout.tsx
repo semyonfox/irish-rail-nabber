@@ -1,6 +1,30 @@
+import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet } from "react-router-dom";
 
 import { useAuth } from "../auth/useAuth";
+
+const clockFormat = new Intl.DateTimeFormat("en-IE", {
+  timeZone: "Europe/Dublin",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+});
+
+function DublinClock() {
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <span className="live-clock" aria-label="Dublin time">
+      {clockFormat.format(now)} DUBLIN
+    </span>
+  );
+}
 
 const links = [
   { to: "/", label: "Live map", short: "MAP" },
@@ -87,7 +111,7 @@ export default function Layout() {
         <span className="strip-divider" />
         <span>ALL-IRELAND NETWORK</span>
         <span className="ml-auto hidden sm:inline">LIVE SERVICE MONITOR</span>
-        <span className="live-clock">UTC+1 · DUBLIN</span>
+        <DublinClock />
       </div>
 
       <main className="min-h-0 flex-1">

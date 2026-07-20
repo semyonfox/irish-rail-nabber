@@ -2,13 +2,15 @@ import StationTable from "../components/StationTable";
 
 export default function Stations() {
   return (
-    <div className="p-6">
-      <h2 className="mb-4 text-xl font-bold text-white">Station performance table</h2>
-      <p className="mb-6 text-sm text-[var(--rail-muted)]">
-        Delay statistics per station over the last 24 hours. Click column headers to sort.
-      </p>
-      <div className="rounded-xl border border-[var(--rail-border)] bg-[var(--rail-surface)]">
-        <StationTable />
+    <div className="h-full overflow-auto p-4 md:p-6">
+      <div className="mx-auto max-w-7xl">
+        <div className="term-panel overflow-hidden">
+          <div className="term-panel-head">
+            Station performance
+            <small>Delay statistics per station · click column headers to sort</small>
+          </div>
+          <StationTable />
+        </div>
       </div>
     </div>
   );
