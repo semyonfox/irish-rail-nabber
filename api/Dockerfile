@@ -1,4 +1,4 @@
-FROM rust:1.91-slim@sha256:f75071363e7f4771769d4cf81b1b7b290e607f4d4459e8731f6abdcee9982dc8 AS builder
+FROM rust:1.97-slim@sha256:34fb2f168c432d421a09883c663b275b33cbb30f6b18642fbd09a684c6546d0e AS builder
 WORKDIR /app
 RUN apt-get update \
     && apt-get install -y --no-install-recommends pkg-config libssl-dev \
