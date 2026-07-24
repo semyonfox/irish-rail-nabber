@@ -31,8 +31,7 @@ async function readSnapshot(scope: string): Promise<StoredDelayPoint[]> {
   const database = await openDatabase();
   return new Promise<StoredDelayPoint[]>((resolve, reject) => {
     const request = database.transaction(STORE_NAME).objectStore(STORE_NAME).get(scope);
-    request.onsuccess = () =>
-      resolve((request.result as StoredDelayPoint[] | undefined) ?? []);
+    request.onsuccess = () => resolve((request.result as StoredDelayPoint[] | undefined) ?? []);
     request.onerror = () => reject(request.error);
   }).finally(() => database.close());
 }
