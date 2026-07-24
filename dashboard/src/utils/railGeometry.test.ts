@@ -39,6 +39,11 @@ describe("rail geometry routing", () => {
     ];
 
     expect(trackPathBetween(disconnected, [-8, 53], [-7, 54])).toEqual([]);
-    expect(trackPathThrough(disconnected, [[-8, 53], [-7, 54]])).toEqual([]);
+    expect(
+      trackPathThrough(disconnected, [
+        [-8, 53],
+        [-7, 54],
+      ]),
+    ).toEqual([]);
   });
 });
