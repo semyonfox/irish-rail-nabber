@@ -10,6 +10,19 @@ permissions:
   contents: read
 
 jobs:
+  repository-hygiene:
+    name: Repository hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Reject tracked production env files
+        run: |
+          if git ls-files --error-unmatch .env.production >/dev/null 2>&1; then
+            echo "::error::.env.production must not be tracked. Use .env.production.example plus deployment secrets."
+            exit 1
+          fi
+
   api:
     name: Rust API
     runs-on: ubuntu-latest
