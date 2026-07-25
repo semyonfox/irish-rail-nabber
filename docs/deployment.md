@@ -20,14 +20,23 @@ Service responsibilities are described in [architecture.md](architecture.md#serv
 
 ## Env template
 
-Drop this in `.env.local` on the server (and adjust). The file is gitignored.
+Production env files must live in deployment secret storage, not in git. Start from the tracked safe template:
+
+```bash
+cp .env.production.example /home/semyon/jenkins/env/irish-rail-nabber.env
+chmod 600 /home/semyon/jenkins/env/irish-rail-nabber.env
+```
+
+Then replace placeholders on the server or in Jenkins credentials. The repository ignores `.env.production` and `.env.*.production`; keep real values in `/home/semyon/jenkins/env/irish-rail-nabber.env`, Jenkins credentials, or another ignored local env file. If any real secret was previously committed, rotate it before trusting production again.
+
+The same variables can also be dropped into `.env.local` for local testing. `.env.local` is gitignored.
 
 ```bash
 # database (used by db, daemon, api)
 POSTGRES_USER=irish_data
 POSTGRES_PASSWORD=<strong-random>
 POSTGRES_DB=ireland_public
-DATABASE_URL=postgres://irish_data:<strong-random>@db:5432/ireland_public
+DATABASE_URL=postgres://irish_data:***@db:5432/ireland_public
 
 # auth
 JWT_SECRET=<openssl rand -hex 32>
