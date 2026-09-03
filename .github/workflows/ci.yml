@@ -22,6 +22,8 @@ jobs:
             echo "::error::.env.production must not be tracked. Use .env.production.example plus deployment secrets."
             exit 1
           fi
+      - name: Validate deploy contract
+        run: bash scripts/validate-deploy-contract.sh
 
   api:
     name: Rust API
