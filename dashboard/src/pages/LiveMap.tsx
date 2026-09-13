@@ -20,7 +20,10 @@ interface StationsData {
 const LIVE_RAIL_POLL_MS = 15_000;
 
 export default function LiveMap() {
-  const [selectedTrain, setSelectedTrain] = useState<string | null>(null);
+  const [selectedTrain, setSelectedTrain] = useState<{
+    trainCode: string;
+    trainDate: string | null;
+  } | null>(null);
   const [selectedStation, setSelectedStation] = useState<MapStationSelection | null>(null);
   const [selectedRoute, setSelectedRoute] = useState<MapRouteSelection | null>(null);
 
@@ -36,7 +39,8 @@ export default function LiveMap() {
   const board = liveData?.countryBoard ?? [];
 
   const selectTrain = (trainCode: string) => {
-    setSelectedTrain(trainCode);
+    const trainDate = trains.find((train) => train.trainCode === trainCode)?.trainDate ?? null;
+    setSelectedTrain({ trainCode, trainDate });
     setSelectedStation(null);
     setSelectedRoute(null);
   };
@@ -60,7 +64,8 @@ export default function LiveMap() {
       <TrainMap
         trains={trains}
         stations={stations}
-        selectedTrainCode={selectedTrain}
+        selectedTrainCode={selectedTrain?.trainCode}
+        selectedTrainDate={selectedTrain?.trainDate}
         selectedStationCode={selectedStation?.stationCode}
         onTrainClick={selectTrain}
         onStationClick={selectStation}
@@ -70,7 +75,11 @@ export default function LiveMap() {
         <NetworkStats trains={trains} stations={stations} board={board} />
       </div>
       {selectedTrain && (
-        <TrainDetail trainCode={selectedTrain} onClose={() => setSelectedTrain(null)} />
+        <TrainDetail
+          trainCode={selectedTrain.trainCode}
+          trainDate={selectedTrain.trainDate}
+          onClose={() => setSelectedTrain(null)}
+        />
       )}
       {selectedStation && (
         <StationDetail station={selectedStation} onClose={() => setSelectedStation(null)} />

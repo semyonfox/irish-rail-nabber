@@ -17,6 +17,7 @@ pub struct StationRow {
 #[derive(sqlx::FromRow, Debug)]
 pub struct TrainPositionRow {
     pub train_code: String,
+    pub train_date: Option<NaiveDate>,
     pub latitude: Option<BigDecimal>,
     pub longitude: Option<BigDecimal>,
     pub train_status: Option<String>,
@@ -178,6 +179,23 @@ pub struct BusVehicleRow {
     pub occupancy_status: Option<String>,
     pub source_timestamp: Option<DateTime<Utc>>,
     pub fetched_at: DateTime<Utc>,
+}
+
+#[derive(sqlx::FromRow, Debug)]
+pub struct BusShapePointRow {
+    pub route_id: String,
+    pub route_short_name: Option<String>,
+    pub shape_id: String,
+    pub route_color: Option<String>,
+    pub latitude: f64,
+    pub longitude: f64,
+    pub shape_pt_sequence: i64,
+}
+
+#[derive(sqlx::FromRow, Debug)]
+pub struct BusRealtimeStatusRow {
+    pub last_success_at: Option<DateTime<Utc>>,
+    pub is_live: bool,
 }
 
 #[derive(sqlx::FromRow, Debug)]

@@ -175,6 +175,37 @@ impl From<BusVehicleRow> for BusVehicle {
     }
 }
 
+#[derive(Clone, SimpleObject)]
+pub struct BusShapePoint {
+    pub latitude: f64,
+    pub longitude: f64,
+    pub sequence: i64,
+}
+
+#[derive(Clone, SimpleObject)]
+pub struct BusRouteShape {
+    pub route_id: String,
+    pub route_short_name: Option<String>,
+    pub shape_id: String,
+    pub route_color: Option<String>,
+    pub points: Vec<BusShapePoint>,
+}
+
+#[derive(Clone, SimpleObject)]
+pub struct BusRealtimeStatus {
+    pub last_success_at: Option<String>,
+    pub is_live: bool,
+}
+
+impl From<BusRealtimeStatusRow> for BusRealtimeStatus {
+    fn from(row: BusRealtimeStatusRow) -> Self {
+        Self {
+            last_success_at: utc_datetime_to_string(&row.last_success_at),
+            is_live: row.is_live,
+        }
+    }
+}
+
 impl From<BusRouteDelayRow> for BusRouteDelay {
     fn from(row: BusRouteDelayRow) -> Self {
         Self {
@@ -193,6 +224,7 @@ impl From<BusRouteDelayRow> for BusRouteDelay {
 #[derive(SimpleObject)]
 pub struct TrainPosition {
     pub train_code: String,
+    pub train_date: Option<String>,
     pub latitude: Option<f64>,
     pub longitude: Option<f64>,
     pub train_status: Option<String>,
@@ -205,6 +237,7 @@ impl From<TrainPositionRow> for TrainPosition {
     fn from(r: TrainPositionRow) -> Self {
         Self {
             train_code: r.train_code,
+            train_date: date_to_string(&r.train_date),
             latitude: bd_to_f64(&r.latitude),
             longitude: bd_to_f64(&r.longitude),
             train_status: r.train_status,

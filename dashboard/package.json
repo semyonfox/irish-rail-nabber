@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build:rail-asset": "node scripts/build-rail-network.mjs",
     "dev": "vp dev",
     "build": "tsc -b && vp build",
     "lint": "eslint .",

@@ -26,6 +26,7 @@ interface TrainJourneyData {
 
 interface Props {
   trainCode: string;
+  trainDate: string | null;
   onClose: () => void;
 }
 
@@ -66,10 +67,10 @@ function stopKind(stop: Movement) {
   return "Stop";
 }
 
-export default function TrainDetail({ trainCode, onClose }: Props) {
+export default function TrainDetail({ trainCode, trainDate, onClose }: Props) {
   const [{ data, fetching }] = usePollingQuery<TrainJourneyData>({
     query: TRAIN_JOURNEY,
-    variables: { trainCode },
+    variables: { trainCode, trainDate },
     pollInterval: 15000,
   });
 

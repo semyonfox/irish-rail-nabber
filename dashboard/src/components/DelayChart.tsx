@@ -142,7 +142,7 @@ export default function DelayChart({ stationCode, hours = 24 }: Props) {
             labelFormatter={tooltipLabel}
             formatter={(value) => [Number(value).toLocaleString(), "Observations"]}
             contentStyle={CHART_TOOLTIP_STYLE}
-            cursor={{ fill: "rgb(18 24 20 / 0.04)" }}
+            cursor={{ fill: "var(--chart-cursor)" }}
           />
           <Bar
             dataKey="events"

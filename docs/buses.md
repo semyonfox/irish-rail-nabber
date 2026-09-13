@@ -27,7 +27,8 @@ transit_feed_versions
   ├── bus_routes
   ├── bus_trips
   ├── bus_stops
-  └── bus_stop_times
+  ├── bus_stop_times
+  └── bus_shape_points
 
 bus_stop_updates
   └── content-deduplicated arrival/departure predictions and delays
@@ -52,7 +53,7 @@ The static import still runs when `NTA_API_KEY` is empty. Realtime collection st
 
 The database-backed request reservation adds a one-second safety margin and applies across restarts or concurrent collectors sharing the database. Differential feeds are rejected because absence only means removal in a full-dataset feed. Trip-level freshness lets boards retire removed or canceled trips without rewriting every unchanged stop prediction each minute.
 
-The current NTA archive contains about 6.6 million bus stop-time rows. Route, trip and stop metadata remains versioned so historical IDs can still be interpreted, but stop times for inactive versions are removed after the replacement feed activates. Changed stop predictions are retained for seven days by default and pruned at most once per day; vehicle positions are current state rather than an append-only history. This bounds the two largest storage risks on the production host.
+The current NTA archive contains about 6.6 million bus stop-time rows. Route, trip and stop metadata remains versioned so historical IDs can still be interpreted, but stop times and shape points for inactive versions are removed after the replacement feed activates. A historical feed is rehydrated from its archive before it can become active again. Changed stop predictions are retained for seven days by default and pruned at most once per day; vehicle positions are current state rather than an append-only history.
 
 Configuration:
 
@@ -71,12 +72,21 @@ Configuration:
 
 ```graphql
 busStops(search: String, limit: Int = 50)
+busRealtimeStatus
 busStopBoard(stopId: String!, limit: Int = 30)
 busRouteDelays(hours: Int = 24, limit: Int = 30)
 busVehicles(routeId: String, limit: Int = 2000)
+busLiveRouteShapes(limit: Int = 100)
+busScheduledRouteShapes(stopId: String, limit: Int = 24)
 ```
 
-All four return an empty list before the first feed import. Stops, boards, current vehicles and up to 72 hours of route-delay history are public. Coffee, Pro and admin accounts may query the full seven-day retained window. Identical stop searches, boards, delay aggregates and vehicle snapshots are coalesced and cached briefly in the API.
+The list queries return an empty list before the first feed import. `busRealtimeStatus` reports the last successful realtime poll and only marks the feed live for three minutes after that poll. Stops, boards, current vehicles, scheduled route shapes and up to 72 hours of route-delay history are public. Coffee, Pro and admin accounts may query the full seven-day retained window.
+
+`busLiveRouteShapes` only considers trips with a vehicle seen in the last five minutes. It returns at most 100 shapes and samples each to at most 500 ordered points. It stays empty until realtime collection succeeds.
+
+`busScheduledRouteShapes` does not depend on realtime. Without `stopId`, it returns representative directions from the most frequently scheduled routes in the active feed. With `stopId`, it returns representative directions for routes serving that stop. The API returns at most 40 shapes, samples each to at most 300 points, and keeps one common shape per route and direction. The dashboard requests 24. This gives the map useful route lines in static-only mode without sending the full national feed to the browser.
+
+Identical stop searches, boards, delay aggregates, vehicle snapshots and route shapes are coalesced and cached in the API. Scheduled geometry uses a 15-minute cache because it changes only when the static feed changes.
 
 ## Checks
 
@@ -112,6 +122,7 @@ SELECT COUNT(*), MAX(last_seen_at) FROM bus_vehicle_positions;
 
 ## Official references
 
+- [GTFS `shapes.txt` reference](https://gtfs.org/documentation/schedule/reference/#shapestxt)
 - [NTA GTFS dataset](https://data.gov.ie/dataset/nta-gtfs)
 - [NTA GTFS-Realtime migration and ID guidance](https://www.nationaltransport.ie/news/attention-developers-upgrade-to-gtfs-realtime-api/)
 - [NTA fair-usage policy](https://developer.nationaltransport.ie/usagepolicy)

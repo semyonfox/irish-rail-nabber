@@ -13,6 +13,7 @@ use base64::{
 };
 use jsonwebtoken::{
     decode, decode_header,
+    errors::ErrorKind,
     jwk::{Jwk, JwkSet},
     Algorithm, DecodingKey, Validation,
 };
@@ -44,6 +45,121 @@ pub struct SessionClaims {
 struct CachedJwks {
     set: JwkSet,
     fetched: Instant,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum VerificationStage {
+    Configuration,
+    Header,
+    Jwks,
+    DecodingKey,
+    Claims,
+    AuthorizedParty,
+}
+
+impl VerificationStage {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Configuration => "configuration",
+            Self::Header => "header",
+            Self::Jwks => "jwks",
+            Self::DecodingKey => "decoding_key",
+            Self::Claims => "claims",
+            Self::AuthorizedParty => "authorized_party",
+        }
+    }
+}
+
+// Keep verifier failures safe to log. In particular, never retain the token,
+// claim values, key ID, or errors whose messages may include input data.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct VerificationError {
+    stage: VerificationStage,
+    kind: &'static str,
+}
+
+impl VerificationError {
+    const fn new(stage: VerificationStage, kind: &'static str) -> Self {
+        Self { stage, kind }
+    }
+
+    pub(crate) const fn stage(self) -> &'static str {
+        self.stage.as_str()
+    }
+
+    pub(crate) const fn kind(self) -> &'static str {
+        self.kind
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn rejected_token_for_test() -> Self {
+        Self::new(VerificationStage::Claims, "invalid_signature")
+    }
+}
+
+fn jwt_error_kind(error: &jsonwebtoken::errors::Error) -> &'static str {
+    match error.kind() {
+        ErrorKind::InvalidToken => "invalid_token",
+        ErrorKind::InvalidSignature => "invalid_signature",
+        ErrorKind::InvalidEcdsaKey => "invalid_ecdsa_key",
+        ErrorKind::InvalidEddsaKey => "invalid_eddsa_key",
+        ErrorKind::InvalidRsaKey(_) => "invalid_rsa_key",
+        ErrorKind::RsaFailedSigning => "rsa_signing_failed",
+        ErrorKind::Signing(_) => "signing_failed",
+        ErrorKind::InvalidAlgorithmName => "invalid_algorithm_name",
+        ErrorKind::InvalidKeyFormat => "invalid_key_format",
+        ErrorKind::MissingRequiredClaim(_) => "missing_required_claim",
+        ErrorKind::InvalidClaimFormat(_) => "invalid_claim_format",
+        ErrorKind::ExpiredSignature => "expired",
+        ErrorKind::InvalidIssuer => "invalid_issuer",
+        ErrorKind::InvalidAudience => "invalid_audience",
+        ErrorKind::InvalidSubject => "invalid_subject",
+        ErrorKind::ImmatureSignature => "not_yet_valid",
+        ErrorKind::InvalidAlgorithm => "invalid_algorithm",
+        ErrorKind::MissingAlgorithm => "missing_algorithm",
+        ErrorKind::Base64(_) => "invalid_base64",
+        ErrorKind::Json(_) => "invalid_json",
+        ErrorKind::Utf8(_) => "invalid_utf8",
+        ErrorKind::Provider(_) => "crypto_provider",
+        _ => "unknown",
+    }
+}
+
+fn jwks_error_kind(error: &reqwest::Error) -> &'static str {
+    if error.is_timeout() {
+        "timeout"
+    } else if error.is_status() {
+        "http_status"
+    } else if error.is_decode() {
+        "invalid_response"
+    } else if error.is_connect() {
+        "connection"
+    } else {
+        "request"
+    }
+}
+
+fn validate_authorized_party(
+    claims: &SessionClaims,
+    authorized_parties: &[String],
+) -> Result<(), VerificationError> {
+    if authorized_parties.is_empty() {
+        return Ok(());
+    }
+
+    let azp = claims
+        .azp
+        .as_deref()
+        .map(|value| value.trim_end_matches('/'))
+        .ok_or_else(|| VerificationError::new(VerificationStage::AuthorizedParty, "missing"))?;
+    if authorized_parties.iter().any(|party| party == azp) {
+        Ok(())
+    } else {
+        Err(VerificationError::new(
+            VerificationStage::AuthorizedParty,
+            "not_allowed",
+        ))
+    }
 }
 
 // pk_test_<base64("clerk.example.com$")> -> clerk.example.com
@@ -116,7 +232,7 @@ async fn fetch_jwks(cfg: &ClerkConfig) -> Result<JwkSet, reqwest::Error> {
 
 // keys rotate rarely, so cache them and only refetch for an unknown kid,
 // at most once a minute so a forged kid can't hammer clerk
-async fn signing_key(cfg: &ClerkConfig, kid: &str) -> Option<Jwk> {
+async fn signing_key(cfg: &ClerkConfig, kid: &str) -> Result<Jwk, VerificationError> {
     static JWKS: OnceLock<RwLock<Option<CachedJwks>>> = OnceLock::new();
     let lock = JWKS.get_or_init(|| RwLock::new(None));
 
@@ -124,8 +240,13 @@ async fn signing_key(cfg: &ClerkConfig, kid: &str) -> Option<Jwk> {
         let guard = lock.read().await;
         if let Some(cached) = guard.as_ref() {
             match cached.set.find(kid) {
-                Some(jwk) if cached.fetched.elapsed() < JWKS_TTL => return Some(jwk.clone()),
-                None if cached.fetched.elapsed() < JWKS_MIN_REFRESH => return None,
+                Some(jwk) if cached.fetched.elapsed() < JWKS_TTL => return Ok(jwk.clone()),
+                None if cached.fetched.elapsed() < JWKS_MIN_REFRESH => {
+                    return Err(VerificationError::new(
+                        VerificationStage::Jwks,
+                        "key_not_found",
+                    ));
+                }
                 _ => {}
             }
         }
@@ -134,7 +255,11 @@ async fn signing_key(cfg: &ClerkConfig, kid: &str) -> Option<Jwk> {
     let mut guard = lock.write().await;
     if let Some(cached) = guard.as_ref() {
         if cached.fetched.elapsed() < JWKS_MIN_REFRESH {
-            return cached.set.find(kid).cloned();
+            return cached
+                .set
+                .find(kid)
+                .cloned()
+                .ok_or_else(|| VerificationError::new(VerificationStage::Jwks, "key_not_found"));
         }
     }
     match fetch_jwks(cfg).await {
@@ -144,25 +269,48 @@ async fn signing_key(cfg: &ClerkConfig, kid: &str) -> Option<Jwk> {
                 set,
                 fetched: Instant::now(),
             });
-            jwk
+            jwk.ok_or_else(|| VerificationError::new(VerificationStage::Jwks, "key_not_found"))
         }
         Err(error) => {
-            tracing::warn!("clerk jwks fetch failed: {error}");
-            guard
+            let failure = VerificationError::new(VerificationStage::Jwks, jwks_error_kind(&error));
+            if let Some(jwk) = guard
                 .as_ref()
                 .and_then(|cached| cached.set.find(kid).cloned())
+            {
+                tracing::warn!(
+                    stage = failure.stage(),
+                    kind = failure.kind(),
+                    "clerk jwks refresh failed, using cached signing key"
+                );
+                Ok(jwk)
+            } else {
+                Err(failure)
+            }
         }
     }
 }
 
-pub async fn verify_session_token(token: &str) -> Option<SessionClaims> {
-    let cfg = config()?;
-    let header = decode_header(token).ok()?;
+pub async fn verify_session_token(token: &str) -> Result<SessionClaims, VerificationError> {
+    let cfg = config().ok_or_else(|| {
+        VerificationError::new(VerificationStage::Configuration, "not_configured")
+    })?;
+    let header = decode_header(token).map_err(|error| {
+        VerificationError::new(VerificationStage::Header, jwt_error_kind(&error))
+    })?;
     if header.alg != Algorithm::RS256 {
-        return None;
+        return Err(VerificationError::new(
+            VerificationStage::Header,
+            "unexpected_algorithm",
+        ));
     }
-    let jwk = signing_key(cfg, header.kid.as_deref()?).await?;
-    let key = DecodingKey::from_jwk(&jwk).ok()?;
+    let kid = header
+        .kid
+        .as_deref()
+        .ok_or_else(|| VerificationError::new(VerificationStage::Header, "missing_key_id"))?;
+    let jwk = signing_key(cfg, kid).await?;
+    let key = DecodingKey::from_jwk(&jwk).map_err(|error| {
+        VerificationError::new(VerificationStage::DecodingKey, jwt_error_kind(&error))
+    })?;
 
     let mut validation = Validation::new(Algorithm::RS256);
     validation.set_issuer(&[cfg.issuer.as_str()]);
@@ -171,25 +319,14 @@ pub async fn verify_session_token(token: &str) -> Option<SessionClaims> {
     validation.leeway = 5;
 
     let claims = decode::<SessionClaims>(token, &key, &validation)
-        .ok()?
+        .map_err(|error| VerificationError::new(VerificationStage::Claims, jwt_error_kind(&error)))?
         .claims;
 
     // Clerk sets azp to the origin that minted the token. Once an allowlist is
     // configured, a missing azp is no safer than a mismatched one.
-    if !cfg.authorized_parties.is_empty() {
-        let Some(azp) = claims
-            .azp
-            .as_deref()
-            .map(|value| value.trim_end_matches('/'))
-        else {
-            return None;
-        };
-        if !cfg.authorized_parties.iter().any(|party| party == azp) {
-            return None;
-        }
-    }
+    validate_authorized_party(&claims, &cfg.authorized_parties)?;
 
-    Some(claims)
+    Ok(claims)
 }
 
 #[derive(Deserialize)]
@@ -330,4 +467,62 @@ pub async fn resolve_user(pool: &PgPool, claims: &SessionClaims) -> Option<AuthU
         .insert(clerk_user_id.to_string(), user.clone())
         .await;
     Some(user)
+}
+
+#[cfg(test)]
+mod tests {
+    use jsonwebtoken::errors::new_error;
+
+    use super::*;
+
+    #[test]
+    fn jwt_error_labels_discard_dynamic_details() {
+        let jwt_error = new_error(ErrorKind::MissingRequiredClaim(
+            "value-that-must-not-reach-logs".to_string(),
+        ));
+        let error = VerificationError::new(VerificationStage::Claims, jwt_error_kind(&jwt_error));
+
+        assert_eq!(error.stage(), "claims");
+        assert_eq!(error.kind(), "missing_required_claim");
+        assert!(!format!("{error:?}").contains("value-that-must-not-reach-logs"));
+    }
+
+    #[test]
+    fn authorized_party_failures_have_stable_labels() {
+        let allowed = vec!["https://traein.example".to_string()];
+        let missing = SessionClaims {
+            sub: "ignored-in-this-check".to_string(),
+            azp: None,
+        };
+        let mismatch = SessionClaims {
+            sub: "ignored-in-this-check".to_string(),
+            azp: Some("https://other.example".to_string()),
+        };
+
+        assert_eq!(
+            validate_authorized_party(&missing, &allowed),
+            Err(VerificationError::new(
+                VerificationStage::AuthorizedParty,
+                "missing"
+            ))
+        );
+        assert_eq!(
+            validate_authorized_party(&mismatch, &allowed),
+            Err(VerificationError::new(
+                VerificationStage::AuthorizedParty,
+                "not_allowed"
+            ))
+        );
+    }
+
+    #[test]
+    fn authorized_party_normalizes_a_trailing_slash() {
+        let allowed = vec!["https://traein.example".to_string()];
+        let claims = SessionClaims {
+            sub: "ignored-in-this-check".to_string(),
+            azp: Some("https://traein.example/".to_string()),
+        };
+
+        assert_eq!(validate_authorized_party(&claims, &allowed), Ok(()));
+    }
 }

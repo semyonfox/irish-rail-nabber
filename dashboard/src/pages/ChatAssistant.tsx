@@ -248,7 +248,7 @@ export default function ChatAssistant() {
           <label htmlFor="chat-input" className="sr-only">
             Ask a question
           </label>
-          <div className="card flex items-end gap-2 p-2 focus-within:shadow-[0_0_0_3px_rgb(11_107_77/0.15),var(--shadow-card)]">
+          <div className="card chat-composer flex items-end gap-2 p-2">
             <textarea
               id="chat-input"
               value={input}
@@ -256,7 +256,7 @@ export default function ChatAssistant() {
               onKeyDown={onComposerKey}
               rows={2}
               placeholder="How late is the 10:10 from Heuston?"
-              className="min-h-12 flex-1 resize-none bg-transparent px-2 py-1.5 text-[15px] outline-none placeholder:text-[#979d97]"
+              className="min-h-12 flex-1 resize-none bg-transparent px-2 py-1.5 text-[15px] outline-none placeholder:text-[var(--placeholder)]"
               disabled={loading}
             />
             <button

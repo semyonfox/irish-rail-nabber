@@ -45,25 +45,24 @@ export function formatPct(value: number | null | undefined): string {
   return `${value.toFixed(1)}%`;
 }
 
-// chart inks as raw hex: SVG presentation attributes can't resolve css vars.
-// series pair validated with the dataviz palette checker against #ffffff.
+// CSS custom properties keep SVG charts and HTML tooltips in the active theme.
 export const CHART = {
-  series1: "#2a78d6",
-  series2: "#eb6834",
-  volume: "#d6d2c7",
-  grid: "#eeece6",
-  axis: "#8a8f89",
-  surface: "#ffffff",
-  border: "#e5e2da",
-  ink: "#121814",
-  ink2: "#3d4540",
+  series1: "var(--chart-series-1)",
+  series2: "var(--chart-series-2)",
+  volume: "var(--chart-volume)",
+  grid: "var(--chart-grid)",
+  axis: "var(--chart-axis)",
+  surface: "var(--chart-surface)",
+  border: "var(--chart-border)",
+  ink: "var(--chart-ink)",
+  ink2: "var(--chart-ink-2)",
 } as const;
 
 export const CHART_TOOLTIP_STYLE = {
   backgroundColor: CHART.surface,
   border: `1px solid ${CHART.border}`,
   borderRadius: 12,
-  boxShadow: "0 12px 28px -10px rgb(18 24 20 / 0.25)",
+  boxShadow: "var(--chart-tooltip-shadow)",
   color: CHART.ink,
   fontSize: 12.5,
   padding: "8px 12px",

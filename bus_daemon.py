@@ -25,6 +25,7 @@ import hashlib
 import io
 import json
 import logging
+import math
 import os
 import signal
 import tempfile
@@ -905,6 +906,20 @@ def _csv_int(
         ) from error
 
 
+def _csv_float(
+    value: str, field: str, filename: str, line_number: int, *, required: bool
+) -> float | None:
+    cleaned = value.strip()
+    if not cleaned and not required:
+        return None
+    try:
+        return float(cleaned)
+    except ValueError as error:
+        raise FeedFormatError(
+            f"{filename}:{line_number} has invalid {field}: {value!r}"
+        ) from error
+
+
 @dataclass(frozen=True, slots=True)
 class StaticFeedSelection:
     agencies: tuple[DatabaseRow, ...]
@@ -912,7 +927,9 @@ class StaticFeedSelection:
     stops: tuple[DatabaseRow, ...]
     trips: tuple[DatabaseRow, ...]
     trip_ids: frozenset[str]
+    shape_ids: frozenset[str]
     stop_time_count: int
+    shape_point_count: int
 
 
 def _select_static_feed(archive: zipfile.ZipFile) -> StaticFeedSelection:
@@ -993,12 +1010,16 @@ def _select_static_feed(archive: zipfile.ZipFile) -> StaticFeedSelection:
 
     trips: list[DatabaseRow] = []
     trip_ids: set[str] = set()
+    shape_ids: set[str] = set()
     for line_number, row in _gtfs_rows(archive, "trips.txt"):
         route_id = row.get("route_id", "")
         if route_id not in route_ids:
             continue
         trip_id = _required_field(row, "trip_id", "trips.txt", line_number)
         trip_ids.add(trip_id)
+        shape_id = row.get("shape_id") or None
+        if shape_id is not None:
+            shape_ids.add(shape_id)
         trips.append(
             (
                 trip_id,
@@ -1012,7 +1033,7 @@ def _select_static_feed(archive: zipfile.ZipFile) -> StaticFeedSelection:
                     line_number,
                     required=False,
                 ),
-                row.get("shape_id") or None,
+                shape_id,
             )
         )
 
@@ -1042,6 +1063,17 @@ def _select_static_feed(archive: zipfile.ZipFile) -> StaticFeedSelection:
 
     if stop_time_count == 0:
         raise FeedFormatError("GTFS archive contains no stop times for bus trips")
+
+    shape_point_count = 0
+    found_shape_ids: set[str] = set()
+    for shape_id, *_point in _iter_bus_shape_points(archive, frozenset(shape_ids)):
+        found_shape_ids.add(str(shape_id))
+        shape_point_count += 1
+
+    missing_shapes = shape_ids - found_shape_ids
+    if missing_shapes:
+        sample = ", ".join(sorted(missing_shapes)[:5])
+        raise FeedFormatError(f"bus trips reference missing shapes: {sample}")
 
     all_stops: dict[str, DatabaseRow] = {}
     for line_number, row in _gtfs_rows(archive, "stops.txt"):
@@ -1089,7 +1121,9 @@ def _select_static_feed(archive: zipfile.ZipFile) -> StaticFeedSelection:
         stops=stops,
         trips=tuple(sorted(trips, key=lambda trip: str(trip[0]))),
         trip_ids=frozenset(trip_ids),
+        shape_ids=frozenset(shape_ids),
         stop_time_count=stop_time_count,
+        shape_point_count=shape_point_count,
     )
 
 
@@ -1122,6 +1156,73 @@ def _iter_bus_stop_times(
         )
 
 
+def _iter_bus_shape_points(
+    archive: zipfile.ZipFile, shape_ids: frozenset[str]
+) -> Iterator[DatabaseRow]:
+    if not shape_ids:
+        return
+
+    for line_number, row in _gtfs_rows(archive, "shapes.txt"):
+        shape_id = row.get("shape_id", "")
+        if shape_id not in shape_ids:
+            continue
+
+        sequence = _csv_int(
+            row.get("shape_pt_sequence", ""),
+            "shape_pt_sequence",
+            "shapes.txt",
+            line_number,
+            required=True,
+        )
+        latitude = _csv_float(
+            row.get("shape_pt_lat", ""),
+            "shape_pt_lat",
+            "shapes.txt",
+            line_number,
+            required=True,
+        )
+        longitude = _csv_float(
+            row.get("shape_pt_lon", ""),
+            "shape_pt_lon",
+            "shapes.txt",
+            line_number,
+            required=True,
+        )
+        distance = _csv_float(
+            row.get("shape_dist_traveled", ""),
+            "shape_dist_traveled",
+            "shapes.txt",
+            line_number,
+            required=False,
+        )
+        if sequence is None or sequence < 0:
+            raise FeedFormatError(
+                f"shapes.txt:{line_number} has negative shape_pt_sequence"
+            )
+        if (
+            latitude is None
+            or not math.isfinite(latitude)
+            or not -90 <= latitude <= 90
+        ):
+            raise FeedFormatError(
+                f"shapes.txt:{line_number} has invalid shape_pt_lat"
+            )
+        if (
+            longitude is None
+            or not math.isfinite(longitude)
+            or not -180 <= longitude <= 180
+        ):
+            raise FeedFormatError(
+                f"shapes.txt:{line_number} has invalid shape_pt_lon"
+            )
+        if distance is not None and (not math.isfinite(distance) or distance < 0):
+            raise FeedFormatError(
+                f"shapes.txt:{line_number} has invalid shape_dist_traveled"
+            )
+
+        yield shape_id, sequence, latitude, longitude, distance
+
+
 def _select_static_feed_file(feed_file: BinaryIO) -> StaticFeedSelection:
     feed_file.seek(0)
     with zipfile.ZipFile(feed_file) as archive:
@@ -1138,6 +1239,7 @@ class StaticImportResult:
     stops: int = 0
     trips: int = 0
     stop_times: int = 0
+    shape_points: int = 0
     pruned_stop_times: int = 0
 
 
@@ -1369,7 +1471,8 @@ class NtaBusDaemon:
                               EXISTS (
                                   SELECT 1 FROM bus_stop_times
                                   WHERE feed_version_id = transit_feed_versions.id
-                              )
+                              ),
+                              shapes_imported
                        FROM transit_feed_versions
                        WHERE source = %s AND content_sha256 = %s
                        ORDER BY id DESC
@@ -1384,10 +1487,10 @@ class NtaBusDaemon:
                         "matching static feed version exists but was never imported"
                     )
 
-                # Inactive versions keep identity/reference rows but their very
-                # large stop_times are pruned. A repeated historical hash must
-                # therefore be rehydrated from the archive before activation.
-                if not existing[2]:
+                # Inactive versions keep identity/reference rows, but their large
+                # stop-time and shape-point sets are pruned. Existing active feeds
+                # also need one re-import after the shapes migration is applied.
+                if not existing[2] or not existing[3]:
                     return None
 
                 version_id = int(existing[0])
@@ -1404,7 +1507,7 @@ class NtaBusDaemon:
     async def _activate_version_and_prune_stop_times(
         self, connection: Any, version_id: int
     ) -> int:
-        """Activate one feed and remove inactive stop times in the same transaction."""
+        """Activate one feed and remove bulky inactive data in the same transaction."""
 
         await connection.execute(
             "UPDATE transit_feed_versions SET is_active = FALSE WHERE source = %s",
@@ -1413,6 +1516,20 @@ class NtaBusDaemon:
         await connection.execute(
             "UPDATE transit_feed_versions SET is_active = TRUE WHERE id = %s",
             (version_id,),
+        )
+        await connection.execute(
+            """UPDATE transit_feed_versions
+               SET shapes_imported = FALSE
+               WHERE source = %s AND id <> %s""",
+            (FEED_SOURCE, version_id),
+        )
+        await connection.execute(
+            """DELETE FROM bus_shape_points
+               WHERE feed_version_id IN (
+                   SELECT id FROM transit_feed_versions
+                   WHERE source = %s AND id <> %s
+               )""",
+            (FEED_SOURCE, version_id),
         )
         cursor = await connection.execute(
             """DELETE FROM bus_stop_times
@@ -1448,7 +1565,8 @@ class NtaBusDaemon:
                                   EXISTS (
                                       SELECT 1 FROM bus_stop_times
                                       WHERE feed_version_id = transit_feed_versions.id
-                                  )
+                                  ),
+                                  shapes_imported
                            FROM transit_feed_versions
                            WHERE source = %s AND content_sha256 = %s
                            ORDER BY id DESC
@@ -1463,7 +1581,9 @@ class NtaBusDaemon:
                                 "never imported"
                             )
                         version_id = int(existing_row[0])
-                        if existing_row[2]:
+                        has_stop_times = bool(existing_row[2])
+                        shapes_imported = bool(existing_row[3])
+                        if has_stop_times and shapes_imported:
                             pruned = await self._activate_version_and_prune_stop_times(
                                 connection, version_id
                             )
@@ -1474,39 +1594,79 @@ class NtaBusDaemon:
                                 pruned_stop_times=pruned,
                             )
 
-                        await connection.execute(
-                            "DELETE FROM bus_stop_times WHERE feed_version_id = %s",
-                            (version_id,),
-                        )
-                        stop_time_count = await _copy_rows(
-                            connection,
-                            "bus_stop_times",
-                            (
-                                "feed_version_id",
-                                "trip_id",
-                                "stop_sequence",
-                                "stop_id",
-                                "arrival_seconds",
-                                "departure_seconds",
-                            ),
-                            _prefixed_rows(
-                                version_id,
-                                _iter_bus_stop_times(archive, selection.trip_ids),
-                            ),
-                        )
-                        if stop_time_count != selection.stop_time_count:
-                            raise RuntimeError(
-                                "stop-time count changed while restoring the "
-                                "static archive"
+                        stop_time_count = 0
+                        if not has_stop_times:
+                            await connection.execute(
+                                "DELETE FROM bus_stop_times WHERE feed_version_id = %s",
+                                (version_id,),
+                            )
+                            stop_time_count = await _copy_rows(
+                                connection,
+                                "bus_stop_times",
+                                (
+                                    "feed_version_id",
+                                    "trip_id",
+                                    "stop_sequence",
+                                    "stop_id",
+                                    "arrival_seconds",
+                                    "departure_seconds",
+                                ),
+                                _prefixed_rows(
+                                    version_id,
+                                    _iter_bus_stop_times(archive, selection.trip_ids),
+                                ),
+                            )
+                            if stop_time_count != selection.stop_time_count:
+                                raise RuntimeError(
+                                    "stop-time count changed while restoring the "
+                                    "static archive"
+                                )
+
+                        shape_point_count = 0
+                        if not shapes_imported:
+                            await connection.execute(
+                                """DELETE FROM bus_shape_points
+                                   WHERE feed_version_id = %s""",
+                                (version_id,),
+                            )
+                            shape_point_count = await _copy_rows(
+                                connection,
+                                "bus_shape_points",
+                                (
+                                    "feed_version_id",
+                                    "shape_id",
+                                    "shape_pt_sequence",
+                                    "shape_pt_lat",
+                                    "shape_pt_lon",
+                                    "shape_dist_traveled",
+                                ),
+                                _prefixed_rows(
+                                    version_id,
+                                    _iter_bus_shape_points(
+                                        archive, selection.shape_ids
+                                    ),
+                                ),
+                            )
+                            if shape_point_count != selection.shape_point_count:
+                                raise RuntimeError(
+                                    "shape-point count changed while restoring the "
+                                    "static archive"
+                                )
+                            await connection.execute(
+                                """UPDATE transit_feed_versions
+                                   SET shapes_imported = TRUE WHERE id = %s""",
+                                (version_id,),
                             )
                         pruned = await self._activate_version_and_prune_stop_times(
                             connection, version_id
                         )
+                        imported_count = stop_time_count + shape_point_count
                         return StaticImportResult(
                             version_id,
                             imported=True,
-                            row_count=stop_time_count,
+                            row_count=imported_count,
                             stop_times=stop_time_count,
+                            shape_points=shape_point_count,
                             pruned_stop_times=pruned,
                         )
 
@@ -1578,6 +1738,26 @@ class NtaBusDaemon:
                         ),
                         _prefixed_rows(version_id, selection.trips),
                     )
+                    shape_point_count = await _copy_rows(
+                        connection,
+                        "bus_shape_points",
+                        (
+                            "feed_version_id",
+                            "shape_id",
+                            "shape_pt_sequence",
+                            "shape_pt_lat",
+                            "shape_pt_lon",
+                            "shape_dist_traveled",
+                        ),
+                        _prefixed_rows(
+                            version_id,
+                            _iter_bus_shape_points(archive, selection.shape_ids),
+                        ),
+                    )
+                    if shape_point_count != selection.shape_point_count:
+                        raise RuntimeError(
+                            "shape-point count changed while reading the static archive"
+                        )
                     stop_time_count = await _copy_rows(
                         connection,
                         "bus_stop_times",
@@ -1601,7 +1781,8 @@ class NtaBusDaemon:
 
                     await connection.execute(
                         """UPDATE transit_feed_versions
-                           SET imported_at = NOW() WHERE id = %s""",
+                           SET imported_at = NOW(), shapes_imported = TRUE
+                           WHERE id = %s""",
                         (version_id,),
                     )
                     pruned_stop_times = (
@@ -1611,7 +1792,12 @@ class NtaBusDaemon:
                     )
 
         row_count = (
-            agency_count + route_count + stop_count + trip_count + stop_time_count
+            agency_count
+            + route_count
+            + stop_count
+            + trip_count
+            + stop_time_count
+            + shape_point_count
         )
         return StaticImportResult(
             feed_version_id=version_id,
@@ -1622,6 +1808,7 @@ class NtaBusDaemon:
             stops=stop_count,
             trips=trip_count,
             stop_times=stop_time_count,
+            shape_points=shape_point_count,
             pruned_stop_times=pruned_stop_times,
         )
 
@@ -1666,7 +1853,8 @@ class NtaBusDaemon:
                 if result.imported:
                     logger.info(
                         "static GTFS version %s imported from %s bytes: "
-                        "%s agencies, %s routes, %s stops, %s trips, %s stop times",
+                        "%s agencies, %s routes, %s stops, %s trips, "
+                        "%s stop times, %s shape points",
                         result.feed_version_id,
                         byte_count,
                         result.agencies,
@@ -1674,6 +1862,7 @@ class NtaBusDaemon:
                         result.stops,
                         result.trips,
                         result.stop_times,
+                        result.shape_points,
                     )
                 else:
                     logger.info(

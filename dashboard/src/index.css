@@ -41,6 +41,40 @@
   color-scheme: light;
   --shadow-card: 0 1px 2px rgb(18 24 20 / 0.05), 0 0 0 1px rgb(18 24 20 / 0.06);
   --shadow-float: 0 18px 40px -12px rgb(18 24 20 / 0.24), 0 0 0 1px rgb(18 24 20 / 0.07);
+  --color-on-ink: #ffffff;
+  --color-on-brand: #ffffff;
+  --header-bg: rgb(243 241 236 / 0.88);
+  --subtle-bg: rgb(18 24 20 / 0.05);
+  --raised-hover-bg: rgb(255 255 255 / 0.7);
+  --float-bg: rgb(255 255 255 / 0.94);
+  --overlay-bg: rgb(255 255 255 / 0.96);
+  --map-control-bg: rgb(255 255 255 / 0.96);
+  --map-attribution-bg: rgb(255 255 255 / 0.85);
+  --map-bg: #e9ebe6;
+  --row-hover-bg: #faf9f6;
+  --bus-row-hover-bg: #fffaf0;
+  --placeholder: #797f79;
+  --focus-ring: rgb(11 107 77 / 0.15);
+  --warn-border: #efd39c;
+  --danger-border: #f2c7bf;
+  --bus-border: #ead29f;
+  --bus-grid-line: rgb(18 24 20 / 0.025);
+  --series-soft: #e3edfa;
+  --series-blue: #2a78d6;
+  --map-station: #ffffff;
+  --map-station-border: #56615b;
+  --map-track: #8fa197;
+  --chart-series-1: #2a78d6;
+  --chart-series-2: #eb6834;
+  --chart-volume: #d6d2c7;
+  --chart-grid: #eeece6;
+  --chart-axis: #767c76;
+  --chart-surface: #ffffff;
+  --chart-border: #e5e2da;
+  --chart-ink: #121814;
+  --chart-ink-2: #3d4540;
+  --chart-cursor: rgb(18 24 20 / 0.04);
+  --chart-tooltip-shadow: 0 12px 28px -10px rgb(18 24 20 / 0.25);
 
   /* older names still referenced in a few spots */
   --rail-bg: var(--color-paper);
@@ -48,6 +82,68 @@
   --rail-border: var(--color-line);
   --rail-text: var(--color-ink);
   --rail-muted: var(--color-muted);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-paper: #101512;
+  --color-card: #171e1a;
+  --color-wash: #1d2621;
+  --color-line: #2b352f;
+  --color-line-strong: #3c4942;
+  --color-ink: #f2f0e9;
+  --color-ink-2: #c6cdc7;
+  --color-muted: #929d96;
+  --color-brand: #58c99b;
+  --color-brand-deep: #31946e;
+  --color-brand-soft: #173a2c;
+  --color-bus: #f0aa2a;
+  --color-bus-deep: #ffc45b;
+  --color-bus-soft: #3a2b12;
+  --color-ok: #63cf91;
+  --color-ok-soft: #173526;
+  --color-warn: #f2b548;
+  --color-warn-mark: #f2b548;
+  --color-warn-soft: #3b2d15;
+  --color-bad: #ff806f;
+  --color-bad-mark: #ef6b58;
+  --color-bad-soft: #3c211d;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.24), 0 0 0 1px rgb(255 255 255 / 0.045);
+  --shadow-float: 0 22px 52px -14px rgb(0 0 0 / 0.62), 0 0 0 1px rgb(255 255 255 / 0.06);
+  --color-on-ink: #101512;
+  --color-on-brand: #101512;
+  --header-bg: rgb(16 21 18 / 0.9);
+  --subtle-bg: rgb(255 255 255 / 0.055);
+  --raised-hover-bg: rgb(255 255 255 / 0.08);
+  --float-bg: rgb(23 30 26 / 0.94);
+  --overlay-bg: rgb(23 30 26 / 0.97);
+  --map-control-bg: rgb(23 30 26 / 0.96);
+  --map-attribution-bg: rgb(23 30 26 / 0.9);
+  --map-bg: #111713;
+  --row-hover-bg: #1c2520;
+  --bus-row-hover-bg: #282216;
+  --placeholder: #7d8981;
+  --focus-ring: rgb(88 201 155 / 0.2);
+  --warn-border: #644a1d;
+  --danger-border: #61342d;
+  --bus-border: #60471c;
+  --bus-grid-line: rgb(255 255 255 / 0.022);
+  --series-soft: #1b3046;
+  --series-blue: #6da7ef;
+  --map-station: #e8ede9;
+  --map-station-border: #718078;
+  --map-track: #71867a;
+  --chart-series-1: #6da7ef;
+  --chart-series-2: #ff976c;
+  --chart-volume: #46534b;
+  --chart-grid: #2c3630;
+  --chart-axis: #929d96;
+  --chart-surface: #171e1a;
+  --chart-border: #2b352f;
+  --chart-ink: #f2f0e9;
+  --chart-ink-2: #c6cdc7;
+  --chart-cursor: rgb(255 255 255 / 0.05);
+  --chart-tooltip-shadow: 0 16px 34px -10px rgb(0 0 0 / 0.58);
 }
 
 @layer base {
@@ -97,7 +193,7 @@
     min-height: 64px;
     padding: 0 20px;
     border-bottom: 1px solid var(--color-line);
-    background: rgb(243 241 236 / 0.88);
+    background: var(--header-bg);
     backdrop-filter: blur(12px);
   }
   .brand {
@@ -131,7 +227,7 @@
     gap: 3px;
     height: 38px;
     padding: 3px;
-    border: 1px solid rgb(18 24 20 / 0.14);
+    border: 1px solid var(--color-line-strong);
     border-radius: 11px;
     background: #272d29;
     box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.04);
@@ -160,7 +256,7 @@
   .transport-mode.is-active[data-transport="rail"] {
     background: var(--color-brand);
     box-shadow: 0 1px 4px rgb(0 0 0 / 0.24);
-    color: #fff;
+    color: var(--color-on-brand);
   }
   .transport-mode.is-active[data-transport="bus"] {
     background: var(--color-bus);
@@ -173,7 +269,7 @@
     gap: 2px;
     padding: 4px;
     border-radius: 999px;
-    background: rgb(18 24 20 / 0.05);
+    background: var(--subtle-bg);
   }
   .nav-link {
     display: inline-flex;
@@ -198,7 +294,7 @@
     opacity: 0.7;
   }
   .nav-link:hover {
-    background: rgb(255 255 255 / 0.7);
+    background: var(--raised-hover-bg);
     color: var(--color-ink);
   }
   .nav-link.is-active {
@@ -259,6 +355,12 @@
     font-size: 13px;
     font-weight: 550;
   }
+  .header-theme-toggle {
+    width: 34px;
+    height: 34px;
+    background: var(--color-card);
+    box-shadow: var(--shadow-card);
+  }
   .live-dot {
     position: relative;
     display: inline-block;
@@ -275,12 +377,6 @@
     border-radius: 999px;
     background: var(--color-ok);
     animation: live-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
-  }
-  .clock {
-    color: var(--color-ink);
-    font-family: var(--font-mono);
-    font-size: 12.5px;
-    font-variant-numeric: tabular-nums;
   }
   .account-link {
     display: inline-flex;
@@ -343,14 +439,14 @@
   }
   .btn-primary {
     background: var(--color-ink);
-    color: #fff;
+    color: var(--color-on-ink);
   }
   .btn-primary:hover:not(:disabled) {
     background: var(--color-brand-deep);
   }
   .btn-brand {
     background: var(--color-brand);
-    color: #fff;
+    color: var(--color-on-brand);
   }
   .btn-brand:hover:not(:disabled) {
     background: var(--color-brand-deep);
@@ -365,12 +461,12 @@
     background: var(--color-wash);
   }
   .btn-quiet[aria-pressed="true"] {
-    border-color: #efd39c;
+    border-color: var(--warn-border);
     background: var(--color-warn-soft);
     color: var(--color-warn);
   }
   .btn-danger {
-    border-color: #f2c7bf;
+    border-color: var(--danger-border);
     background: var(--color-card);
     color: var(--color-bad);
   }
@@ -443,7 +539,7 @@
   }
   .float-card {
     border-radius: 18px;
-    background: rgb(255 255 255 / 0.94);
+    background: var(--float-bg);
     box-shadow: var(--shadow-float);
     backdrop-filter: blur(10px);
   }
@@ -477,13 +573,18 @@
   .control:focus {
     border-color: var(--color-brand);
     outline: none;
-    box-shadow: 0 0 0 3px rgb(11 107 77 / 0.15);
+    box-shadow: 0 0 0 3px var(--focus-ring);
   }
   .control::placeholder {
-    color: #979d97;
+    color: var(--placeholder);
   }
   .control:disabled {
     opacity: 0.6;
+  }
+  .chat-composer:focus-within {
+    box-shadow:
+      0 0 0 3px var(--focus-ring),
+      var(--shadow-card);
   }
   select.control {
     appearance: none;
@@ -535,7 +636,7 @@
     padding: 3px;
     overflow-x: auto;
     border-radius: 11px;
-    background: rgb(18 24 20 / 0.05);
+    background: var(--subtle-bg);
     scrollbar-width: none;
   }
   .seg button {
@@ -713,10 +814,10 @@
     background: var(--color-brand);
   }
   .meter[data-series] {
-    background: #e3edfa;
+    background: var(--series-soft);
   }
   .meter[data-series] > span {
-    background: #2a78d6;
+    background: var(--series-blue);
   }
   .meter[data-tone="warn"] > span {
     background: var(--color-warn-mark);
@@ -758,7 +859,7 @@
     transition: background-color 0.12s;
   }
   .data-table tbody tr:hover {
-    background: #faf9f6;
+    background: var(--row-hover-bg);
   }
   .data-table tbody tr:last-child td {
     border-bottom: 0;
@@ -849,7 +950,7 @@
     position: relative;
     height: 100%;
     overflow: hidden;
-    background: #e9ebe6;
+    background: var(--map-bg);
   }
   .sheet {
     position: absolute;
@@ -919,21 +1020,21 @@
     border-radius: 999px;
     background: var(--color-brand);
     box-shadow:
-      0 0 0 2px #fff,
-      0 0 0 4px rgb(11 107 77 / 0.2);
+      0 0 0 2px var(--map-station),
+      0 0 0 4px var(--focus-ring);
   }
   .legend-station {
     width: 9px;
     height: 9px;
-    border: 1.5px solid #56615b;
+    border: 1.5px solid var(--map-station-border);
     border-radius: 999px;
-    background: #fff;
+    background: var(--map-station);
   }
   .legend-track {
     width: 18px;
     height: 2px;
     border-radius: 999px;
-    background: #8fa197;
+    background: var(--map-track);
   }
   .legend-route {
     width: 18px;
@@ -993,7 +1094,7 @@
   }
   .tl-rail[data-next="true"] .tl-dot {
     border-color: var(--color-brand);
-    box-shadow: 0 0 0 4px rgb(11 107 77 / 0.16);
+    box-shadow: 0 0 0 4px var(--focus-ring);
   }
   .board-row {
     display: grid;
@@ -1085,7 +1186,7 @@
   /* bus boards borrow the amber LED and route-plate language of Irish stops */
   .bus-page {
     background:
-      linear-gradient(90deg, transparent 0 49.9%, rgb(18 24 20 / 0.025) 50%, transparent 50.1%),
+      linear-gradient(90deg, transparent 0 49.9%, var(--bus-grid-line) 50%, transparent 50.1%),
       var(--color-paper);
     background-size: 72px 72px;
   }
@@ -1095,7 +1196,7 @@
     gap: 9px;
     height: 38px;
     padding: 0 14px;
-    border: 1px solid #ead29f;
+    border: 1px solid var(--bus-border);
     border-radius: 999px;
     background: var(--color-bus-soft);
     color: var(--color-bus-deep);
@@ -1205,7 +1306,7 @@
     height: clamp(360px, 44vw, 520px);
     overflow: hidden;
     border-top: 1px solid var(--color-line);
-    background: #e9ebe6;
+    background: var(--map-bg);
   }
   .bus-map-canvas {
     position: absolute;
@@ -1221,7 +1322,7 @@
     gap: 8px;
     padding: 22px;
     border-radius: 16px;
-    background: rgb(255 255 255 / 0.94);
+    background: var(--float-bg);
     box-shadow: var(--shadow-float);
     text-align: center;
     transform: translate(-50%, -50%);
@@ -1244,9 +1345,9 @@
     left: 16px;
     width: min(470px, calc(100% - 32px));
     padding: 16px;
-    border: 1px solid rgb(18 24 20 / 0.08);
+    border: 1px solid var(--color-line);
     border-radius: 16px;
-    background: rgb(255 255 255 / 0.96);
+    background: var(--overlay-bg);
     box-shadow: var(--shadow-float);
     backdrop-filter: blur(10px);
   }
@@ -1340,7 +1441,7 @@
     transition: background-color 0.15s;
   }
   .bus-stop-option:hover {
-    background: #fffaf0;
+    background: var(--bus-row-hover-bg);
   }
   .bus-stop-option[aria-pressed="true"] {
     background: var(--color-bus-soft);
@@ -1527,7 +1628,7 @@
 .maplibregl-ctrl-group:not(:empty) {
   overflow: hidden;
   border-radius: 12px;
-  background: rgb(255 255 255 / 0.96);
+  background: var(--map-control-bg);
   box-shadow: var(--shadow-float);
 }
 .maplibregl-ctrl-group button {
@@ -1538,7 +1639,16 @@
   border-top-color: var(--color-line);
 }
 .maplibregl-ctrl-attrib.maplibregl-compact {
-  background: rgb(255 255 255 / 0.85);
+  background: var(--map-attribution-bg);
+}
+
+:root[data-theme="dark"] .maplibregl-ctrl button .maplibregl-ctrl-icon {
+  filter: invert(1) opacity(0.84);
+}
+
+:root[data-theme="dark"] .maplibregl-ctrl-attrib,
+:root[data-theme="dark"] .maplibregl-ctrl-attrib a {
+  color: var(--color-ink-2);
 }
 
 @media (max-width: 1180px) {

@@ -75,7 +75,7 @@ export default function StationRiskChart() {
           axisLine={false}
         />
         <Tooltip
-          cursor={{ fill: "rgb(18 24 20 / 0.04)" }}
+          cursor={{ fill: "var(--chart-cursor)" }}
           content={({ active, payload }) => {
             if (!active || !payload?.length) return null;
             const row = payload[0].payload as StationStats;

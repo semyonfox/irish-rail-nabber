@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import BusVehicleMap from "../components/BusVehicleMap";
 import RequestError from "../components/RequestError";
 import { Card, DelayPill, Empty, Icon, PageHeader, SearchInput, Segmented } from "../components/ui";
-import { BUS_LIVE_OVERVIEW, BUS_STOPS } from "../graphql/queries";
+import { BUS_LIVE_OVERVIEW, BUS_SCHEDULED_ROUTE_SHAPES, BUS_STOPS } from "../graphql/queries";
+import { busFeedState, type BusRealtimeStatus } from "../utils/busRealtime";
+import type { BusRouteShape } from "../utils/busShapes";
 import type { BusVehicle } from "../utils/busVehicles";
 import { usePollingQuery } from "../utils/usePollingQuery";
 
@@ -46,9 +48,15 @@ interface BusStopsData {
 }
 
 interface BusLiveOverviewData {
+  busRealtimeStatus: BusRealtimeStatus;
   busStopBoard?: BusDeparture[];
   busVehicles: BusVehicle[];
+  busLiveRouteShapes: BusRouteShape[];
   busRouteDelays: BusRouteDelay[];
+}
+
+interface BusScheduledRouteShapesData {
+  busScheduledRouteShapes: BusRouteShape[];
 }
 
 const timeFormat = new Intl.DateTimeFormat("en-IE", {
@@ -108,6 +116,14 @@ export default function Buses() {
     [selectedStopId, stopsData?.busStops],
   );
 
+  const [
+    { data: scheduledShapesData, fetching: scheduledShapesFetching, error: scheduledShapesError },
+    retryScheduledShapes,
+  ] = usePollingQuery<BusScheduledRouteShapesData>({
+    query: BUS_SCHEDULED_ROUTE_SHAPES,
+    variables: { stopId: selectedStopId, limit: 24 },
+  });
+
   const [{ data: liveData, fetching: liveFetching, error: liveError }, retryLive] =
     usePollingQuery<BusLiveOverviewData>({
       query: BUS_LIVE_OVERVIEW,
@@ -116,6 +132,7 @@ export default function Buses() {
         includeBoard: selectedStopId != null,
         boardLimit: 30,
         vehicleLimit: 2_000,
+        shapeLimit: 100,
         hours,
         routeLimit: 20,
       },
@@ -123,7 +140,13 @@ export default function Buses() {
     });
 
   const departures = liveData?.busStopBoard ?? [];
+  const realtimeStatus = liveData?.busRealtimeStatus ?? null;
+  const feedState = busFeedState(realtimeStatus, liveFetching && !liveData);
   const vehicles = liveData?.busVehicles ?? [];
+  const liveRouteShapes = liveData?.busLiveRouteShapes ?? [];
+  const scheduledRouteShapes = scheduledShapesData?.busScheduledRouteShapes ?? [];
+  const useLiveRouteShapes = feedState.isLive && liveRouteShapes.length > 0;
+  const routeShapes = useLiveRouteShapes ? liveRouteShapes : scheduledRouteShapes;
   const routes = liveData?.busRouteDelays ?? [];
   const busesOnTime = routes.length
     ? routes.reduce((sum, route) => sum + route.onTimePct, 0) / routes.length
@@ -139,10 +162,11 @@ export default function Buses() {
               Your stop, <em>without the guesswork</em>
             </>
           }
-          description="Live arrival updates and route reliability from Ireland's national GTFS feed. The collector takes one snapshot each minute."
+          description="NTA bus stops, departures and route reliability, with realtime status checked against the collector's latest successful poll."
           actions={
             <span className="bus-feed-badge">
-              <span className="live-dot" /> 60 second feed
+              {feedState.isLive ? <span className="live-dot" /> : null}
+              {feedState.badge}
             </span>
           }
         />
@@ -152,6 +176,14 @@ export default function Buses() {
             error={liveError}
             onRetry={() => retryLive({ requestPolicy: "network-only" })}
             title="Live bus data unavailable"
+          />
+        ) : null}
+
+        {scheduledShapesError && !scheduledShapesData ? (
+          <RequestError
+            error={scheduledShapesError}
+            onRetry={() => retryScheduledShapes({ requestPolicy: "network-only" })}
+            title="Bus route map unavailable"
           />
         ) : null}
 
@@ -174,7 +206,15 @@ export default function Buses() {
           </div>
         </section>
 
-        <BusVehicleMap vehicles={vehicles} fetching={liveFetching} />
+        <BusVehicleMap
+          vehicles={feedState.isLive ? vehicles : []}
+          routeShapes={routeShapes}
+          realtimeStatus={realtimeStatus}
+          fetching={liveFetching}
+          shapesFetching={scheduledShapesFetching}
+          shapeMode={useLiveRouteShapes ? "live" : "scheduled"}
+          shapeFocusKey={selectedStopId ?? "network"}
+        />
 
         <div className="bus-workspace">
           <Card
@@ -249,7 +289,11 @@ export default function Buses() {
             ) : null}
 
             {selectedStopId && !liveFetching && departures.length === 0 && !liveError ? (
-              <Empty>No live departures were reported for this stop.</Empty>
+              <Empty>
+                {feedState.isLive
+                  ? "No live departures were reported for this stop."
+                  : "Realtime departures are unavailable until the NTA feed reconnects."}
+              </Empty>
             ) : null}
 
             <div className="bus-board" aria-live="polite">

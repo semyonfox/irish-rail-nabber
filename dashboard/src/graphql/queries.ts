@@ -4,6 +4,7 @@ export const LIVE_RAIL_OVERVIEW = gql`
   query LiveRailOverview($boardLimit: Int, $boardMinutes: Int) {
     liveTrains {
       trainCode
+      trainDate
       latitude
       longitude
       trainStatus
@@ -198,15 +199,36 @@ export const BUS_STOPS = gql`
   }
 `;
 
+export const BUS_SCHEDULED_ROUTE_SHAPES = gql`
+  query BusScheduledRouteShapes($stopId: String, $limit: Int) {
+    busScheduledRouteShapes(stopId: $stopId, limit: $limit) {
+      routeId
+      routeShortName
+      shapeId
+      routeColor
+      points {
+        latitude
+        longitude
+        sequence
+      }
+    }
+  }
+`;
+
 export const BUS_LIVE_OVERVIEW = gql`
   query BusLiveOverview(
     $stopId: String!
     $includeBoard: Boolean!
     $boardLimit: Int
     $vehicleLimit: Int
+    $shapeLimit: Int
     $hours: Int
     $routeLimit: Int
   ) {
+    busRealtimeStatus {
+      lastSuccessAt
+      isLive
+    }
     busStopBoard(stopId: $stopId, limit: $boardLimit) @include(if: $includeBoard) {
       entityId
       tripId
@@ -242,6 +264,17 @@ export const BUS_LIVE_OVERVIEW = gql`
       occupancyStatus
       sourceTimestamp
       fetchedAt
+    }
+    busLiveRouteShapes(limit: $shapeLimit) {
+      routeId
+      routeShortName
+      shapeId
+      routeColor
+      points {
+        latitude
+        longitude
+        sequence
+      }
     }
     busRouteDelays(hours: $hours, limit: $routeLimit) {
       routeId

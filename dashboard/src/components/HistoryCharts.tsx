@@ -95,7 +95,7 @@ export default function HistoryCharts({ data }: { data: HistoryChartPoint[] }) {
               <Tooltip
                 contentStyle={CHART_TOOLTIP_STYLE}
                 formatter={(value) => [Number(value).toLocaleString(), "Observations"]}
-                cursor={{ fill: "rgb(18 24 20 / 0.04)" }}
+                cursor={{ fill: "var(--chart-cursor)" }}
               />
               <Bar
                 dataKey="eventCount"

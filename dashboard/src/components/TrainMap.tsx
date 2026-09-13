@@ -1,20 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
 import { TRAIN_JOURNEY } from "../graphql/queries";
+import { useTheme } from "../theme";
 import { usePollingQuery } from "../utils/usePollingQuery";
 import { loadRailLines, trackPathThrough, type RailCoordinate } from "../utils/railGeometry";
 import {
+  applyIrelandMapTheme,
   createIrelandMap,
   emptyCollection,
   featureCollection,
   pointFeature,
   setSourceData,
+  transitMapPalette,
   type FeatureProperties,
   type TransitFeature,
 } from "./transitMap";
 
 export interface LiveTrain {
   trainCode: string;
+  trainDate: string | null;
   latitude: number | null;
   longitude: number | null;
   trainStatus: string | null;
@@ -64,6 +68,7 @@ interface Props {
   trains: LiveTrain[];
   stations: RailStation[];
   selectedTrainCode?: string | null;
+  selectedTrainDate?: string | null;
   selectedStationCode?: string | null;
   onTrainClick?: (trainCode: string) => void;
   onStationClick?: (station: MapStationSelection) => void;
@@ -88,9 +93,6 @@ const TRAIN_HALO_LAYER_ID = "live-trains-halo";
 const TRAIN_LAYER_ID = "live-trains-circle";
 const TRAIN_LABEL_LAYER_ID = "live-trains-label";
 
-// map inks mirror the css tokens; maplibre can't read css vars
-const INK = "#121814";
-const BRAND = "#0b6b4d";
 const LABEL_FONT = ["Noto Sans Medium"];
 
 const STATION_RADIUS = [
@@ -136,11 +138,14 @@ export default function TrainMap({
   trains,
   stations,
   selectedTrainCode,
+  selectedTrainDate,
   selectedStationCode,
   onTrainClick,
   onStationClick,
   onRouteClick,
 }: Props) {
+  const { theme } = useTheme();
+  const palette = transitMapPalette(theme);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const onTrainClickRef = useRef(onTrainClick);
   const onStationClickRef = useRef(onStationClick);
@@ -178,7 +183,10 @@ export default function TrainMap({
 
   const [{ data: journeyData }] = usePollingQuery<TrainJourneyData>({
     query: TRAIN_JOURNEY,
-    variables: { trainCode: selectedTrainCode ?? "" },
+    variables: {
+      trainCode: selectedTrainCode ?? "",
+      trainDate: selectedTrainDate ?? null,
+    },
     pause: !selectedTrainCode,
     pollInterval: 15000,
   });
@@ -192,185 +200,193 @@ export default function TrainMap({
     return byCode;
   }, [stations]);
 
-  const containerRef = useCallback((node: HTMLDivElement | null) => {
-    if (!node) return;
-    if (mapRef.current) return;
+  const containerRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (!node) return;
+      if (mapRef.current) return;
 
-    let map: maplibregl.Map;
-    try {
-      map = createIrelandMap(node);
-    } catch (error) {
-      setMapError(error instanceof Error ? error.message : "Map unavailable");
-      return;
-    }
-
-    map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
-    map.on("load", () => {
+      let map: maplibregl.Map;
       try {
-        for (const id of [
-          NETWORK_SOURCE_ID,
-          ROUTE_SOURCE_ID,
-          SELECTED_ROUTE_SOURCE_ID,
-          SELECTED_STOP_SOURCE_ID,
-          STATION_SOURCE_ID,
-          TRAIN_SOURCE_ID,
-        ]) {
-          map.addSource(id, { type: "geojson", data: emptyCollection() });
-        }
-
-        map.addLayer({
-          id: NETWORK_LAYER_ID,
-          type: "line",
-          source: NETWORK_SOURCE_ID,
-          layout: { "line-join": "round", "line-cap": "round" },
-          paint: {
-            "line-color": "#8fa197",
-            "line-opacity": 0.85,
-            "line-width": NETWORK_WIDTH,
-          },
-        });
-
-        map.addLayer({
-          id: ROUTE_LAYER_ID,
-          type: "line",
-          source: ROUTE_SOURCE_ID,
-          paint: {
-            "line-color": BRAND,
-            "line-opacity": 0,
-            "line-width": 0,
-          },
-        });
-
-        map.addLayer({
-          id: ROUTE_HIT_LAYER_ID,
-          type: "line",
-          source: ROUTE_SOURCE_ID,
-          paint: {
-            "line-color": "#ffffff",
-            "line-opacity": 0,
-            "line-width": 16,
-          },
-        });
-
-        map.addLayer({
-          id: SELECTED_ROUTE_CASING_LAYER_ID,
-          type: "line",
-          source: SELECTED_ROUTE_SOURCE_ID,
-          layout: { "line-join": "round", "line-cap": "round" },
-          paint: {
-            "line-color": "#ffffff",
-            "line-opacity": 0.95,
-            "line-width": 9,
-          },
-        });
-
-        map.addLayer({
-          id: SELECTED_ROUTE_LAYER_ID,
-          type: "line",
-          source: SELECTED_ROUTE_SOURCE_ID,
-          layout: { "line-join": "round", "line-cap": "round" },
-          paint: {
-            "line-color": INK,
-            "line-width": 4,
-          },
-        });
-
-        map.addLayer({
-          id: STATION_LAYER_ID,
-          type: "circle",
-          source: STATION_SOURCE_ID,
-          paint: {
-            "circle-radius": STATION_RADIUS,
-            "circle-color": ["case", ["get", "selected"], INK, "#ffffff"],
-            "circle-stroke-color": ["case", ["get", "selected"], "#ffffff", "#56615b"],
-            "circle-stroke-width": ["case", ["get", "selected"], 3, 1.25],
-          },
-        });
-
-        map.addLayer({
-          id: STATION_LABEL_LAYER_ID,
-          type: "symbol",
-          source: STATION_SOURCE_ID,
-          minzoom: 8.5,
-          layout: {
-            "text-field": ["get", "name"],
-            "text-font": LABEL_FONT,
-            "text-size": 11.5,
-            "text-offset": [0, 1.2],
-            "text-anchor": "top",
-          },
-          paint: {
-            "text-color": "#3d4540",
-            "text-halo-color": "#ffffff",
-            "text-halo-width": 1.5,
-          },
-        });
-
-        map.addLayer({
-          id: SELECTED_STOP_LAYER_ID,
-          type: "circle",
-          source: SELECTED_STOP_SOURCE_ID,
-          paint: {
-            "circle-radius": 4.5,
-            "circle-color": "#ffffff",
-            "circle-stroke-color": INK,
-            "circle-stroke-width": 2,
-          },
-        });
-
-        map.addLayer({
-          id: TRAIN_HALO_LAYER_ID,
-          type: "circle",
-          source: TRAIN_SOURCE_ID,
-          paint: {
-            "circle-radius": ["case", ["get", "selected"], 16, 11],
-            "circle-color": ["case", ["get", "selected"], INK, BRAND],
-            "circle-opacity": 0.16,
-          },
-        });
-
-        map.addLayer({
-          id: TRAIN_LAYER_ID,
-          type: "circle",
-          source: TRAIN_SOURCE_ID,
-          paint: {
-            "circle-radius": ["case", ["get", "selected"], 8, 5.5],
-            "circle-color": ["case", ["get", "selected"], INK, BRAND],
-            "circle-stroke-color": "#ffffff",
-            "circle-stroke-width": 2,
-          },
-        });
-
-        map.addLayer({
-          id: TRAIN_LABEL_LAYER_ID,
-          type: "symbol",
-          source: TRAIN_SOURCE_ID,
-          minzoom: 8,
-          layout: {
-            "text-field": ["get", "trainCode"],
-            "text-font": LABEL_FONT,
-            "text-size": 11,
-            "text-offset": [0, 1.2],
-            "text-anchor": "top",
-          },
-          paint: {
-            "text-color": INK,
-            "text-halo-color": "#ffffff",
-            "text-halo-width": 1.5,
-          },
-        });
-
-        setMapReady(true);
+        map = createIrelandMap(node, theme);
       } catch (error) {
-        setMapReady(false);
         setMapError(error instanceof Error ? error.message : "Map unavailable");
-        map.remove();
-        mapRef.current = null;
+        return;
       }
-    });
 
-    mapRef.current = map;
-  }, []);
+      map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
+      map.on("load", () => {
+        try {
+          for (const id of [
+            NETWORK_SOURCE_ID,
+            ROUTE_SOURCE_ID,
+            SELECTED_ROUTE_SOURCE_ID,
+            SELECTED_STOP_SOURCE_ID,
+            STATION_SOURCE_ID,
+            TRAIN_SOURCE_ID,
+          ]) {
+            map.addSource(id, { type: "geojson", data: emptyCollection() });
+          }
+
+          map.addLayer({
+            id: NETWORK_LAYER_ID,
+            type: "line",
+            source: NETWORK_SOURCE_ID,
+            layout: { "line-join": "round", "line-cap": "round" },
+            paint: {
+              "line-color": palette.track,
+              "line-opacity": 0.85,
+              "line-width": NETWORK_WIDTH,
+            },
+          });
+
+          map.addLayer({
+            id: ROUTE_LAYER_ID,
+            type: "line",
+            source: ROUTE_SOURCE_ID,
+            paint: {
+              "line-color": palette.brand,
+              "line-opacity": 0,
+              "line-width": 0,
+            },
+          });
+
+          map.addLayer({
+            id: ROUTE_HIT_LAYER_ID,
+            type: "line",
+            source: ROUTE_SOURCE_ID,
+            paint: {
+              "line-color": palette.casing,
+              "line-opacity": 0,
+              "line-width": 16,
+            },
+          });
+
+          map.addLayer({
+            id: SELECTED_ROUTE_CASING_LAYER_ID,
+            type: "line",
+            source: SELECTED_ROUTE_SOURCE_ID,
+            layout: { "line-join": "round", "line-cap": "round" },
+            paint: {
+              "line-color": palette.casing,
+              "line-opacity": 0.95,
+              "line-width": 9,
+            },
+          });
+
+          map.addLayer({
+            id: SELECTED_ROUTE_LAYER_ID,
+            type: "line",
+            source: SELECTED_ROUTE_SOURCE_ID,
+            layout: { "line-join": "round", "line-cap": "round" },
+            paint: {
+              "line-color": palette.ink,
+              "line-width": 4,
+            },
+          });
+
+          map.addLayer({
+            id: STATION_LAYER_ID,
+            type: "circle",
+            source: STATION_SOURCE_ID,
+            paint: {
+              "circle-radius": STATION_RADIUS,
+              "circle-color": ["case", ["get", "selected"], palette.ink, palette.point],
+              "circle-stroke-color": [
+                "case",
+                ["get", "selected"],
+                palette.casing,
+                palette.pointBorder,
+              ],
+              "circle-stroke-width": ["case", ["get", "selected"], 3, 1.25],
+            },
+          });
+
+          map.addLayer({
+            id: STATION_LABEL_LAYER_ID,
+            type: "symbol",
+            source: STATION_SOURCE_ID,
+            minzoom: 8.5,
+            layout: {
+              "text-field": ["get", "name"],
+              "text-font": LABEL_FONT,
+              "text-size": 11.5,
+              "text-offset": [0, 1.2],
+              "text-anchor": "top",
+            },
+            paint: {
+              "text-color": palette.label,
+              "text-halo-color": palette.labelHalo,
+              "text-halo-width": 1.5,
+            },
+          });
+
+          map.addLayer({
+            id: SELECTED_STOP_LAYER_ID,
+            type: "circle",
+            source: SELECTED_STOP_SOURCE_ID,
+            paint: {
+              "circle-radius": 4.5,
+              "circle-color": palette.point,
+              "circle-stroke-color": palette.ink,
+              "circle-stroke-width": 2,
+            },
+          });
+
+          map.addLayer({
+            id: TRAIN_HALO_LAYER_ID,
+            type: "circle",
+            source: TRAIN_SOURCE_ID,
+            paint: {
+              "circle-radius": ["case", ["get", "selected"], 16, 11],
+              "circle-color": ["case", ["get", "selected"], palette.ink, palette.brand],
+              "circle-opacity": 0.16,
+            },
+          });
+
+          map.addLayer({
+            id: TRAIN_LAYER_ID,
+            type: "circle",
+            source: TRAIN_SOURCE_ID,
+            paint: {
+              "circle-radius": ["case", ["get", "selected"], 8, 5.5],
+              "circle-color": ["case", ["get", "selected"], palette.ink, palette.brand],
+              "circle-stroke-color": palette.casing,
+              "circle-stroke-width": 2,
+            },
+          });
+
+          map.addLayer({
+            id: TRAIN_LABEL_LAYER_ID,
+            type: "symbol",
+            source: TRAIN_SOURCE_ID,
+            minzoom: 8,
+            layout: {
+              "text-field": ["get", "trainCode"],
+              "text-font": LABEL_FONT,
+              "text-size": 11,
+              "text-offset": [0, 1.2],
+              "text-anchor": "top",
+            },
+            paint: {
+              "text-color": palette.ink,
+              "text-halo-color": palette.labelHalo,
+              "text-halo-width": 1.5,
+            },
+          });
+
+          setMapReady(true);
+        } catch (error) {
+          setMapReady(false);
+          setMapError(error instanceof Error ? error.message : "Map unavailable");
+          map.remove();
+          mapRef.current = null;
+        }
+      });
+
+      mapRef.current = map;
+    },
+    [palette, theme],
+  );
 
   useEffect(() => {
     return () => {
@@ -381,6 +397,50 @@ export default function TrainMap({
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!mapReady || !mapRef.current) return;
+    const map = mapRef.current;
+    const next = transitMapPalette(theme);
+
+    applyIrelandMapTheme(map, theme);
+    map.setPaintProperty(NETWORK_LAYER_ID, "line-color", next.track);
+    map.setPaintProperty(ROUTE_LAYER_ID, "line-color", next.brand);
+    map.setPaintProperty(ROUTE_HIT_LAYER_ID, "line-color", next.casing);
+    map.setPaintProperty(SELECTED_ROUTE_CASING_LAYER_ID, "line-color", next.casing);
+    map.setPaintProperty(SELECTED_ROUTE_LAYER_ID, "line-color", next.ink);
+    map.setPaintProperty(STATION_LAYER_ID, "circle-color", [
+      "case",
+      ["get", "selected"],
+      next.ink,
+      next.point,
+    ]);
+    map.setPaintProperty(STATION_LAYER_ID, "circle-stroke-color", [
+      "case",
+      ["get", "selected"],
+      next.casing,
+      next.pointBorder,
+    ]);
+    map.setPaintProperty(STATION_LABEL_LAYER_ID, "text-color", next.label);
+    map.setPaintProperty(STATION_LABEL_LAYER_ID, "text-halo-color", next.labelHalo);
+    map.setPaintProperty(SELECTED_STOP_LAYER_ID, "circle-color", next.point);
+    map.setPaintProperty(SELECTED_STOP_LAYER_ID, "circle-stroke-color", next.ink);
+    map.setPaintProperty(TRAIN_HALO_LAYER_ID, "circle-color", [
+      "case",
+      ["get", "selected"],
+      next.ink,
+      next.brand,
+    ]);
+    map.setPaintProperty(TRAIN_LAYER_ID, "circle-color", [
+      "case",
+      ["get", "selected"],
+      next.ink,
+      next.brand,
+    ]);
+    map.setPaintProperty(TRAIN_LAYER_ID, "circle-stroke-color", next.casing);
+    map.setPaintProperty(TRAIN_LABEL_LAYER_ID, "text-color", next.ink);
+    map.setPaintProperty(TRAIN_LABEL_LAYER_ID, "text-halo-color", next.labelHalo);
+  }, [mapReady, theme]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;

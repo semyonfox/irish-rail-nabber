@@ -4,8 +4,8 @@ use moka::future::Cache;
 use sqlx::PgPool;
 
 use crate::schema::types::{
-    BusDeparture, BusRouteDelay, BusStop, BusVehicle, DelayHistoryPoint, NetworkSummary,
-    RouteReliability, StationDelayStats,
+    BusDeparture, BusRealtimeStatus, BusRouteDelay, BusRouteShape, BusStop, BusVehicle,
+    DelayHistoryPoint, NetworkSummary, RouteReliability, StationDelayStats,
 };
 use crate::schema::AppSchema;
 
@@ -19,6 +19,9 @@ pub struct QueryCache {
     pub bus_stop_boards: Cache<String, Arc<Vec<BusDeparture>>>,
     pub bus_route_delays: Cache<String, Arc<Vec<BusRouteDelay>>>,
     pub bus_vehicles: Cache<String, Arc<Vec<BusVehicle>>>,
+    pub bus_live_route_shapes: Cache<i32, Arc<Vec<BusRouteShape>>>,
+    pub bus_scheduled_route_shapes: Cache<String, Arc<Vec<BusRouteShape>>>,
+    pub bus_realtime_status: Cache<(), Arc<BusRealtimeStatus>>,
 }
 
 impl QueryCache {
@@ -32,6 +35,9 @@ impl QueryCache {
             bus_stop_boards: cache(Duration::from_secs(20), 1_024),
             bus_route_delays: cache(Duration::from_secs(60), 128),
             bus_vehicles: cache(Duration::from_secs(30), 128),
+            bus_live_route_shapes: cache(Duration::from_secs(30), 8),
+            bus_scheduled_route_shapes: cache(Duration::from_secs(900), 256),
+            bus_realtime_status: cache(Duration::from_secs(15), 1),
         }
     }
 }

@@ -3,6 +3,7 @@ import { ClerkProvider, useAuth as useClerkAuth, useClerk } from "@clerk/react";
 import { useNavigate } from "react-router-dom";
 
 import { api, type MeUser } from "../graphql/api";
+import { useTheme } from "../theme";
 import { AuthContext, type AuthContextValue } from "./AuthContext";
 import { clerkAppearance } from "./clerkAppearance";
 import { setTokenGetter } from "./token";
@@ -141,6 +142,7 @@ function ClerkBridge({
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
+  const { theme } = useTheme();
   const envKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined;
   // undefined while the server config is loading, null when auth is off
   const [publishableKey, setPublishableKey] = useState<string | null | undefined>(
@@ -193,7 +195,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signInFallbackRedirectUrl="/"
       signUpFallbackRedirectUrl="/"
       afterSignOutUrl="/"
-      appearance={clerkAppearance}
+      appearance={clerkAppearance(theme)}
       localization={{
         signIn: {
           start: {

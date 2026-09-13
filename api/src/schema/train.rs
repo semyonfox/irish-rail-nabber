@@ -1,4 +1,4 @@
-use async_graphql::{Context, Object, Result};
+use async_graphql::{Context, Error, Object, Result};
 use chrono::NaiveDate;
 use sqlx::PgPool;
 
@@ -23,7 +23,7 @@ impl TrainQuery {
         let rows = if let Some(tt) = train_type {
             sqlx::query_as::<_, TrainPositionRow>(
                 "SELECT DISTINCT ON (train_code)
-                    train_code,
+                    train_code, train_date,
                     CASE WHEN latitude = 0 AND longitude = 0 THEN NULL ELSE latitude END AS latitude,
                     CASE WHEN latitude = 0 AND longitude = 0 THEN NULL ELSE longitude END AS longitude,
                     train_status, direction, train_type, fetched_at
@@ -37,7 +37,7 @@ impl TrainQuery {
         } else {
             sqlx::query_as::<_, TrainPositionRow>(
                 "SELECT DISTINCT ON (train_code)
-                    train_code,
+                    train_code, train_date,
                     CASE WHEN latitude = 0 AND longitude = 0 THEN NULL ELSE latitude END AS latitude,
                     CASE WHEN latitude = 0 AND longitude = 0 THEN NULL ELSE longitude END AS longitude,
                     train_status, direction, train_type, fetched_at
@@ -61,11 +61,12 @@ impl TrainQuery {
     ) -> Result<Vec<TrainMovement>> {
         let pool = ctx.data::<PgPool>()?;
 
-        let date = match train_date {
-            Some(d) => NaiveDate::parse_from_str(&d, "%Y-%m-%d")
-                .unwrap_or_else(|_| chrono::Local::now().date_naive()),
-            None => chrono::Local::now().date_naive(),
-        };
+        let date = train_date
+            .map(|value| {
+                NaiveDate::parse_from_str(&value, "%Y-%m-%d")
+                    .map_err(|_| Error::new("trainDate must use YYYY-MM-DD"))
+            })
+            .transpose()?;
 
         let rows = sqlx::query_as::<_, TrainMovementRow>(
             "SELECT DISTINCT ON (location_order)
@@ -76,7 +77,20 @@ impl TrainQuery {
                 actual_arrival, actual_departure,
                 NULLIF(stop_type, '-') AS stop_type, fetched_at
              FROM train_movements
-             WHERE train_code = $1 AND train_date = $2
+             WHERE train_code = $1
+                AND train_date = COALESCE(
+                    $2,
+                    (
+                        SELECT snapshot.train_date
+                        FROM train_snapshots snapshot
+                        WHERE snapshot.train_code = $1
+                            AND snapshot.train_date IS NOT NULL
+                            AND snapshot.fetched_at > NOW() - INTERVAL '2 minutes'
+                        ORDER BY snapshot.fetched_at DESC
+                        LIMIT 1
+                    ),
+                    (NOW() AT TIME ZONE 'Europe/Dublin')::date
+                )
                 AND location_type <> 'T'
                 AND EXISTS (
                     SELECT 1 FROM stations s WHERE s.station_code = location_code
@@ -102,7 +116,7 @@ impl TrainQuery {
         let bounded_hours = clamp_i32(hours, TRAIN_HISTORY_HOURS.0, TRAIN_HISTORY_HOURS.1);
 
         let rows = sqlx::query_as::<_, TrainPositionRow>(
-            "SELECT train_code, latitude, longitude, train_status, direction, train_type, fetched_at
+            "SELECT train_code, train_date, latitude, longitude, train_status, direction, train_type, fetched_at
              FROM train_snapshots
              WHERE train_code = $1 AND fetched_at > NOW() - make_interval(hours => $2)
                 AND NOT (latitude = 0 AND longitude = 0)

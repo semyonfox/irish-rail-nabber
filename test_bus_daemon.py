@@ -13,6 +13,7 @@ from bus_daemon import (
     ActiveBusIds,
     FeedFormatError,
     NtaBusDaemon,
+    _iter_bus_shape_points,
     _iter_bus_stop_times,
     _parse_trip_updates_feed,
     _realtime_url_from_environment,
@@ -692,6 +693,18 @@ class DatabaseRetentionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("DELETE FROM bus_stop_times", delete_statement)
         self.assertIn("id <> %s", delete_statement)
         self.assertEqual(parameters, ("nta_gtfs", 42))
+        self.assertTrue(
+            any(
+                "DELETE FROM bus_shape_points" in statement
+                for statement, _parameters in pool.execute_calls
+            )
+        )
+        self.assertTrue(
+            any(
+                "SET shapes_imported = FALSE" in statement
+                for statement, _parameters in pool.execute_calls
+            )
+        )
 
     async def test_realtime_retention_is_reserved_and_protects_current_trips(
         self,
@@ -761,7 +774,14 @@ class DatabaseRetentionTests(unittest.IsolatedAsyncioTestCase):
                 self.execute_calls.append((statement, tuple(parameters)))
                 if "content_sha256" in statement and "SELECT id" in statement:
                     return _ExecuteResult(
-                        rows=[(42, datetime(2026, 9, 1, tzinfo=timezone.utc), False)]
+                        rows=[
+                            (
+                                42,
+                                datetime(2026, 9, 1, tzinfo=timezone.utc),
+                                False,
+                                True,
+                            )
+                        ]
                     )
                 return _ExecuteResult()
 
@@ -794,6 +814,84 @@ class DatabaseRetentionTests(unittest.IsolatedAsyncioTestCase):
             if "DELETE FROM bus_stop_times" in statement
         ]
         self.assertEqual(len(delete_statements), 2)
+
+    async def test_existing_active_hash_backfills_shapes_after_migration(self) -> None:
+        files = {
+            "agency.txt": "agency_id,agency_name\na,Agency\n",
+            "routes.txt": "route_id,agency_id,route_type\nr,a,3\n",
+            "trips.txt": (
+                "route_id,service_id,trip_id,shape_id\n"
+                "r,s,t,bus-shape\n"
+            ),
+            "stops.txt": "stop_id,stop_name\nstop,Stop\n",
+            "stop_times.txt": (
+                "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n"
+                "t,12:00:00,12:01:00,stop,1\n"
+            ),
+            "shapes.txt": (
+                "shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence\n"
+                "bus-shape,53,-9,0\n"
+                "bus-shape,53.1,-8.9,1\n"
+            ),
+        }
+        archive_bytes = io.BytesIO()
+        with zipfile.ZipFile(archive_bytes, "w") as archive:
+            for filename, contents in files.items():
+                archive.writestr(filename, contents)
+        archive_bytes.seek(0)
+
+        class _ShapeBackfillConnection(_RecordingConnection):
+            async def execute(self, statement, parameters=()):
+                self.execute_calls.append((statement, tuple(parameters)))
+                if "content_sha256" in statement and "SELECT id" in statement:
+                    return _ExecuteResult(
+                        rows=[
+                            (
+                                42,
+                                datetime(2026, 9, 1, tzinfo=timezone.utc),
+                                True,
+                                False,
+                            )
+                        ]
+                    )
+                return _ExecuteResult()
+
+        pool = _RecordingPool()
+        pool.recording_connection = _ShapeBackfillConnection(pool.calls)
+        daemon = NtaBusDaemon("unused")
+        daemon.pool = pool
+        copied_rows = []
+
+        async def strict_copy(_connection, table, columns, rows):
+            copied_rows.extend(rows)
+            self.assertEqual(table, "bus_shape_points")
+            self.assertEqual(len(columns), 6)
+            return len(copied_rows)
+
+        with patch("bus_daemon._copy_rows", side_effect=strict_copy):
+            result = await daemon._import_static_feed(
+                archive_bytes,
+                "current-content-hash",
+                datetime(2026, 9, 13, tzinfo=timezone.utc),
+            )
+
+        self.assertTrue(result.imported)
+        self.assertEqual(result.feed_version_id, 42)
+        self.assertEqual(result.stop_times, 0)
+        self.assertEqual(result.shape_points, 2)
+        self.assertEqual(
+            copied_rows,
+            [
+                (42, "bus-shape", 0, 53.0, -9.0, None),
+                (42, "bus-shape", 1, 53.1, -8.9, None),
+            ],
+        )
+        self.assertTrue(
+            any(
+                "SET shapes_imported = TRUE" in statement
+                for statement, _parameters in pool.execute_calls
+            )
+        )
 
 
 class ShutdownTests(unittest.IsolatedAsyncioTestCase):
@@ -852,6 +950,12 @@ class StaticFeedSelectionTests(unittest.TestCase):
                 "bus-trip,24:10:00,24:11:00,bus-stop,1\n"
                 "rail-trip,12:00:00,12:01:00,rail-stop,1\n"
             ),
+            "shapes.txt": (
+                "shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence,shape_dist_traveled\n"
+                "bus-shape,53.0,-9.0,0,0\n"
+                "bus-shape,53.1,-8.9,4,12.5\n"
+                "rail-shape,54.0,-8.0,0,0\n"
+            ),
         }
         zip_bytes = io.BytesIO()
         with zipfile.ZipFile(zip_bytes, "w") as archive:
@@ -862,6 +966,9 @@ class StaticFeedSelectionTests(unittest.TestCase):
         with zipfile.ZipFile(zip_bytes) as archive:
             selection = _select_static_feed(archive)
             stop_times = list(_iter_bus_stop_times(archive, selection.trip_ids))
+            shape_points = list(
+                _iter_bus_shape_points(archive, selection.shape_ids)
+            )
 
         self.assertEqual({row[0] for row in selection.agencies}, {"bus-agency"})
         self.assertEqual({row[0] for row in selection.routes}, {"bus-route"})
@@ -869,10 +976,72 @@ class StaticFeedSelectionTests(unittest.TestCase):
             {row[0] for row in selection.stops}, {"bus-stop", "bus-parent"}
         )
         self.assertEqual({row[0] for row in selection.trips}, {"bus-trip"})
+        self.assertEqual(selection.shape_ids, frozenset({"bus-shape"}))
+        self.assertEqual(selection.shape_point_count, 2)
         self.assertEqual(
             stop_times,
             [("bus-trip", 1, "bus-stop", 87_000, 87_060)],
         )
+        self.assertEqual(
+            shape_points,
+            [
+                ("bus-shape", 0, 53.0, -9.0, 0.0),
+                ("bus-shape", 4, 53.1, -8.9, 12.5),
+            ],
+        )
+
+    def test_missing_referenced_shape_rejects_the_feed(self) -> None:
+        files = {
+            "agency.txt": "agency_id,agency_name\na,Agency\n",
+            "routes.txt": "route_id,agency_id,route_type\nr,a,3\n",
+            "trips.txt": (
+                "route_id,service_id,trip_id,shape_id\n"
+                "r,s,t,missing-shape\n"
+            ),
+            "stops.txt": "stop_id,stop_name\nstop,Stop\n",
+            "stop_times.txt": (
+                "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n"
+                "t,12:00:00,12:01:00,stop,1\n"
+            ),
+            "shapes.txt": (
+                "shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence\n"
+                "another-shape,53,-9,0\n"
+            ),
+        }
+        zip_bytes = io.BytesIO()
+        with zipfile.ZipFile(zip_bytes, "w") as archive:
+            for filename, contents in files.items():
+                archive.writestr(filename, contents)
+        zip_bytes.seek(0)
+
+        with zipfile.ZipFile(zip_bytes) as archive:
+            with self.assertRaisesRegex(
+                FeedFormatError, "reference missing shapes: missing-shape"
+            ):
+                _select_static_feed(archive)
+
+    def test_shapes_file_is_optional_when_bus_trips_have_no_shape(self) -> None:
+        files = {
+            "agency.txt": "agency_id,agency_name\na,Agency\n",
+            "routes.txt": "route_id,agency_id,route_type\nr,a,3\n",
+            "trips.txt": "route_id,service_id,trip_id\nr,s,t\n",
+            "stops.txt": "stop_id,stop_name\nstop,Stop\n",
+            "stop_times.txt": (
+                "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n"
+                "t,12:00:00,12:01:00,stop,1\n"
+            ),
+        }
+        zip_bytes = io.BytesIO()
+        with zipfile.ZipFile(zip_bytes, "w") as archive:
+            for filename, contents in files.items():
+                archive.writestr(filename, contents)
+        zip_bytes.seek(0)
+
+        with zipfile.ZipFile(zip_bytes) as archive:
+            selection = _select_static_feed(archive)
+
+        self.assertEqual(selection.shape_ids, frozenset())
+        self.assertEqual(selection.shape_point_count, 0)
 
     def test_missing_stop_dependency_rejects_the_feed(self) -> None:
         files = {

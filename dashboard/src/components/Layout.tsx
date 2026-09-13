@@ -2,31 +2,9 @@ import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 
 import { useAuth } from "../auth/useAuth";
+import { useTheme } from "../theme";
 import { transportLinks, transportModeForPath } from "./transportNavigation";
 import { BrandMark, Icon } from "./ui";
-
-const clockFormat = new Intl.DateTimeFormat("en-IE", {
-  timeZone: "Europe/Dublin",
-  hour: "2-digit",
-  minute: "2-digit",
-  second: "2-digit",
-  hour12: false,
-});
-
-function DublinClock() {
-  const [now, setNow] = useState(() => new Date());
-
-  useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(id);
-  }, []);
-
-  return (
-    <span className="clock" aria-label="Dublin time">
-      {clockFormat.format(now)}
-    </span>
-  );
-}
 
 function initials(name: string) {
   const parts = name.split(/[\s@.]+/).filter(Boolean);
@@ -36,6 +14,7 @@ function initials(name: string) {
 export default function Layout() {
   const { pathname } = useLocation();
   const { user, signedIn, loading, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const name = user ? user.display_name || user.email : "";
   const pathMode = transportModeForPath(pathname);
   const [lastTransportMode, setLastTransportMode] = useState(pathMode ?? "rail");
@@ -106,8 +85,17 @@ export default function Layout() {
           <span className="live-pill hidden sm:inline-flex" title="Feeds updating">
             <span className="live-dot" />
             Live
-            <DublinClock />
           </span>
+          <button
+            type="button"
+            className="icon-btn header-theme-toggle"
+            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+            aria-pressed={theme === "dark"}
+            title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+            onClick={toggleTheme}
+          >
+            <Icon name={theme === "dark" ? "sun" : "moon"} />
+          </button>
           {loading ? null : user ? (
             <Link to="/account" className="account-link" title={name}>
               <span className="avatar">{initials(name)}</span>
