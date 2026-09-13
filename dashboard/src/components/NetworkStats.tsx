@@ -1,5 +1,5 @@
 import type { LiveTrain, RailStation } from "./TrainMap";
-import { MiniStat } from "./ui";
+import LiveNetworkSummary from "./LiveNetworkSummary";
 
 export interface RailBoardEvent {
   lateMinutes: number | null;
@@ -18,40 +18,28 @@ export default function NetworkStats({ trains, stations, board }: Props) {
   const severe = board.filter((row) => (row.lateMinutes ?? 0) >= 15).length;
 
   return (
-    <div
-      className="float-card rise pointer-events-auto w-[min(300px,calc(100vw-24px))] p-4"
-      aria-label="Live network summary"
+    <LiveNetworkSummary
+      status="Live now"
+      live
+      count={trains.length}
+      caption="services in live feed"
+      detail={`${mapped.length}/${trains.length} on map`}
+      stats={[
+        {
+          label: "Late",
+          value: delayed,
+          tone: delayed > 0 ? "warn" : undefined,
+          title: "Services 5+ minutes late on boards over the next 45 minutes",
+        },
+        {
+          label: "Severe",
+          value: severe,
+          tone: severe > 0 ? "bad" : undefined,
+          title: "Services 15+ minutes late on boards over the next 45 minutes",
+        },
+        { label: "Stations", value: stations.length },
+      ]}
     >
-      <div className="flex items-center justify-between gap-3">
-        <span className="eyebrow">
-          <span className="live-dot" />
-          Live now
-        </span>
-        <span className="code">
-          {mapped.length}/{trains.length} on map
-        </span>
-      </div>
-      <div className="mt-3 flex items-baseline gap-2">
-        <span className="text-[46px] font-semibold leading-none tracking-[-0.035em]">
-          {trains.length}
-        </span>
-        <span className="text-[15px] leading-tight text-ink-2">services in live feed</span>
-      </div>
-      <div className="mt-4 grid grid-cols-3 gap-2">
-        <MiniStat
-          label="Late"
-          value={delayed}
-          tone={delayed > 0 ? "warn" : undefined}
-          title="Services 5+ minutes late on boards over the next 45 minutes"
-        />
-        <MiniStat
-          label="Severe"
-          value={severe}
-          tone={severe > 0 ? "bad" : undefined}
-          title="Services 15+ minutes late on boards over the next 45 minutes"
-        />
-        <MiniStat label="Stations" value={stations.length} />
-      </div>
       {unavailable.length > 0 ? (
         <details className="mt-3 border-t border-line pt-3 text-[12.5px]">
           <summary className="cursor-pointer text-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand">
@@ -90,6 +78,6 @@ export default function NetworkStats({ trains, stations, board }: Props) {
           Selected route
         </span>
       </div>
-    </div>
+    </LiveNetworkSummary>
   );
 }

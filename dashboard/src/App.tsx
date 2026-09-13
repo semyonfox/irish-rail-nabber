@@ -30,6 +30,8 @@ export default function App() {
                 <Route index element={<LiveMap />} />
                 <Route path="stations" element={<Stations />} />
                 <Route path="buses" element={<Buses />} />
+                <Route path="buses/stops" element={<Buses view="stops" />} />
+                <Route path="buses/network" element={<Buses view="network" />} />
                 {/* clerk walks multi-step flows under these paths */}
                 <Route path="login/*" element={<LoginPage />} />
                 <Route path="register/*" element={<RegisterPage />} />

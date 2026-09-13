@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 
 import { useAuth } from "../auth/useAuth";
 import { useTheme } from "../theme";
-import { transportLinks, transportModeForPath } from "./transportNavigation";
+import { transportLinks, transportModeForPath, transportModePath } from "./transportNavigation";
 import { BrandMark, Icon } from "./ui";
 
 function initials(name: string) {
@@ -21,9 +21,9 @@ export default function Layout() {
   const transportMode = pathMode ?? lastTransportMode;
   const links = transportLinks[transportMode];
 
-  useEffect(() => {
-    if (pathMode) setLastTransportMode(pathMode);
-  }, [pathMode]);
+  if (pathMode && pathMode !== lastTransportMode) {
+    setLastTransportMode(pathMode);
+  }
 
   return (
     <div className="flex h-dvh flex-col">
@@ -42,7 +42,7 @@ export default function Layout() {
 
         <nav className="transport-modes" aria-label="Transport mode">
           <Link
-            to="/"
+            to={transportModePath(pathname, "rail")}
             className={`transport-mode${transportMode === "rail" ? " is-active" : ""}`}
             data-transport="rail"
             aria-current={transportMode === "rail" ? "true" : undefined}
@@ -50,7 +50,7 @@ export default function Layout() {
             Rail
           </Link>
           <Link
-            to="/buses"
+            to={transportModePath(pathname, "bus")}
             className={`transport-mode${transportMode === "bus" ? " is-active" : ""}`}
             data-transport="bus"
             aria-current={transportMode === "bus" ? "true" : undefined}
@@ -64,7 +64,7 @@ export default function Layout() {
             <NavLink
               key={link.to}
               to={link.to}
-              end={link.to === "/"}
+              end
               className={({ isActive }) => `nav-link${isActive ? " is-active" : ""}`}
             >
               <Icon name={link.icon} />
