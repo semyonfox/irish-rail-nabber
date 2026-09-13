@@ -162,7 +162,7 @@ export default function Buses() {
               Your stop, <em>without the guesswork</em>
             </>
           }
-          description="NTA bus stops, departures and route reliability, with realtime status checked against the collector's latest successful poll."
+          description="NTA city, regional and national bus stops, departures and route reliability, with realtime status checked against the collector's latest successful poll."
           actions={
             <span className="bus-feed-badge">
               {feedState.isLive ? <span className="live-dot" /> : null}
@@ -190,7 +190,7 @@ export default function Buses() {
         <section className="bus-hero rise" style={{ "--i": 1 } as React.CSSProperties}>
           <div>
             <span className="bus-route-sign">BUS</span>
-            <p>National services</p>
+            <p>City, regional &amp; national</p>
           </div>
           <div className="bus-destination">
             <span>Next departures</span>

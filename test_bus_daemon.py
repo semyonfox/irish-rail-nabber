@@ -10,6 +10,8 @@ from bus_daemon import (
     DEFAULT_AGENCY_ID,
     DEFAULT_REALTIME_RETENTION_DAYS,
     DEFAULT_TRIP_UPDATES_URL,
+    DEFAULT_VEHICLES_URL,
+    RATE_LIMIT_SAFETY_SECONDS,
     ActiveBusIds,
     FeedFormatError,
     NtaBusDaemon,
@@ -17,6 +19,7 @@ from bus_daemon import (
     _iter_bus_stop_times,
     _parse_trip_updates_feed,
     _realtime_url_from_environment,
+    _vehicles_url_from_environment,
     _select_static_feed,
     filter_bus_realtime_feed,
     parse_gtfs_time,
@@ -321,20 +324,30 @@ class ParseTripUpdatesTests(unittest.TestCase):
             "https://api.nationaltransport.ie/gtfsr/v2/gtfsr?format=json",
         )
 
-    def test_combined_url_setting_precedes_the_legacy_override(self) -> None:
+    def test_explicit_trip_updates_url_precedes_legacy_setting(self) -> None:
         with patch.dict(
-            "os.environ", {"NTA_TRIP_UPDATES_URL": "https://legacy.test"}, clear=True
+            "os.environ", {"NTA_GTFSR_URL": "https://legacy.test"}, clear=True
         ):
             self.assertEqual(_realtime_url_from_environment(), "https://legacy.test")
         with patch.dict(
             "os.environ",
             {
-                "NTA_GTFSR_URL": "https://combined.test",
-                "NTA_TRIP_UPDATES_URL": "https://legacy.test",
+                "NTA_TRIP_UPDATES_URL": "https://trips.test",
+                "NTA_GTFSR_URL": "https://legacy.test",
             },
             clear=True,
         ):
-            self.assertEqual(_realtime_url_from_environment(), "https://combined.test")
+            self.assertEqual(_realtime_url_from_environment(), "https://trips.test")
+
+    def test_vehicles_url_uses_its_own_setting(self) -> None:
+        self.assertEqual(
+            DEFAULT_VEHICLES_URL,
+            "https://api.nationaltransport.ie/gtfsr/v2/Vehicles?format=json",
+        )
+        with patch.dict(
+            "os.environ", {"NTA_VEHICLES_URL": "https://vehicles.test"}, clear=True
+        ):
+            self.assertEqual(_vehicles_url_from_environment(), "https://vehicles.test")
 
     def test_stop_identity_prefers_sequence_when_stop_id_appears_or_disappears(
         self,
@@ -679,6 +692,176 @@ class VehiclePositionPersistenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(snapshot_deletes), 4)
 
 
+class RealtimePollingTests(unittest.IsolatedAsyncioTestCase):
+    @staticmethod
+    def _bus_ids() -> ActiveBusIds:
+        return ActiveBusIds(1, frozenset({"route"}), {"trip": "route"})
+
+    @staticmethod
+    def _trip_updates_payload() -> bytes:
+        return json.dumps(
+            {
+                "entity": [
+                    {
+                        "id": "trip-entity",
+                        "tripUpdate": {
+                            "trip": {"tripId": "trip", "routeId": "route"},
+                            "stopTimeUpdate": {
+                                "stopId": "stop",
+                                "stopSequence": 1,
+                            },
+                        },
+                    },
+                    {
+                        "id": "vehicle-entity",
+                        "vehicle": {
+                            "trip": {"tripId": "trip", "routeId": "route"},
+                            "vehicle": {"id": "vehicle"},
+                            "position": {"latitude": 53, "longitude": -9},
+                        },
+                    },
+                ]
+            }
+        ).encode()
+
+    @staticmethod
+    def _vehicles_payload() -> bytes:
+        return json.dumps(
+            {
+                "entity": [
+                    {
+                        "id": "vehicle-entity",
+                        "vehicle": {
+                            "trip": {"tripId": "trip", "routeId": "route"},
+                            "vehicle": {"id": "vehicle"},
+                            "position": {"latitude": 53, "longitude": -9},
+                        },
+                    },
+                    {
+                        "id": "trip-entity",
+                        "tripUpdate": {
+                            "trip": {"tripId": "trip", "routeId": "route"},
+                            "stopTimeUpdate": {
+                                "stopId": "stop",
+                                "stopSequence": 1,
+                            },
+                        },
+                    },
+                ]
+            }
+        ).encode()
+
+    async def test_reservation_uses_one_global_key_and_defaults_to_vehicles(self) -> None:
+        daemon = NtaBusDaemon("unused", api_key="key")
+        pool = _RecordingPool()
+        daemon.pool = pool
+
+        selected = await daemon._reserve_realtime_request()
+
+        self.assertEqual(selected, "vehicles")
+        reservation_statement, reservation_parameters = pool.execute_calls[0]
+        self.assertIn("ON CONFLICT (endpoint)", reservation_statement)
+        self.assertEqual(reservation_parameters[0], "nta_realtime")
+        self.assertEqual(
+            pool.execute_calls[1][1], ("nta_trip_updates", "nta_vehicles")
+        )
+
+    async def test_reservation_selects_the_opposite_of_latest_attempt(self) -> None:
+        class LatestHistoryConnection(_RecordingConnection):
+            async def execute(self, statement, parameters=()):
+                if "SELECT endpoint" in statement and "fetch_history" in statement:
+                    self.execute_calls.append((statement, tuple(parameters)))
+                    return _ExecuteResult(rows=[("nta_vehicles",)])
+                return await super().execute(statement, parameters)
+
+        daemon = NtaBusDaemon("unused", api_key="key")
+        calls: list[tuple[str, list[tuple[object, ...]]]] = []
+        connection = LatestHistoryConnection(calls)
+        daemon.pool = AsyncMock()
+        daemon.pool.connection = lambda: _AsyncContext(connection)
+
+        selected = await daemon._reserve_realtime_request()
+
+        self.assertEqual(selected, "trip_updates")
+        self.assertNotIn("status = 'success'", connection.execute_calls[-1][0])
+
+    async def test_trip_updates_poll_does_not_touch_vehicle_snapshot(self) -> None:
+        daemon = NtaBusDaemon("unused", api_key="key")
+        daemon._active_feed_version_id = AsyncMock(return_value=1)
+        daemon._load_active_bus_ids = AsyncMock(return_value=self._bus_ids())
+        daemon._reserve_realtime_request = AsyncMock(return_value="trip_updates")
+        daemon._fetch_realtime_payload = AsyncMock(
+            return_value=self._trip_updates_payload()
+        )
+        daemon._insert_trip_updates = AsyncMock(return_value=1)
+        daemon._upsert_vehicle_positions = AsyncMock()
+        daemon._prune_realtime_history_if_due = AsyncMock(return_value=(0, 0, 0))
+        daemon.record_fetch = AsyncMock()
+
+        await daemon.poll_realtime()
+
+        daemon._fetch_realtime_payload.assert_awaited_once_with(
+            daemon.trip_updates_url
+        )
+        daemon._insert_trip_updates.assert_awaited_once()
+        daemon._upsert_vehicle_positions.assert_not_awaited()
+        self.assertEqual(daemon.record_fetch.await_args.args[:3], (
+            "nta_trip_updates",
+            1,
+            "success",
+        ))
+
+    async def test_vehicles_poll_does_not_touch_trip_updates(self) -> None:
+        daemon = NtaBusDaemon("unused", api_key="key")
+        daemon._active_feed_version_id = AsyncMock(return_value=1)
+        daemon._load_active_bus_ids = AsyncMock(return_value=self._bus_ids())
+        daemon._reserve_realtime_request = AsyncMock(return_value="vehicles")
+        daemon._fetch_realtime_payload = AsyncMock(
+            return_value=self._vehicles_payload()
+        )
+        daemon._insert_trip_updates = AsyncMock()
+        daemon._upsert_vehicle_positions = AsyncMock(return_value=1)
+        daemon._prune_realtime_history_if_due = AsyncMock(return_value=(0, 0, 0))
+        daemon.record_fetch = AsyncMock()
+
+        await daemon.poll_realtime()
+
+        daemon._fetch_realtime_payload.assert_awaited_once_with(daemon.vehicles_url)
+        daemon._insert_trip_updates.assert_not_awaited()
+        daemon._upsert_vehicle_positions.assert_awaited_once()
+        self.assertEqual(daemon.record_fetch.await_args.args[:3], (
+            "nta_vehicles",
+            1,
+            "success",
+        ))
+
+    async def test_fetch_error_is_recorded_against_the_selected_feed(self) -> None:
+        daemon = NtaBusDaemon("unused", api_key="key")
+        daemon._active_feed_version_id = AsyncMock(return_value=1)
+        daemon._load_active_bus_ids = AsyncMock(return_value=self._bus_ids())
+        daemon._reserve_realtime_request = AsyncMock(return_value="vehicles")
+        daemon._fetch_realtime_payload = AsyncMock(
+            side_effect=RuntimeError("GTFS-Realtime returned HTTP 503")
+        )
+        daemon._insert_trip_updates = AsyncMock()
+        daemon._upsert_vehicle_positions = AsyncMock()
+        daemon.record_fetch = AsyncMock()
+
+        await daemon.poll_realtime()
+
+        daemon._insert_trip_updates.assert_not_awaited()
+        daemon._upsert_vehicle_positions.assert_not_awaited()
+        self.assertEqual(daemon.record_fetch.await_args.args[:3], (
+            "nta_vehicles",
+            0,
+            "failed",
+        ))
+        self.assertEqual(
+            daemon.record_fetch.await_args.kwargs["error"],
+            "GTFS-Realtime returned HTTP 503",
+        )
+
+
 class DatabaseRetentionTests(unittest.IsolatedAsyncioTestCase):
     async def test_static_prune_excludes_the_newly_active_version(self) -> None:
         daemon = NtaBusDaemon("unused")
@@ -895,6 +1078,31 @@ class DatabaseRetentionTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ShutdownTests(unittest.IsolatedAsyncioTestCase):
+    async def test_realtime_worker_waits_for_the_reservation_margin(self) -> None:
+        daemon = NtaBusDaemon("unused", api_key="key", realtime_interval_seconds=60)
+        daemon.init = AsyncMock()
+        daemon.close = AsyncMock()
+        daemon._install_signal_handlers = lambda: None
+        daemon.refresh_static_feed = AsyncMock()
+        scheduled: list[tuple[str, int]] = []
+
+        async def record_schedule(name, _function, interval_seconds, **_kwargs) -> None:
+            scheduled.append((name, interval_seconds))
+            if name == "GTFS-Realtime":
+                daemon._shutdown.set()
+
+        daemon.schedule_task = record_schedule
+
+        await daemon.run()
+
+        self.assertIn(
+            (
+                "GTFS-Realtime",
+                daemon.realtime_interval_seconds + RATE_LIMIT_SAFETY_SECONDS,
+            ),
+            scheduled,
+        )
+
     async def test_shutdown_cancels_an_active_initial_import_before_close(self) -> None:
         daemon = NtaBusDaemon("unused")
         daemon.init = AsyncMock()

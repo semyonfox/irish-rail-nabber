@@ -74,7 +74,7 @@ api.portal()
 
 All requests attach the current Clerk bearer token. Credentials remain enabled for Clerk's first-party `__session` cookie fallback.
 
-The public bus page searches the active static GTFS snapshot and polls one combined live operation each minute for the selected stop board, current vehicle positions, and route delay history over 6-, 24-, or 72-hour windows. Vehicle dots use the latest accepted NTA GTFS-Realtime VehiclePositions snapshot; when that feed has no current positions, the stop search and static schedule remain available.
+The public bus page searches the active static GTFS snapshot and polls one GraphQL request each minute for the selected stop board, current vehicle positions, and route delay history over 6-, 24-, or 72-hour windows. The API serves cached database state while the collector alternates the upstream NTA TripUpdates and Vehicles operations within one shared request-per-minute budget. Vehicle dots use the latest accepted Vehicles snapshot; when that operation has no current positions, the stop search and static schedule remain available.
 
 ## Auth flow
 

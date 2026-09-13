@@ -24,7 +24,7 @@ export function busFeedState(status: BusRealtimeStatus | null, fetching: boolean
 
   if (status?.isLive) {
     return {
-      badge: "60 second live feed",
+      badge: "Live NTA feed",
       emptyTitle: "No live positions yet",
       emptyDescription:
         "Stop search remains available. Tracking appears when NTA reports vehicle positions.",

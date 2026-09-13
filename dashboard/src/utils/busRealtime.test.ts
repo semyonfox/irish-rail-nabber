@@ -8,7 +8,7 @@ describe("bus realtime presentation", () => {
     expect(busFeedState(null, false).badge).toBe("Status unavailable");
     expect(
       busFeedState({ isLive: true, lastSuccessAt: "2026-09-13T12:45:00Z" }, false),
-    ).toMatchObject({ badge: "60 second live feed", isLive: true });
+    ).toMatchObject({ badge: "Live NTA feed", isLive: true });
     expect(busFeedState({ isLive: false, lastSuccessAt: null }, false).badge).toBe(
       "Static feed only",
     );

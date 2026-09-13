@@ -37,7 +37,7 @@ SELECT 'fetch errors (last 10 min)',         COUNT(*) FROM fetch_history
        WHERE status = 'failed' AND fetched_at > NOW() - INTERVAL '10 minutes';
 ```
 
-Expected after a minute of steady-state collection:
+Expected after several minutes of steady-state collection:
 
 | metric | expected |
 |--------|----------|
@@ -45,11 +45,23 @@ Expected after a minute of steady-state collection:
 | train snapshots (last min) | 5–20 (only when positions change) |
 | station events (last min) | 200–600 |
 | bus stop updates (last 10 min) | non-zero when bus predictions changed in the window |
-| current bus vehicles | non-zero when the keyed combined feed reports vehicle positions |
+| current bus vehicles | non-zero after a successful `nta_vehicles` poll |
 | fetch successes (last 10 min) | 100+ |
 | fetch errors (last 10 min) | 0 |
 
 A persistent non-zero fetch error count is the canary for the docker bridge / VPN issue.
+
+Confirm that the two NTA operations share the same rate limit:
+
+```sql
+SELECT endpoint, status, fetched_at, record_count
+FROM fetch_history
+WHERE endpoint IN ('nta_trip_updates', 'nta_vehicles')
+ORDER BY fetched_at DESC
+LIMIT 10;
+```
+
+Both endpoints should appear in alternation. Consecutive requests across the two endpoints must stay at least 60 seconds apart.
 
 ## API health
 

@@ -10,8 +10,9 @@ Runtime configuration:
 * DATABASE_URL: PostgreSQL connection string (required)
 * NTA_API_KEY: key sent only in the ``x-api-key`` request header (optional)
 * NTA_GTFS_URL: static GTFS ZIP URL
-* NTA_GTFSR_URL: combined GTFS-Realtime FeedMessage JSON URL
-* NTA_TRIP_UPDATES_URL: legacy override for the realtime URL
+* NTA_TRIP_UPDATES_URL: NTA v2 TripUpdates JSON URL
+* NTA_VEHICLES_URL: NTA v2 Vehicles JSON URL
+* NTA_GTFSR_URL: legacy name for the TripUpdates URL
 * BUS_STATIC_REFRESH_SECONDS: static refresh period, default 86400
 * BUS_REALTIME_INTERVAL_SECONDS: realtime period, clamped to at least 60
 * BUS_REALTIME_RETENTION_DAYS: stop-update history retained, default 7
@@ -57,9 +58,10 @@ logger = logging.getLogger(__name__)
 DEFAULT_GTFS_URL = (
     "https://www.transportforireland.ie/transitData/Data/GTFS_Realtime.zip"
 )
-DEFAULT_REALTIME_URL = "https://api.nationaltransport.ie/gtfsr/v2/gtfsr?format=json"
+DEFAULT_TRIP_UPDATES_URL = "https://api.nationaltransport.ie/gtfsr/v2/gtfsr?format=json"
+DEFAULT_VEHICLES_URL = "https://api.nationaltransport.ie/gtfsr/v2/Vehicles?format=json"
 # Kept for imports and deployments which still use the old variable name.
-DEFAULT_TRIP_UPDATES_URL = DEFAULT_REALTIME_URL
+DEFAULT_REALTIME_URL = DEFAULT_TRIP_UPDATES_URL
 FEED_SOURCE = "nta_gtfs"
 DEFAULT_AGENCY_ID = "__default_agency__"
 MIN_REALTIME_INTERVAL_SECONDS = 60
@@ -1293,6 +1295,7 @@ class NtaBusDaemon:
         api_key: str | None = None,
         gtfs_url: str = DEFAULT_GTFS_URL,
         trip_updates_url: str = DEFAULT_TRIP_UPDATES_URL,
+        vehicles_url: str = DEFAULT_VEHICLES_URL,
         static_refresh_seconds: int = DEFAULT_STATIC_REFRESH_SECONDS,
         realtime_interval_seconds: int = MIN_REALTIME_INTERVAL_SECONDS,
         realtime_retention_days: int = DEFAULT_REALTIME_RETENTION_DAYS,
@@ -1300,10 +1303,11 @@ class NtaBusDaemon:
         self.database_url = database_url
         self.api_key = api_key.strip() if api_key and api_key.strip() else None
         self.gtfs_url = gtfs_url
-        # Preserve the old attribute/constructor contract while the environment
-        # moves from the TripUpdates-only endpoint to the combined FeedMessage.
+        # Preserve the old attribute/constructor contract for callers that use
+        # realtime_url for TripUpdates.
         self.realtime_url = trip_updates_url
         self.trip_updates_url = trip_updates_url
+        self.vehicles_url = vehicles_url
         self.static_refresh_seconds = max(60, static_refresh_seconds)
         self.realtime_interval_seconds = max(
             MIN_REALTIME_INTERVAL_SECONDS, realtime_interval_seconds
@@ -1949,12 +1953,16 @@ class NtaBusDaemon:
             chunks.append(chunk)
         return b"".join(chunks)
 
-    async def _reserve_trip_updates_request(self) -> bool:
-        """Atomically reserve the NTA token across processes and restarts.
+    async def _reserve_realtime_request(self) -> str | None:
+        """Reserve the NTA token and choose the next realtime feed.
 
         The reservation happens before network I/O. If a process dies between
         the reservation and request, one poll is lost, but the shared API token
         still cannot exceed NTA's one-request-per-60-seconds ceiling.
+
+        Feed choice comes from the latest completed request rather than state
+        written beside the reservation. A crash can repeat the unrecorded feed
+        on the next slot, which is safe and avoids adding scheduler schema.
         """
 
         reservation_seconds = self.realtime_interval_seconds + RATE_LIMIT_SAFETY_SECONDS
@@ -1977,12 +1985,40 @@ class NtaBusDaemon:
                               OR fetch_schedules.next_fetch <= clock_timestamp())
                        RETURNING last_fetched""",
                     (
-                        "nta_trip_updates",
+                        "nta_realtime",
                         self.realtime_interval_seconds,
                         reservation_seconds,
                     ),
                 )
-                return await cursor.fetchone() is not None
+                if await cursor.fetchone() is None:
+                    return None
+
+                latest_cursor = await connection.execute(
+                    """SELECT endpoint
+                       FROM fetch_history
+                       WHERE endpoint IN (%s, %s)
+                       ORDER BY fetched_at DESC, id DESC
+                       LIMIT 1""",
+                    ("nta_trip_updates", "nta_vehicles"),
+                )
+                latest = await latest_cursor.fetchone()
+                if latest is None or latest[0] == "nta_trip_updates":
+                    return "vehicles"
+                return "trip_updates"
+
+    async def _fetch_realtime_payload(self, url: str) -> bytes:
+        if self.session is None:
+            raise RuntimeError("daemon has not been initialized")
+
+        headers = {
+            "x-api-key": self.api_key,
+            "Accept": "application/json",
+        }
+        timeout = aiohttp.ClientTimeout(total=30, connect=10, sock_read=20)
+        async with self.session.get(url, headers=headers, timeout=timeout) as response:
+            if response.status != 200:
+                raise RuntimeError(f"GTFS-Realtime returned HTTP {response.status}")
+            return await self._read_limited_response(response, MAX_REALTIME_DOWNLOAD_BYTES)
 
     async def _insert_trip_updates(
         self,
@@ -2249,59 +2285,61 @@ class NtaBusDaemon:
                     max(0, vehicle_cursor.rowcount),
                 )
 
-    async def poll_trip_updates(self) -> None:
-        """Poll the combined feed; retain the legacy method name for callers."""
+    async def poll_realtime(self) -> None:
+        """Poll exactly one NTA realtime feed after the shared reservation."""
 
         if self.api_key is None:
             return
 
         started = time.monotonic()
+        endpoint = "nta_realtime"
         async with self._feed_lock:
             try:
                 feed_version_id = await self._active_feed_version_id()
                 if feed_version_id is None:
                     raise RuntimeError("no imported static GTFS version is active")
                 bus_ids = await self._load_active_bus_ids(feed_version_id)
-                if not await self._reserve_trip_updates_request():
+                feed_name = await self._reserve_realtime_request()
+                if feed_name is None:
                     logger.info(
                         "GTFS-Realtime request not due according to shared rate limit"
                     )
                     return
 
-                headers = {
-                    "x-api-key": self.api_key,
-                    "Accept": "application/json",
-                }
-                timeout = aiohttp.ClientTimeout(total=30, connect=10, sock_read=20)
-                async with self.session.get(
-                    self.realtime_url, headers=headers, timeout=timeout
-                ) as response:
-                    if response.status != 200:
-                        raise RuntimeError(
-                            f"GTFS-Realtime returned HTTP {response.status}"
-                        )
-                    payload = await self._read_limited_response(
-                        response, MAX_REALTIME_DOWNLOAD_BYTES
-                    )
+                endpoint = f"nta_{feed_name}"
+                url = (
+                    self.trip_updates_url
+                    if feed_name == "trip_updates"
+                    else self.vehicles_url
+                )
+                payload = await self._fetch_realtime_payload(url)
                 fetched_at = datetime.now(tz=UTC)
                 parsed_feed = parse_realtime_feed(payload)
                 if parsed_feed.incrementality != "FULL_DATASET":
                     raise FeedFormatError(
                         "NTA GTFS-Realtime must be a FULL_DATASET feed; "
                         f"received {parsed_feed.incrementality!r}"
-                    )
+                )
                 bus_feed = filter_bus_realtime_feed(parsed_feed, bus_ids)
-                inserted = await self._insert_trip_updates(
-                    feed_version_id,
-                    bus_feed.stop_updates,
-                    bus_feed.trip_freshness,
-                    fetched_at,
-                )
-                changed_vehicles = await self._upsert_vehicle_positions(
-                    feed_version_id,
-                    bus_feed.vehicle_positions,
-                    fetched_at,
-                )
+                if feed_name == "trip_updates":
+                    changed = await self._insert_trip_updates(
+                        feed_version_id,
+                        bus_feed.stop_updates,
+                        bus_feed.trip_freshness,
+                        fetched_at,
+                    )
+                    accepted_count = len(bus_feed.stop_updates)
+                    source_count = len(parsed_feed.stop_updates)
+                    kind = "bus stop updates"
+                else:
+                    changed = await self._upsert_vehicle_positions(
+                        feed_version_id,
+                        bus_feed.vehicle_positions,
+                        fetched_at,
+                    )
+                    accepted_count = len(bus_feed.vehicle_positions)
+                    source_count = len(parsed_feed.vehicle_positions)
+                    kind = "bus vehicles"
                 try:
                     pruned = await self._prune_realtime_history_if_due()
                     if any(pruned):
@@ -2319,31 +2357,34 @@ class NtaBusDaemon:
                     )
                 duration_ms = int((time.monotonic() - started) * 1_000)
                 await self.record_fetch(
-                    "nta_trip_updates",
-                    inserted + changed_vehicles,
+                    endpoint,
+                    changed,
                     "success",
                     duration_ms=duration_ms,
                 )
                 logger.info(
-                    "GTFS-Realtime: %s/%s bus stop updates and %s/%s bus "
-                    "vehicles; %s new stop states and %s changed vehicles",
-                    len(bus_feed.stop_updates),
-                    len(parsed_feed.stop_updates),
-                    len(bus_feed.vehicle_positions),
-                    len(parsed_feed.vehicle_positions),
-                    inserted,
-                    changed_vehicles,
+                    "GTFS-Realtime %s: %s/%s %s, %s changed",
+                    feed_name,
+                    accepted_count,
+                    source_count,
+                    kind,
+                    changed,
                 )
             except Exception as error:
                 duration_ms = int((time.monotonic() - started) * 1_000)
                 logger.error("GTFS-Realtime poll failed: %s", error)
                 await self.record_fetch(
-                    "nta_trip_updates",
+                    endpoint,
                     0,
                     "failed",
                     error=str(error),
                     duration_ms=duration_ms,
                 )
+
+    async def poll_trip_updates(self) -> None:
+        """Compatibility alias for callers using the former poll method."""
+
+        await self.poll_realtime()
 
     async def schedule_task(
         self,
@@ -2411,8 +2452,9 @@ class NtaBusDaemon:
                     asyncio.create_task(
                         self.schedule_task(
                             "GTFS-Realtime",
-                            self.poll_trip_updates,
-                            self.realtime_interval_seconds,
+                            self.poll_realtime,
+                            self.realtime_interval_seconds
+                            + RATE_LIMIT_SAFETY_SECONDS,
                         )
                     )
                 )
@@ -2443,14 +2485,24 @@ def _positive_int_environment(name: str, default: int) -> int:
     return value
 
 
-def _realtime_url_from_environment() -> str:
-    """Prefer the combined-feed setting, then the legacy TripUpdates setting."""
+def _trip_updates_url_from_environment() -> str:
+    """Prefer the explicit URL setting, then the legacy name."""
 
     return (
-        os.getenv("NTA_GTFSR_URL")
-        or os.getenv("NTA_TRIP_UPDATES_URL")
-        or DEFAULT_REALTIME_URL
+        os.getenv("NTA_TRIP_UPDATES_URL")
+        or os.getenv("NTA_GTFSR_URL")
+        or DEFAULT_TRIP_UPDATES_URL
     )
+
+
+def _vehicles_url_from_environment() -> str:
+    return os.getenv("NTA_VEHICLES_URL") or DEFAULT_VEHICLES_URL
+
+
+def _realtime_url_from_environment() -> str:
+    """Backward-compatible alias for the TripUpdates URL setting."""
+
+    return _trip_updates_url_from_environment()
 
 
 async def main() -> None:
@@ -2458,7 +2510,8 @@ async def main() -> None:
         os.environ["DATABASE_URL"],
         api_key=os.getenv("NTA_API_KEY"),
         gtfs_url=os.getenv("NTA_GTFS_URL", DEFAULT_GTFS_URL),
-        trip_updates_url=_realtime_url_from_environment(),
+        trip_updates_url=_trip_updates_url_from_environment(),
+        vehicles_url=_vehicles_url_from_environment(),
         static_refresh_seconds=_positive_int_environment(
             "BUS_STATIC_REFRESH_SECONDS", DEFAULT_STATIC_REFRESH_SECONDS
         ),

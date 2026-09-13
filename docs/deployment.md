@@ -34,7 +34,9 @@ DATABASE_URL=postgresql://irish_data:<url-encoded-password>@db:5432/ireland_publ
 # NTA buses (obtain the key from the NTA developer portal)
 NTA_API_KEY=<private-api-key>
 NTA_GTFS_URL=https://www.transportforireland.ie/transitData/Data/GTFS_Realtime.zip
-NTA_GTFSR_URL=https://api.nationaltransport.ie/gtfsr/v2/gtfsr?format=json
+NTA_TRIP_UPDATES_URL=https://api.nationaltransport.ie/gtfsr/v2/gtfsr?format=json
+NTA_VEHICLES_URL=https://api.nationaltransport.ie/gtfsr/v2/Vehicles?format=json
+# NTA_GTFSR_URL is a deprecated fallback for NTA_TRIP_UPDATES_URL.
 BUS_STATIC_REFRESH_SECONDS=86400
 BUS_REALTIME_INTERVAL_SECONDS=60
 BUS_REALTIME_RETENTION_DAYS=7

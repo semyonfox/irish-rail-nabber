@@ -17,7 +17,7 @@ NTA GTFS + GTFS-Realtime┘
 ## Engineering highlights
 
 - **Ingestion:** a Python daemon polls Irish Rail realtime endpoints, normalizes records, deduplicates updates with content hashes and writes time-series data.
-- **Bus data:** a second Python daemon versions the NTA's matching GTFS schedule and stores changed stop predictions plus current bus locations from one permitted request per minute.
+- **Bus data:** a second Python daemon versions the NTA's matching GTFS schedule and stores changed stop predictions plus current bus locations. It alternates the two realtime operations within one shared request-per-minute budget.
 - **Backend:** Rust, Axum, Tokio, SQLx and async-graphql provide GraphQL queries alongside REST endpoints for account, billing and chat integrations.
 - **Data model:** PostgreSQL with TimescaleDB migrations models historical train positions, station data and time-series queries.
 - **Dashboard:** a React 19/Vite client provides live-map, station, history, analytics and account workflows.

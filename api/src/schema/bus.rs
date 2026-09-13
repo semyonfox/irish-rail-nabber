@@ -145,7 +145,7 @@ impl BusQuery {
                             FALSE
                         ) AS is_live
                      FROM fetch_history
-                     WHERE endpoint = 'nta_trip_updates'
+                     WHERE endpoint IN ('nta_trip_updates', 'nta_vehicles')
                        AND status = 'success'",
                 )
                 .fetch_one(&pool)
@@ -248,7 +248,7 @@ impl BusQuery {
                    AND identified_stop.trip_id = update.trip_id
                    AND identified_stop.stop_sequence = update.stop_sequence
                 LEFT JOIN fetch_schedules poll_schedule
-                    ON poll_schedule.endpoint = 'nta_trip_updates'
+                    ON poll_schedule.endpoint = 'nta_realtime'
                 WHERE feed.is_active
                   AND COALESCE(update.stop_id, identified_stop.stop_id) = $1
                   AND UPPER(freshness.schedule_relationship) NOT IN (
