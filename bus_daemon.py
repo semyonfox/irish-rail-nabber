@@ -13,6 +13,7 @@ Runtime configuration:
 * NTA_TRIP_UPDATES_URL: NTA v2 TripUpdates JSON URL
 * NTA_VEHICLES_URL: NTA v2 Vehicles JSON URL
 * NTA_GTFSR_URL: legacy name for the TripUpdates URL
+* BUS_GTFS_ARCHIVE_DIRECTORY: optional directory for the last imported ZIP
 * BUS_STATIC_REFRESH_SECONDS: static refresh period, default 86400
 * BUS_REALTIME_INTERVAL_SECONDS: realtime period, clamped to at least 60
 * BUS_REALTIME_RETENTION_DAYS: stop-update history retained, default 7
@@ -29,12 +30,14 @@ import logging
 import math
 import os
 import signal
+import shutil
 import tempfile
 import time
 import zipfile
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
+from pathlib import Path
 from types import FrameType
 from typing import Any, BinaryIO, cast
 
@@ -63,6 +66,8 @@ DEFAULT_VEHICLES_URL = "https://api.nationaltransport.ie/gtfsr/v2/Vehicles?forma
 # Kept for imports and deployments which still use the old variable name.
 DEFAULT_REALTIME_URL = DEFAULT_TRIP_UPDATES_URL
 FEED_SOURCE = "nta_gtfs"
+# Basic buses/trolleybuses and published extended coach and bus types.
+BUS_ROUTE_TYPES = frozenset({3, 11, 800, *range(200, 210), *range(700, 717)})
 DEFAULT_AGENCY_ID = "__default_agency__"
 MIN_REALTIME_INTERVAL_SECONDS = 60
 RATE_LIMIT_SAFETY_SECONDS = 1
@@ -977,7 +982,7 @@ def _select_static_feed(archive: zipfile.ZipFile) -> StaticFeedSelection:
             line_number,
             required=True,
         )
-        if route_type != 3:
+        if route_type not in BUS_ROUTE_TYPES:
             continue
 
         route_id = _required_field(row, "route_id", "routes.txt", line_number)
@@ -1001,7 +1006,7 @@ def _select_static_feed(archive: zipfile.ZipFile) -> StaticFeedSelection:
         )
 
     if not routes:
-        raise FeedFormatError("GTFS archive contains no route_type=3 bus routes")
+        raise FeedFormatError("GTFS archive contains no supported bus or coach routes")
 
     missing_agencies = agency_ids - all_agencies.keys()
     if missing_agencies:
@@ -1299,10 +1304,12 @@ class NtaBusDaemon:
         static_refresh_seconds: int = DEFAULT_STATIC_REFRESH_SECONDS,
         realtime_interval_seconds: int = MIN_REALTIME_INTERVAL_SECONDS,
         realtime_retention_days: int = DEFAULT_REALTIME_RETENTION_DAYS,
+        archive_directory: str | None = None,
     ) -> None:
         self.database_url = database_url
         self.api_key = api_key.strip() if api_key and api_key.strip() else None
         self.gtfs_url = gtfs_url
+        self.archive_directory = Path(archive_directory) if archive_directory else None
         # Preserve the old attribute/constructor contract for callers that use
         # realtime_url for TripUpdates.
         self.realtime_url = trip_updates_url
@@ -1407,6 +1414,29 @@ class NtaBusDaemon:
                 await connection.commit()
         except Exception as fetch_error:
             logger.warning("could not record bus fetch: %s", fetch_error)
+
+    def _archive_static_feed(self, feed_file: BinaryIO) -> None:
+        """Atomically keep the last successfully imported ZIP for this source URL."""
+        if self.archive_directory is None:
+            return
+        self.archive_directory.mkdir(parents=True, exist_ok=True)
+        source_key = hashlib.sha256(self.gtfs_url.encode()).hexdigest()
+        destination = self.archive_directory / f"{source_key}.zip"
+        temporary_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                dir=self.archive_directory, suffix=".tmp", delete=False
+            ) as output:
+                temporary_path = Path(output.name)
+                feed_file.seek(0)
+                shutil.copyfileobj(feed_file, output, length=1024 * 1024)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary_path, destination)
+        finally:
+            feed_file.seek(0)
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
 
     async def _download_static_feed(self) -> tuple[BinaryIO, str, datetime, int]:
         if self.session is None:
@@ -1830,6 +1860,7 @@ class NtaBusDaemon:
                 result = await self._import_static_feed(
                     feed_file, content_hash, downloaded_at
                 )
+                await asyncio.to_thread(self._archive_static_feed, feed_file)
                 duration_ms = int((time.monotonic() - started) * 1_000)
                 status = "success" if result.imported else "skipped"
                 await self.record_fetch(
@@ -1914,8 +1945,8 @@ class NtaBusDaemon:
             route_cursor = await connection.execute(
                 """SELECT route_id
                    FROM bus_routes
-                   WHERE feed_version_id = %s AND route_type = 3""",
-                (feed_version_id,),
+                   WHERE feed_version_id = %s AND route_type = ANY(%s)""",
+                (feed_version_id, sorted(BUS_ROUTE_TYPES)),
             )
             route_ids = frozenset(str(row[0]) for row in await route_cursor.fetchall())
             trip_cursor = await connection.execute(
@@ -1924,8 +1955,8 @@ class NtaBusDaemon:
                    JOIN bus_routes AS route
                      ON route.feed_version_id = trip.feed_version_id
                     AND route.route_id = trip.route_id
-                   WHERE trip.feed_version_id = %s AND route.route_type = 3""",
-                (feed_version_id,),
+                   WHERE trip.feed_version_id = %s AND route.route_type = ANY(%s)""",
+                (feed_version_id, sorted(BUS_ROUTE_TYPES)),
             )
             trip_routes = {
                 str(row[0]): str(row[1]) for row in await trip_cursor.fetchall()
@@ -2509,6 +2540,7 @@ async def main() -> None:
     daemon = NtaBusDaemon(
         os.environ["DATABASE_URL"],
         api_key=os.getenv("NTA_API_KEY"),
+        archive_directory=os.getenv("BUS_GTFS_ARCHIVE_DIRECTORY"),
         gtfs_url=os.getenv("NTA_GTFS_URL", DEFAULT_GTFS_URL),
         trip_updates_url=_trip_updates_url_from_environment(),
         vehicles_url=_vehicles_url_from_environment(),

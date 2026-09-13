@@ -10,7 +10,7 @@ The bus collector adds NTA GTFS schedules, realtime trip updates and current veh
 | TripUpdates | `https://api.nationaltransport.ie/gtfsr/v2/gtfsr?format=json` | `x-api-key` | alternating, normally about every two minutes |
 | Vehicles | `https://api.nationaltransport.ie/gtfsr/v2/Vehicles?format=json` | `x-api-key` | alternating, normally about every two minutes |
 
-The collector keeps only routes whose GTFS `route_type` is `3`, plus their agencies, trips, stops, stop times, predictions and vehicle positions. The NTA exposes trip updates and vehicle positions through separate operations, but its fair-usage policy permits only one realtime API request per token every 60 seconds. The collector therefore alternates the operations within one shared request budget. With the one-second safety margin, each kind normally refreshes about every 122 seconds.
+The collector keeps only routes whose GTFS `route_type` is `3` or `11`, or the extended bus/coach types `200–209`, `700–716` and `800`, plus their agencies, trips, stops, stop times, predictions and vehicle positions. The NTA exposes trip updates and vehicle positions through separate operations, but its fair-usage policy permits only one realtime API request per token every 60 seconds. The collector therefore alternates the operations within one shared request budget. With the one-second safety margin, each kind normally refreshes about every 122 seconds.
 
 The NTA describes its live feed as covering services provided by Dublin Bus, Bus Éireann and Go-Ahead Ireland. The matching static schedule covers a broader bus network, so a route appearing in the schedule does not by itself mean realtime positions are available for it.
 
@@ -70,6 +70,7 @@ Configuration:
 | `NTA_TRIP_UPDATES_URL` | NTA v2 TripUpdates JSON endpoint |
 | `NTA_VEHICLES_URL` | NTA v2 Vehicles JSON endpoint |
 | `NTA_GTFSR_URL` | deprecated fallback for `NTA_TRIP_UPDATES_URL` |
+| `BUS_GTFS_ARCHIVE_DIRECTORY` | optional outside Docker; `/data/gtfs` in Compose |
 | `BUS_STATIC_REFRESH_SECONDS` | `86400` |
 | `BUS_REALTIME_INTERVAL_SECONDS` | `60`, shared by both operations; values below 60 are clamped |
 | `BUS_REALTIME_RETENTION_DAYS` | `7`, must be positive |
@@ -140,3 +141,39 @@ The last query should show both realtime endpoints alternating, with consecutive
 - [NTA GTFS dataset](https://data.gov.ie/dataset/nta-gtfs)
 - [NTA GTFS-Realtime migration and ID guidance](https://www.nationaltransport.ie/news/attention-developers-upgrade-to-gtfs-realtime-api/)
 - [NTA fair-usage policy](https://developer.nationaltransport.ie/usagepolicy)
+
+## Persistent bulk archive and regional coverage
+
+The database already stores the imported national schedule and current realtime
+snapshots. API requests read that state rather than calling NTA for each visitor.
+The bus collector now also keeps the exact last successfully imported ZIP in the
+`bus_gtfs_archives` Docker volume. Filenames are the SHA-256 of the source URL,
+followed by `.zip`. Replacement is atomic, failed imports keep the previous copy,
+and there is one archive per configured source URL. The complete ZIP retains
+calendar files and other source tables even when the importer does not use them.
+An upstream outage leaves the imported database schedule available. The collector
+does not activate an older archive automatically, because its IDs may no longer
+match current realtime data.
+
+Regional bus and coach route types are accepted on subsequent new feed imports,
+alongside ordinary buses. Existing imported versions remain immutable. A separate
+operator ZIP must not replace the matching realtime schedule simply to add routes:
+its IDs may collide or fail to match NTA's live feed. Additional independent feeds
+need separate source/version handling before they can be combined safely.
+
+Route types: [published extended GTFS types](https://developers.google.com/transit/gtfs/reference/extended-route-types).
+
+The matching ZIP inspected on 13 September 2026 contained 382 bus routes:
+197 Bus Éireann, 5 Bus Éireann Waterford, 116 Dublin Bus and 64 Go-Ahead Ireland.
+All used route type 3, so accepting extended types does not add routes to that
+particular archive. It prepares the importer for regional/coach feeds using those
+codes; it does not create live coverage where the operator publishes none.
+
+NTA's [download catalogue](https://www.transportforireland.ie/transitData/PT_Data.html)
+also lists [all operators](https://www.transportforireland.ie/transitData/Data/GTFS_All.zip),
+[Local Link](https://www.transportforireland.ie/transitData/Data/GTFS_Local_Link.zip),
+[Citylink](https://www.transportforireland.ie/transitData/Data/GTFS_Citylink.zip),
+Aircoach, JJ Kavanagh, Wexford Bus and smaller operators as separate schedule
+archives. These are candidates for additional scheduled coverage, not evidence of
+additional realtime positions. They are not automatically imported alongside the
+matching realtime schedule by this collector.

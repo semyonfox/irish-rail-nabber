@@ -1,9 +1,12 @@
 import asyncio
+import hashlib
 import io
 import json
+import tempfile
 import unittest
 import zipfile
 from datetime import date, datetime, timezone
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from bus_daemon import (
@@ -15,6 +18,7 @@ from bus_daemon import (
     ActiveBusIds,
     FeedFormatError,
     NtaBusDaemon,
+    StaticImportResult,
     _iter_bus_shape_points,
     _iter_bus_stop_times,
     _parse_trip_updates_feed,
@@ -1131,6 +1135,11 @@ class ShutdownTests(unittest.IsolatedAsyncioTestCase):
 
 class StaticFeedSelectionTests(unittest.TestCase):
     def test_only_bus_rows_and_their_parent_stops_are_selected(self) -> None:
+        for route_type in (3, 11, 200, 204, 209, 700, 701, 715, 716, 800):
+            with self.subTest(route_type=route_type):
+                self.check_bus_selection(route_type)
+
+    def check_bus_selection(self, route_type: int) -> None:
         files = {
             "agency.txt": (
                 "agency_id,agency_name,agency_url,agency_timezone\n"
@@ -1139,7 +1148,7 @@ class StaticFeedSelectionTests(unittest.TestCase):
             ),
             "routes.txt": (
                 "route_id,agency_id,route_short_name,route_long_name,route_type,route_color,route_text_color\n"
-                "bus-route,bus-agency,10,Town,3,112233,FFFFFF\n"
+                f"bus-route,bus-agency,10,Town,{route_type},112233,FFFFFF\n"
                 "rail-route,rail-agency,R1,Rail,2,,\n"
             ),
             "trips.txt": (
@@ -1294,6 +1303,56 @@ class StaticFeedSelectionTests(unittest.TestCase):
 
         self.assertEqual(selection.agencies[0][0], DEFAULT_AGENCY_ID)
         self.assertEqual(selection.routes[0][1], DEFAULT_AGENCY_ID)
+
+
+class StaticArchiveTests(unittest.IsolatedAsyncioTestCase):
+    async def test_successful_refresh_keeps_exact_zip_and_replaces_previous_copy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            daemon = NtaBusDaemon("unused", archive_directory=directory)
+            daemon.record_fetch = AsyncMock()
+            daemon._import_static_feed = AsyncMock(
+                return_value=StaticImportResult(1, imported=True, row_count=1)
+            )
+            for payload in (b"first imported archive", b"replacement archive"):
+                daemon._download_static_feed = AsyncMock(return_value=(
+                    io.BytesIO(payload), hashlib.sha256(payload).hexdigest(),
+                    datetime.now(timezone.utc), len(payload),
+                ))
+                await daemon.refresh_static_feed()
+                archives = list(Path(directory).glob("*.zip"))
+                self.assertEqual(len(archives), 1)
+                self.assertEqual(archives[0].read_bytes(), payload)
+            self.assertEqual(list(Path(directory).glob("*.tmp")), [])
+
+    async def test_failed_import_keeps_last_successful_archive(self):
+        with tempfile.TemporaryDirectory() as directory:
+            daemon = NtaBusDaemon("unused", archive_directory=directory)
+            daemon._archive_static_feed(io.BytesIO(b"last good archive"))
+            daemon.record_fetch = AsyncMock()
+            daemon._download_static_feed = AsyncMock(return_value=(
+                io.BytesIO(b"invalid"), "hash", datetime.now(timezone.utc), 7,
+            ))
+            daemon._import_static_feed = AsyncMock(side_effect=FeedFormatError("invalid"))
+            await daemon.refresh_static_feed()
+            self.assertEqual(next(Path(directory).glob("*.zip")).read_bytes(), b"last good archive")
+            self.assertEqual(daemon.record_fetch.call_args.args[2], "failed")
+
+    def test_failed_archive_write_is_atomic(self):
+        with tempfile.TemporaryDirectory() as directory:
+            daemon = NtaBusDaemon("unused", archive_directory=directory)
+            daemon._archive_static_feed(io.BytesIO(b"last good archive"))
+            with patch("bus_daemon.shutil.copyfileobj", side_effect=OSError("disk full")):
+                with self.assertRaises(OSError):
+                    daemon._archive_static_feed(io.BytesIO(b"replacement"))
+            self.assertEqual(next(Path(directory).glob("*.zip")).read_bytes(), b"last good archive")
+            self.assertEqual(list(Path(directory).glob("*.tmp")), [])
+
+    def test_different_sources_keep_separate_archives(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for source in ("https://example.test/a.zip", "https://example.test/b.zip"):
+                daemon = NtaBusDaemon("unused", gtfs_url=source, archive_directory=directory)
+                daemon._archive_static_feed(io.BytesIO(source.encode()))
+            self.assertEqual(len(list(Path(directory).glob("*.zip"))), 2)
 
 
 if __name__ == "__main__":
