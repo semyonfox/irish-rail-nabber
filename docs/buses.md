@@ -86,7 +86,7 @@ The list queries return an empty list before the first feed import. `busRealtime
 
 `busScheduledRouteShapes` does not depend on realtime. Without `stopId`, it returns representative directions from the most frequently scheduled routes in the active feed. With `stopId`, it returns representative directions for routes serving that stop. The API returns at most 40 shapes, samples each to at most 300 points, and keeps one common shape per route and direction. The dashboard requests 24. This gives the map useful route lines in static-only mode without sending the full national feed to the browser.
 
-Identical stop searches, boards, delay aggregates, vehicle snapshots and route shapes are coalesced and cached in the API. Scheduled geometry uses a 15-minute cache because it changes only when the static feed changes.
+Identical stop searches, boards, delay aggregates, vehicle snapshots and route shapes are coalesced and cached in the API. Non-empty scheduled geometry uses a 15-minute cache because it changes only when the static feed changes. Empty scheduled-shape results are evicted immediately, so a request made during the initial shape import cannot hide the completed import for 15 minutes.
 
 ## Checks
 

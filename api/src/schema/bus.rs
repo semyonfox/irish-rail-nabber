@@ -115,6 +115,16 @@ fn scheduled_shapes_cache_key(stop_id: Option<&str>, limit: i32) -> String {
     }
 }
 
+async fn evict_empty_scheduled_shapes(
+    cache: &QueryCache,
+    cache_key: &str,
+    shapes: &[BusRouteShape],
+) {
+    if shapes.is_empty() {
+        cache.bus_scheduled_route_shapes.invalidate(cache_key).await;
+    }
+}
+
 #[Object]
 impl BusQuery {
     #[graphql(complexity = 10)]
@@ -603,7 +613,7 @@ impl BusQuery {
 
         let result = cache
             .bus_scheduled_route_shapes
-            .try_get_with(cache_key, async move {
+            .try_get_with(cache_key.clone(), async move {
                 let rows = sqlx::query_as::<_, BusShapePointRow>(
                     "WITH candidate_trips AS (
                         SELECT
@@ -753,6 +763,8 @@ impl BusQuery {
             })
             .await
             .map_err(|error| Error::new(error.to_string()))?;
+
+        evict_empty_scheduled_shapes(cache, &cache_key, result.as_ref()).await;
 
         Ok((*result).clone())
     }
@@ -939,6 +951,48 @@ mod tests {
     fn scheduled_shape_cache_keys_separate_network_and_literal_stop_ids() {
         assert_eq!(scheduled_shapes_cache_key(None, 24), "network:24");
         assert_eq!(scheduled_shapes_cache_key(Some("*"), 24), "stop:*:24");
+    }
+
+    #[tokio::test]
+    async fn empty_scheduled_shape_results_do_not_stay_cached() {
+        let cache = QueryCache::new();
+        let cache_key = scheduled_shapes_cache_key(None, 24);
+        let empty_shapes = Arc::new(Vec::new());
+
+        cache
+            .bus_scheduled_route_shapes
+            .insert(cache_key.clone(), empty_shapes.clone())
+            .await;
+        evict_empty_scheduled_shapes(&cache, &cache_key, empty_shapes.as_ref()).await;
+
+        assert!(cache
+            .bus_scheduled_route_shapes
+            .get(&cache_key)
+            .await
+            .is_none());
+
+        let shapes = Arc::new(vec![BusRouteShape {
+            route_id: "route-404".into(),
+            route_short_name: Some("404".into()),
+            shape_id: "shape-404-out".into(),
+            route_color: None,
+            points: Vec::new(),
+        }]);
+        cache
+            .bus_scheduled_route_shapes
+            .insert(cache_key.clone(), shapes.clone())
+            .await;
+        evict_empty_scheduled_shapes(&cache, &cache_key, shapes.as_ref()).await;
+
+        assert_eq!(
+            cache
+                .bus_scheduled_route_shapes
+                .get(&cache_key)
+                .await
+                .expect("non-empty scheduled shapes stay cached")
+                .len(),
+            1
+        );
     }
 
     #[test]

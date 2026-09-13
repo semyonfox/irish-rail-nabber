@@ -488,6 +488,23 @@ mod tests {
     }
 
     #[test]
+    fn accepts_clerks_numeric_original_issued_at_header() {
+        let encoded_header = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(
+            br#"{"alg":"RS256","cat":"session_token","kid":"test-key","oiat":1700000000,"typ":"JWT"}"#,
+        );
+        let token = format!("{encoded_header}.e30.signature");
+
+        let header = decode_header(token).expect("Clerk header should parse");
+
+        assert_eq!(header.alg, Algorithm::RS256);
+        assert_eq!(header.kid.as_deref(), Some("test-key"));
+        assert_eq!(
+            header.extras.get::<u64>("oiat").expect("numeric oiat"),
+            Some(1_700_000_000)
+        );
+    }
+
+    #[test]
     fn authorized_party_failures_have_stable_labels() {
         let allowed = vec!["https://traein.example".to_string()];
         let missing = SessionClaims {

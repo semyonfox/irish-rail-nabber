@@ -9,6 +9,7 @@ required_files=(
   docker-compose.yml
   docker-entrypoint.sh
   migrations/011_bus_gtfs.sql
+  migrations/012_bus_shapes.sql
   requirements.txt
   schema.sql
   api/Cargo.toml
