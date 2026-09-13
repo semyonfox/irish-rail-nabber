@@ -55,19 +55,18 @@ function mergePoints(current: StoredDelayPoint[], incoming: StoredDelayPoint[]) 
 export function useHistorySync(stationCode?: string) {
   const scope = stationCode || "network";
   const [points, setPoints] = useState<StoredDelayPoint[]>([]);
-  const [loaded, setLoaded] = useState(false);
-  const [cursor, setCursor] = useState<string>();
+  const [loadedScope, setLoadedScope] = useState<string>();
+  const loaded = loadedScope === scope;
+  const cursor = loaded ? points.at(-1)?.bucket : undefined;
 
   useEffect(() => {
     let active = true;
-    setLoaded(false);
     readSnapshot(scope)
       .catch(() => [])
       .then((stored) => {
         if (!active) return;
         setPoints(stored);
-        setCursor(stored.at(-1)?.bucket);
-        setLoaded(true);
+        setLoadedScope(scope);
       });
     return () => {
       active = false;
@@ -82,17 +81,24 @@ export function useHistorySync(stationCode?: string) {
   });
 
   useEffect(() => {
-    if (!data?.delayHistory) return;
-    setPoints((current) => {
-      const merged = mergePoints(current, data.delayHistory);
-      void writeSnapshot(scope, merged).catch(() => undefined);
-      setCursor(merged.at(-1)?.bucket);
-      return merged;
+    if (!loaded || !data?.delayHistory) return;
+    let active = true;
+    const incoming = data.delayHistory;
+    void Promise.resolve().then(() => {
+      if (!active) return;
+      setPoints((current) => {
+        const merged = mergePoints(current, incoming);
+        void writeSnapshot(scope, merged).catch(() => undefined);
+        return merged;
+      });
     });
-  }, [data?.delayHistory, scope]);
+    return () => {
+      active = false;
+    };
+  }, [data?.delayHistory, loaded, scope]);
 
   return useMemo(
-    () => ({ points, fetching: !loaded || fetching, error, retry }),
+    () => ({ points: loaded ? points : [], fetching: !loaded || fetching, error, retry }),
     [error, fetching, loaded, points, retry],
   );
 }

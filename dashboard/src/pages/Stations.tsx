@@ -1,16 +1,22 @@
 import StationTable from "../components/StationTable";
+import { Card, PageHeader } from "../components/ui";
 
 export default function Stations() {
   return (
-    <div className="h-full overflow-auto p-4 md:p-6">
-      <div className="mx-auto max-w-7xl">
-        <div className="term-panel overflow-hidden">
-          <div className="term-panel-head">
-            Station performance
-            <small>Delay statistics per station · click column headers to sort</small>
-          </div>
+    <div className="page">
+      <div className="page-inner">
+        <PageHeader
+          eyebrow="Stations"
+          title={
+            <>
+              Station <em>performance</em>
+            </>
+          }
+          description="Delay statistics for every station on the network. Sort any column, or search by name or code."
+        />
+        <Card index={1}>
           <StationTable />
-        </div>
+        </Card>
       </div>
     </div>
   );

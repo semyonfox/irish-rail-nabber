@@ -137,6 +137,7 @@ const Q_FETCH_STATUS: &str = r#"
 "#;
 
 const DEFAULT_TOOL_RESULT_CHARS: usize = 3500;
+const CHAT_TOTAL_TIMEOUT_SECONDS: u64 = 110;
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct ChatRequest {
@@ -162,6 +163,8 @@ struct ChatResponse {
 #[derive(Debug, Serialize)]
 pub(crate) struct ErrorResponse {
     error: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    code: Option<&'static str>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -292,7 +295,46 @@ fn json_error(status: StatusCode, message: &str) -> (StatusCode, Json<ErrorRespo
         status,
         Json(ErrorResponse {
             error: message.to_string(),
+            code: None,
         }),
+    )
+}
+
+fn coded_json_error(
+    status: StatusCode,
+    code: &'static str,
+    message: &str,
+) -> (StatusCode, Json<ErrorResponse>) {
+    (
+        status,
+        Json(ErrorResponse {
+            error: message.to_string(),
+            code: Some(code),
+        }),
+    )
+}
+
+fn model_endpoint_error(status: StatusCode) -> (StatusCode, Json<ErrorResponse>) {
+    if status == StatusCode::TOO_MANY_REQUESTS {
+        return coded_json_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "model_provider_rate_limited",
+            "the rail assistant's model provider is temporarily rate limited",
+        );
+    }
+
+    coded_json_error(
+        StatusCode::BAD_GATEWAY,
+        "model_provider_error",
+        "the rail assistant's model provider returned an error",
+    )
+}
+
+fn chat_timeout_error() -> (StatusCode, Json<ErrorResponse>) {
+    coded_json_error(
+        StatusCode::GATEWAY_TIMEOUT,
+        "chat_timeout",
+        "the rail assistant took too long to reply",
     )
 }
 
@@ -922,14 +964,8 @@ async fn call_model(
 
     if !response.status().is_success() {
         let status = response.status();
-        let body = response
-            .text()
-            .await
-            .unwrap_or_else(|_| "unable to read error body".to_string());
-        return Err(json_error(
-            StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY),
-            &format!("model endpoint failed with {status}: {body}"),
-        ));
+        tracing::warn!(provider_status = %status, "model endpoint returned an error");
+        return Err(model_endpoint_error(status));
     }
 
     response.json::<ModelResponse>().await.map_err(|error| {
@@ -940,11 +976,11 @@ async fn call_model(
     })
 }
 
-pub async fn chat(
-    State(state): State<AppState>,
-    Extension(auth_user): Extension<Option<AuthUser>>,
-    Json(body): Json<ChatRequest>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+async fn run_chat(
+    state: AppState,
+    auth_user: Option<AuthUser>,
+    body: ChatRequest,
+) -> Result<Json<ChatResponse>, (StatusCode, Json<ErrorResponse>)> {
     let user =
         auth_user.ok_or_else(|| json_error(StatusCode::UNAUTHORIZED, "not authenticated"))?;
     if !is_paid_role(&user.role.to_lowercase()) {
@@ -1072,11 +1108,27 @@ pub async fn chat(
     ))
 }
 
+pub async fn chat(
+    State(state): State<AppState>,
+    Extension(auth_user): Extension<Option<AuthUser>>,
+    Json(body): Json<ChatRequest>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    tokio::time::timeout(
+        Duration::from_secs(CHAT_TOTAL_TIMEOUT_SECONDS),
+        run_chat(state, auth_user, body),
+    )
+    .await
+    .unwrap_or_else(|_| Err(chat_timeout_error()))
+}
+
 #[cfg(test)]
 mod tests {
     use axum::http::StatusCode;
 
-    use super::{chat_provider_unconfigured_error, non_blank_env_value};
+    use super::{
+        chat_provider_unconfigured_error, chat_timeout_error, model_endpoint_error,
+        non_blank_env_value,
+    };
 
     #[test]
     fn non_blank_env_value_ignores_empty_or_whitespace() {
@@ -1097,5 +1149,25 @@ mod tests {
     fn chat_provider_unconfigured_returns_service_unavailable() {
         let (status, _) = chat_provider_unconfigured_error();
         assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[test]
+    fn provider_rate_limit_is_not_reported_as_user_quota() {
+        let (status, body) = model_endpoint_error(StatusCode::TOO_MANY_REQUESTS);
+
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            body.error,
+            "the rail assistant's model provider is temporarily rate limited"
+        );
+        assert_eq!(body.code, Some("model_provider_rate_limited"));
+    }
+
+    #[test]
+    fn total_chat_timeout_has_a_typed_gateway_error() {
+        let (status, body) = chat_timeout_error();
+
+        assert_eq!(status, StatusCode::GATEWAY_TIMEOUT);
+        assert_eq!(body.code, Some("chat_timeout"));
     }
 }

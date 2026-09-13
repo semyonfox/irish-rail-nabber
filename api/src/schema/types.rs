@@ -1,6 +1,6 @@
 use async_graphql::SimpleObject;
 use bigdecimal::BigDecimal;
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, SecondsFormat, Utc};
 
 use crate::models::*;
 
@@ -24,6 +24,15 @@ fn date_to_string(d: &Option<NaiveDate>) -> Option<String> {
     d.map(|d| d.format("%Y-%m-%d").to_string())
 }
 
+fn utc_datetime_to_string(dt: &Option<DateTime<Utc>>) -> Option<String> {
+    dt.as_ref()
+        .map(|value| value.to_rfc3339_opts(SecondsFormat::Secs, true))
+}
+
+fn required_utc_datetime_to_string(dt: &DateTime<Utc>) -> String {
+    dt.to_rfc3339_opts(SecondsFormat::Secs, true)
+}
+
 #[derive(SimpleObject)]
 pub struct Station {
     pub station_code: String,
@@ -43,6 +52,140 @@ impl From<StationRow> for Station {
             is_dart: r.is_dart,
             latitude: bd_to_f64(&r.latitude),
             longitude: bd_to_f64(&r.longitude),
+        }
+    }
+}
+
+#[derive(Clone, SimpleObject)]
+pub struct BusStop {
+    pub stop_id: String,
+    pub stop_code: Option<String>,
+    pub stop_name: Option<String>,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+}
+
+impl From<BusStopRow> for BusStop {
+    fn from(row: BusStopRow) -> Self {
+        Self {
+            stop_id: row.stop_id,
+            stop_code: row.stop_code,
+            stop_name: row.stop_name,
+            latitude: row.latitude,
+            longitude: row.longitude,
+        }
+    }
+}
+
+#[derive(Clone, SimpleObject)]
+pub struct BusDeparture {
+    pub entity_id: Option<String>,
+    pub trip_id: Option<String>,
+    pub route_id: Option<String>,
+    pub route_short_name: Option<String>,
+    pub route_long_name: Option<String>,
+    pub operator_name: Option<String>,
+    pub headsign: Option<String>,
+    pub service_date: Option<String>,
+    pub scheduled_time: Option<String>,
+    pub expected_time: Option<String>,
+    pub delay_seconds: Option<i32>,
+    pub schedule_relationship: Option<String>,
+    pub fetched_at: String,
+}
+
+impl From<BusDepartureRow> for BusDeparture {
+    fn from(row: BusDepartureRow) -> Self {
+        Self {
+            entity_id: row.entity_id,
+            trip_id: row.trip_id,
+            route_id: row.route_id,
+            route_short_name: row.route_short_name,
+            route_long_name: row.route_long_name,
+            operator_name: row.operator_name,
+            headsign: row.headsign,
+            service_date: date_to_string(&row.service_date),
+            scheduled_time: utc_datetime_to_string(&row.scheduled_time),
+            expected_time: utc_datetime_to_string(&row.expected_time),
+            delay_seconds: row.delay_seconds,
+            schedule_relationship: row.schedule_relationship,
+            fetched_at: required_utc_datetime_to_string(&row.fetched_at),
+        }
+    }
+}
+
+#[derive(Clone, SimpleObject)]
+pub struct BusRouteDelay {
+    pub route_id: String,
+    pub route_short_name: Option<String>,
+    pub route_long_name: Option<String>,
+    pub operator_name: Option<String>,
+    pub avg_delay_seconds: f64,
+    pub on_time_pct: f64,
+    pub sample_count: i64,
+    pub last_updated: String,
+}
+
+#[derive(Clone, SimpleObject)]
+pub struct BusVehicle {
+    pub entity_id: Option<String>,
+    pub vehicle_id: Option<String>,
+    pub vehicle_label: Option<String>,
+    pub trip_id: Option<String>,
+    pub route_id: Option<String>,
+    pub route_short_name: Option<String>,
+    pub route_long_name: Option<String>,
+    pub operator_name: Option<String>,
+    pub headsign: Option<String>,
+    pub latitude: f64,
+    pub longitude: f64,
+    pub bearing: Option<f64>,
+    pub speed_meters_per_second: Option<f64>,
+    pub current_stop_sequence: Option<i32>,
+    pub stop_id: Option<String>,
+    pub current_status: Option<String>,
+    pub occupancy_status: Option<String>,
+    pub source_timestamp: Option<String>,
+    pub fetched_at: String,
+}
+
+impl From<BusVehicleRow> for BusVehicle {
+    fn from(row: BusVehicleRow) -> Self {
+        Self {
+            entity_id: row.entity_id,
+            vehicle_id: row.vehicle_id,
+            vehicle_label: row.vehicle_label,
+            trip_id: row.trip_id,
+            route_id: row.route_id,
+            route_short_name: row.route_short_name,
+            route_long_name: row.route_long_name,
+            operator_name: row.operator_name,
+            headsign: row.headsign,
+            latitude: row.latitude,
+            longitude: row.longitude,
+            bearing: row.bearing,
+            speed_meters_per_second: row.speed_meters_per_second,
+            current_stop_sequence: row.current_stop_sequence,
+            stop_id: row.stop_id,
+            current_status: row.current_status,
+            occupancy_status: row.occupancy_status,
+            source_timestamp: utc_datetime_to_string(&row.source_timestamp),
+            fetched_at: required_utc_datetime_to_string(&row.fetched_at),
+        }
+    }
+}
+
+impl From<BusRouteDelayRow> for BusRouteDelay {
+    fn from(row: BusRouteDelayRow) -> Self {
+        Self {
+            route_id: row.route_id,
+            route_short_name: row.route_short_name,
+            route_long_name: row.route_long_name,
+            operator_name: row.operator_name,
+            avg_delay_seconds: row.avg_delay_seconds,
+            on_time_pct: row.on_time_pct,
+            sample_count: row.sample_count,
+            last_updated: required_utc_datetime_to_string(&row.last_updated),
         }
     }
 }

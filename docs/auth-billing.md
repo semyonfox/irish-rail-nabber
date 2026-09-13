@@ -1,27 +1,26 @@
 # Auth and Billing
 
-Custom email/password auth in Rust. [Polar.sh](https://polar.sh) for subscription billing — chosen over Stripe because Polar acts as the merchant of record and handles EU VAT (and US sales tax) automatically. The original implementation targeted Stripe; that code is still in the tree and works, but Polar is the path forward. See [Stripe legacy](#stripe-legacy) for the migration.
+Sign-in, sign-up and sessions are handled by [Clerk](https://clerk.com). [Polar.sh](https://polar.sh) handles subscriptions as merchant of record and calculates, collects and remits transaction taxes. The Rust API verifies Clerk session tokens, creates Polar checkout sessions and stores the resulting plan role locally.
 
 ## Tiers
 
 | Role | Price | Access |
 |------|-------|--------|
-| `free` | €0 | live map, station list, anonymous GraphQL, 1 000 req/day |
-| `coffee` | €5/mo | + analytics, historical queries, 10 000 req/day, chatbot (limited tokens) |
-| `pro` | €25/mo | + chatbot (high token budget), CSV/Parquet export, priority support |
-| `admin` | — | full access, user management |
+| `free` | €0 | live map, station list, anonymous GraphQL, 25 000 req/day |
+| `coffee` | €5/mo including applicable tax | + analytics, historical queries, 100 000 req/day, chatbot (limited tokens) |
+| `pro` | €25/mo including applicable tax | + unlimited requests, priority support |
+| `admin` | — | full feature access and unlimited requests |
 
 Tier checks live in three places:
 
 - Per-resolver in the Rust API for paywalled GraphQL fields ([api.md](api.md#auth-in-resolvers)).
-- At the chatbot service entrypoint, which rejects `free` outright ([chatbot.md](chatbot.md#rate-limiting-and-cost-control)).
+- In the Rust `/chat` handler, which rejects `free` before making a model request ([chatbot.md](chatbot.md#rate-limiting-and-cost-control)).
+- In the dashboard's `ProtectedRoute` for paid pages ([dashboard.md](dashboard.md#auth-flow)).
 
-Authentication routes (`/auth/login`, `/auth/register`, `/auth/refresh`, and `/auth/logout`) are
-outside the daily GraphQL usage quota. The default quota is sized for the polling dashboard:
+The `/auth/*` routes (`config`, `session`, `me`) are outside the daily GraphQL usage quota. The default quota is sized for the polling dashboard:
 25,000 requests/day for free accounts and 100,000 requests/day for coffee accounts; pro and admin
 roles are unlimited. Deployments can override these values with the existing
 `API_RATE_LIMIT_*_TIER_LIMIT` environment variables.
-- In the dashboard's `ProtectedRoute` for paid pages ([dashboard.md](dashboard.md#auth-flow)).
 
 ## Schema
 
@@ -29,85 +28,75 @@ roles are unlimited. Deployments can override these values with the existing
 users (
     id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email                    TEXT UNIQUE NOT NULL,
-    password_hash            TEXT NOT NULL,             -- argon2id
+    clerk_user_id            TEXT UNIQUE,               -- clerk "user_..." id
+    password_hash            TEXT,                      -- unused since clerk, kept for old rows
     display_name             TEXT,
     role                     TEXT NOT NULL DEFAULT 'free',
     polar_customer_id        TEXT UNIQUE,
     polar_subscription_id    TEXT,
+    polar_state_updated_at   TIMESTAMPTZ,
     -- legacy, populated only on accounts migrated from the Stripe era
     stripe_customer_id       TEXT UNIQUE,
     stripe_subscription_id   TEXT,
     created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
-refresh_tokens (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    token_hash  TEXT NOT NULL,           -- sha256(token)
-    expires_at  TIMESTAMPTZ NOT NULL,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
 ```
 
-The original migration is `migrations/004_add_users_and_auth.sql`. The Polar columns are added by a follow-up migration once the provider switch lands.
+The original migration is `migrations/004_add_users_and_auth.sql`; `009_clerk_auth.sql` adds `clerk_user_id` and relaxes `password_hash`. `010_polar_billing.sql` adds the Polar state and a webhook event ledger. The old Stripe columns remain only so the pre-Polar image can still be rolled back.
 
-## Token rotation
+## Clerk sessions
 
-Two cookies, both `httpOnly`, both `Secure` in prod, `SameSite=Strict`.
+The dashboard wraps the app in `ClerkProvider` and renders Clerk's `SignIn` / `SignUp` on `/login` and `/register`. It reads the publishable key from `GET /auth/config` at startup (or `VITE_CLERK_PUBLISHABLE_KEY` in dev), because the dashboard's Docker build context ignores `.env` files.
 
-| Cookie | Type | Lifetime | Path |
-|--------|------|----------|------|
-| `access_token` | JWT (HS256) | 15 min | `/` |
-| `refresh_token` | opaque (32 random bytes, hex) | 7 days | `/auth` |
+Every API and GraphQL request carries `Authorization: Bearer <clerk session token>`; the `__session` cookie clerk-js keeps on the app origin is accepted as a fallback. The API (`api/src/auth/clerk.rs`):
 
-The refresh token is **never stored in plaintext** — only its SHA-256 hash. On each refresh the old token is deleted from `refresh_tokens` and a new one issued (rotation). Logout deletes every refresh token for the user.
+1. Verifies the RS256 token against the instance JWKS (cached for an hour, refetched at most once a minute for an unknown `kid`), checks `iss`, `exp`/`nbf`, and that `azp` is one of `CORS_ORIGINS` (or `CLERK_AUTHORIZED_PARTIES`).
+2. Looks up `users.clerk_user_id = sub`, cached for 60 s.
+3. On first sight of a Clerk user, fetches the profile from the Clerk Backend API and either links an existing row with the same **verified** primary email (keeping its role and billing) or creates a new `free` row.
 
-JWT claims:
+Env:
 
-```json
-{ "sub": "<uuid>", "email": "...", "role": "free|coffee|pro|admin", "exp": 0, "iat": 0 }
 ```
-
-`JWT_SECRET` must be 64 random hex chars. Generate with `openssl rand -hex 32`.
+CLERK_PUBLISHABLE_KEY=pk_live_...   # issuer and JWKS url are derived from it
+CLERK_SECRET_KEY=sk_live_...        # backend api, only used to provision new users
+CLERK_ISSUER=...                    # optional override
+CLERK_JWKS_URL=...                  # optional override
+CLERK_AUTHORIZED_PARTIES=...        # optional, defaults to CORS_ORIGINS
+```
 
 ## Endpoints
 
 Auth endpoints (REST, JSON):
 
-| Path | Body | Returns | Notes |
-|------|------|---------|-------|
-| `POST /auth/register` | `{ email, password, display_name? }` | `201 { user }` + cookies | password ≥ 8 chars |
-| `POST /auth/login` | `{ email, password }` | `200 { user }` + cookies | 401 on bad creds (no field-specific hints) |
-| `POST /auth/refresh` | — (refresh cookie) | `200 { user }` + rotated cookies | 401 on expired or unknown |
-| `POST /auth/logout` | — (access cookie) | `200 {}` + cleared cookies | revokes all refresh tokens for user |
-| `GET /auth/me` | — (access cookie) | `200 { user, polar_customer_id?, created_at }` | |
+| Path | Returns | Notes |
+|------|---------|-------|
+| `GET /auth/config` | `{ clerk_publishable_key, billing_enabled }` | public |
+| `GET /auth/session` | `{ user \| null }` | never 401s |
+| `GET /auth/me` | `{ id, email, display_name, role, can_manage_billing, created_at }` | 401 when signed out |
 
 Billing endpoints:
 
 | Path | Body | Returns | Notes |
 |------|------|---------|-------|
-| `POST /billing/checkout` | `{ price_id }` | `200 { url }` | redirect user to `url` |
+| `POST /billing/checkout` | `{ plan: "coffee" | "pro" }` | `200 { url }` | product IDs stay server-side |
 | `POST /billing/portal` | — | `200 { url }` | self-serve subscription management |
-| `POST /billing/webhook` | provider event | `200` | signature-verified |
-
-The full spec for cookie flags and CSRF protection lives in `docs/superpowers/specs/2026-03-31-auth-stripe-design.md` (still accurate apart from the provider name).
+| `POST /billing/webhook` | provider event | `202` | signature-verified |
 
 ## Polar.sh flow
 
 ```
 user clicks plan on /pricing
-    POST /billing/checkout { price_id }
+    POST /billing/checkout { plan }
         api creates Polar checkout session
         api responds with { url }
     browser redirects to Polar-hosted checkout
         user pays
-        Polar redirects back to /account?session_id=...
+        Polar redirects back to /account?checkout=success
 Polar webhook → POST /billing/webhook
     api verifies signature with POLAR_WEBHOOK_SECRET
-    api maps event → user role
-        subscription.created / .updated → set role to product mapping
-        subscription.cancelled / .past_due → downgrade to free
+    customer.state_changed → derive the role from active subscriptions
+    duplicate and older events cannot overwrite newer state
 ```
 
 Role mapping is by product ID, configured via env:
@@ -120,13 +109,18 @@ POLAR_PRO_PRODUCT_ID=...
 ### Polar config (env)
 
 ```
-POLAR_ACCESS_TOKEN=polar_at_...
-POLAR_WEBHOOK_SECRET=polar_wh_...
+POLAR_CHECKOUT_ENABLED=false            # kill switch for new checkout
+POLAR_ACCESS_TOKEN=polar_oat_...
+POLAR_WEBHOOK_SECRET=whsec_...
 POLAR_ORGANIZATION_ID=...
 POLAR_COFFEE_PRODUCT_ID=...
 POLAR_PRO_PRODUCT_ID=...
 POLAR_ENVIRONMENT=production            # or sandbox
 ```
+
+Coffee and Pro are fixed EUR monthly products. Set each Polar price's tax behavior to `inclusive`, so the customer pays exactly €5 or €25 and Polar extracts the jurisdiction's transaction tax from that total.
+
+The organization access token only needs `checkouts:write` and `customer_sessions:write`. In Settings → Customer portal, enable subscription plan changes, keep Polar email changes off, and use `prorate` as the default: the plan changes immediately and the adjustment lands on the next invoice.
 
 ### Why Polar over Stripe
 
@@ -135,40 +129,31 @@ POLAR_ENVIRONMENT=production            # or sandbox
 - **Lower friction at our size.** No accountant-driven VAT MOSS setup, no quarterly filings across jurisdictions.
 - Stripe is the bigger ecosystem and remains the right call if/when revenue makes a dedicated tax setup cheap.
 
-## Stripe legacy
+## Stripe rollback data
 
-The codebase still contains a working Stripe implementation:
-
-- `api/src/billing/handlers.rs` — checkout / portal / webhook handlers wired to `async-stripe`.
-- `STRIPE_*` env vars in `docker-compose.yml`.
-- `users.stripe_customer_id` / `users.stripe_subscription_id` columns.
-
-It can be ripped out cleanly once Polar is live and no production users have an active Stripe subscription:
-
-1. Add `polar_customer_id` / `polar_subscription_id` columns in a new migration alongside the Stripe ones.
-2. Reimplement `billing::handlers` against Polar (the `polar-rs` crate or HTTP directly).
-3. Update env in `docker-compose.yml` and `.env.local`.
-4. Confirm no live Stripe subscriptions, then drop Stripe columns and remove `async-stripe` from `api/Cargo.toml`.
-
-The same dashboard pages (`PricingPage`, `AccountPage`) work for either provider — they only call `/billing/checkout` and `/billing/portal`.
+The code and runtime configuration no longer use Stripe. `users.stripe_customer_id` and `users.stripe_subscription_id` remain in the database for compatibility with the tagged pre-Polar API image. Remove them in a later migration after the Polar rollout and rollback window close.
 
 ## Security notes
 
-- Passwords hashed with `argon2id` (memory-hard, time + memory cost defaults).
-- Refresh tokens rotated on every use; a replay of an old refresh token fails the lookup.
-- `SameSite=Strict` blocks cross-origin cookie sends; combined with `httpOnly` this protects against most CSRF and XSS-based session theft.
-- Login errors are generic — never reveal whether the email or the password was wrong.
+- Passwords, MFA and session lifetime are Clerk's job; the API never sees credentials.
+- Session tokens are verified locally against the Clerk JWKS; tokens minted for another origin (`azp`) are rejected.
+- Existing accounts are only linked to a Clerk user through a Clerk-verified email address.
 - Webhook handlers verify provider signatures before trusting any payload.
-- `JWT_SECRET` and `POLAR_*` keys must never be committed; both `.env*` patterns are gitignored.
+- Polar product IDs are mapped to roles on the server. The client can only request `coffee` or `pro`.
+- Webhook IDs are recorded transactionally, and event timestamps stop older deliveries from restoring stale access.
+- `CLERK_SECRET_KEY` and private `POLAR_*` values belong only in the ignored deployment env file. The tracked `.env.production.example` contains placeholders.
+- Until Clerk lifecycle webhooks can reconcile identity changes with Polar, disable end-user email changes and account deletion in Clerk. This prevents a stale billing email or an inaccessible subscription.
 
 ## Production setup checklist
 
-1. `openssl rand -hex 32` → `JWT_SECRET`.
-2. Polar dashboard: create products for Coffee and Pro, copy IDs.
-3. Polar dashboard: create webhook for `https://traein.semyon.ie/billing/webhook`, copy signing secret.
-4. Populate `.env.local` on the server (template in [deployment.md](deployment.md#env-template)).
-5. `docker compose up -d`.
-6. Register a test account, run through checkout in sandbox mode, confirm role flips to `coffee` after the webhook.
+1. Clerk dashboard: create a production instance for `traein.semyon.ie`, add the DNS records it lists, then copy its keys into `CLERK_PUBLISHABLE_KEY` / `CLERK_SECRET_KEY`.
+2. In Clerk's User & authentication settings, turn off end-user email changes and account deletion until lifecycle syncing is implemented.
+3. Polar dashboard: create monthly Coffee (€5) and Pro (€25) products with EUR fixed prices and `inclusive` tax behavior, then copy their IDs.
+4. Polar dashboard: create a new raw `customer.state_changed` webhook for `https://traein.semyon.ie/billing/webhook`, then copy its Standard Webhooks signing secret. Do not reuse a legacy pre-2026-09-08 secret.
+5. Populate the private server env file (template in [deployment.md](deployment.md#env-template)).
+6. Apply migrations with the candidate daemon, verify the Polar columns and webhook ledger exist, then switch the API and dashboard images.
+7. Sign up through Clerk and run through checkout in sandbox mode. Confirm the role flips to `coffee`; then revoke the sandbox subscription immediately and confirm it returns to `free`. A normal customer cancellation stays paid until the end of the period.
+8. In Polar production, create separate products, a scoped token, and a new webhook endpoint. Replace every sandbox ID/token/secret, set `POLAR_ENVIRONMENT=production`, verify one live checkout, then set `POLAR_CHECKOUT_ENABLED=true` for everyone.
 
 ## Related docs
 

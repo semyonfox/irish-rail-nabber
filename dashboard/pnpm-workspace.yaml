@@ -1,5 +1,15 @@
 packages:
   - "."
+minimumReleaseAgeExclude:
+  - eslint@10.9.0
+  - urql@5.0.4
+peerDependencyRules:
+  allowedVersions:
+    vite: 0.3.1
 overrides:
   js-yaml: ^4.2.0
   "@babel/core": ^7.29.6
+  "vite@*": npm:@voidzero-dev/vite-plus-core@0.3.1
+  "vitest@*": 4.1.11
+  postcss: ">=8.5.10"
+  protocol-buffers-schema: ">=3.6.1"

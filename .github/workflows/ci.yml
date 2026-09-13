@@ -57,11 +57,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Set up Vite+
-        uses: voidzero-dev/setup-vp@v1
+        uses: voidzero-dev/setup-vp@v1.19.0
         with:
           cache: true
           # The action otherwise performs an unpinned, implicit install before
           # our explicit lockfile-backed install below.
+          working-directory: dashboard
           run-install: false
       - name: Install dependencies
         run: vp install --frozen-lockfile
@@ -85,3 +86,5 @@ jobs:
         run: pip install -r requirements.txt
       - name: Compile Python sources
         run: python -m compileall -q .
+      - name: Test bus ingestion
+        run: python -m unittest test_bus_daemon.py

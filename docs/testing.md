@@ -5,9 +5,8 @@ Verification recipes for the stack. Run these after first deploy, after a restor
 ## Sixty-second smoke test
 
 ```bash
-docker compose up -d
-sleep 30
-docker compose ps                      # all services healthy?
+cd /home/semyon/server-stacks/irish-rail
+docker compose --env-file stack.env -f stack.yaml ps --all
 docker exec irish_rail_db psql -U irish_data -d ireland_public \
   -c "SELECT COUNT(*) FROM stations;"  # expect 171
 ```
@@ -25,6 +24,12 @@ UNION ALL
 SELECT 'station events (last min)',          COUNT(*) FROM station_events
        WHERE fetched_at > NOW() - INTERVAL '1 minute'
 UNION ALL
+SELECT 'bus stop updates (last 10 min)',     COUNT(*) FROM bus_stop_updates
+       WHERE fetched_at > NOW() - INTERVAL '10 minutes'
+UNION ALL
+SELECT 'current bus vehicles',               COUNT(*) FROM bus_vehicle_positions
+       WHERE last_seen_at > NOW() - INTERVAL '5 minutes'
+UNION ALL
 SELECT 'fetch successes (last 10 min)',      COUNT(*) FROM fetch_history
        WHERE status = 'success' AND fetched_at > NOW() - INTERVAL '10 minutes'
 UNION ALL
@@ -39,6 +44,8 @@ Expected after a minute of steady-state collection:
 | stations | 171 |
 | train snapshots (last min) | 5–20 (only when positions change) |
 | station events (last min) | 200–600 |
+| bus stop updates (last 10 min) | non-zero when bus predictions changed in the window |
+| current bus vehicles | non-zero when the keyed combined feed reports vehicle positions |
 | fetch successes (last 10 min) | 100+ |
 | fetch errors (last 10 min) | 0 |
 
@@ -47,29 +54,22 @@ A persistent non-zero fetch error count is the canary for the docker bridge / VP
 ## API health
 
 ```bash
-curl -fsS http://localhost:8000/health     # → "ok"
-curl -fsS https://traein.semyon.ie/health  # prod
+docker exec irish_rail_api curl -fsS http://127.0.0.1:8000/health  # → "ok"
+curl -fsS https://traein.semyon.ie/auth/config
 
-# GraphQL playground (anonymous)
-curl -s -H "Content-Type: application/json" -d '{"query":"{ recentTrains(hours:1){ trainCode } }"}' \
-  http://localhost:8000/graphql | head
+# Anonymous GraphQL through the public proxy
+curl -s -H "Content-Type: application/json" -d '{"query":"{ liveTrains { trainCode } }"}' \
+  https://traein.semyon.ie/graphql | head
 ```
 
 ## Auth round-trip
 
 ```bash
-curl -X POST http://localhost:8000/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"email":"test@example.com","password":"SecurePass123"}' \
-  -c cookies.txt
-
-curl -s -b cookies.txt http://localhost:8000/auth/me
-# → { "id": "...", "email": "test@example.com", "role": "free", ... }
-
-curl -X POST -b cookies.txt http://localhost:8000/auth/logout
+curl -fsS https://traein.semyon.ie/auth/config
+# → { "clerk_publishable_key": "pk_...", "billing_enabled": false }
 ```
 
-Tokens, rotation, and provider details: [auth-billing.md](auth-billing.md).
+Complete sign-up, email verification and sign-out in the dashboard. A signed-in `GET /auth/session` must return the local user with role `free`. Clerk owns credentials and session rotation; provider details are in [auth-billing.md](auth-billing.md).
 
 ## Twenty-four hour stability
 
@@ -89,17 +89,15 @@ Expected per hour:
 - 5 000–10 000 new `station_events`
 - Zero daemon crashes (`docker compose ps` shows daemon up)
 
-## Data persistence
+## Stateless restart check
 
 ```bash
-docker compose stop
-sleep 5
-docker compose start
+docker restart irish_rail_daemon irish_rail_api irish_rail_dashboard
 docker exec irish_rail_db psql -U irish_data -d ireland_public \
   -c "SELECT COUNT(*) FROM train_snapshots;"
 ```
 
-Row count must not drop after a restart. If it does, the `postgres_data` volume is not mounted.
+Row count must not drop after restarting the stateless services. Do not recreate the current PG18 production container until its anonymous data volume has been migrated to the corrected named-volume mount.
 
 ## Troubleshooting
 
@@ -108,27 +106,28 @@ Row count must not drop after a restart. If it does, the `postgres_data` volume 
 | `docker compose` not found | newer CLI uses `docker compose` (space) | use the new form |
 | Daemon never inserts | bridge networking blocked | [scraper.md](scraper.md#nftables-blocks-docker-bridge) |
 | 100% fetch errors | upstream unreachable | `curl http://api.irishrail.ie/realtime/realtime.asmx/getAllStationsXML` |
-| API returns 500 on `/auth/*` | missing `JWT_SECRET` | [auth-billing.md](auth-billing.md) |
-| API returns 403 on `/billing/webhook` | wrong webhook secret | check `POLAR_WEBHOOK_SECRET` / `STRIPE_WEBHOOK_SECRET` |
-| Cookie not being sent from dashboard | URQL missing `credentials: 'include'` | [dashboard.md](dashboard.md#data-layer) |
+| Signed-in account never loads | missing or mismatched Clerk keys | [auth-billing.md](auth-billing.md) |
+| API returns 403 on `/billing/webhook` | wrong webhook secret | check `POLAR_WEBHOOK_SECRET` and the raw-body proxy path |
+| Signed-in requests are anonymous | missing Clerk bearer token or wrong authorized party | [auth-billing.md](auth-billing.md#clerk-sessions) |
 | Station boards collecting zero rows | `getAllStationsXML` failed at boot | restart daemon; see [scraper.md](scraper.md#station-board-startup-race) |
 
 ## Success criteria
 
 Every check above passes, and:
 
-- All five containers healthy in `docker compose ps`.
+- The six long-running application/data containers plus the tunnel are healthy and the one-shot `migrate` container exited successfully in `docker compose ps --all`.
 - 171 stations in the database.
 - Zero fetch errors in the last 10 minutes.
-- Auth register / login / `/auth/me` round-trips green.
+- Clerk sign-up / login / `/auth/session` / `/auth/me` round-trips green.
 - 24-hour run shows consistent collection.
-- Data survives a `compose stop && compose start`.
+- Data is unchanged by a stateless-service restart.
 
 When all of these hold, the system is production-ready.
 
 ## Related docs
 
 - [scraper.md](scraper.md) — what to expect from the daemon
+- [buses.md](buses.md) — bus feed setup, schema and checks
 - [api.md](api.md) — endpoint reference
 - [deployment.md](deployment.md) — restore procedure
 - [auth-billing.md](auth-billing.md) — auth setup

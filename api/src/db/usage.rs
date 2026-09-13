@@ -1,4 +1,4 @@
-use sqlx::{PgPool, FromRow};
+use sqlx::{FromRow, PgPool};
 
 #[derive(Debug, Clone, FromRow)]
 pub struct DailyUsageRecord {
@@ -7,7 +7,7 @@ pub struct DailyUsageRecord {
     pub for_date: chrono::NaiveDate,
 }
 
-pub async fn record_graphql_request(
+pub async fn record_daily_request(
     pool: &PgPool,
     subject: &str,
     role_snapshot: &str,
@@ -45,4 +45,3 @@ pub async fn get_subject_usage(
     .fetch_optional(pool)
     .await
 }
-

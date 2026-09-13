@@ -1,46 +1,23 @@
 # Architecture
 
-Four services, one database.
+Five application and edge services, plus one database.
 
 ```
-                 ┌────────────────────────────────────────────┐
-                 │     Irish Rail Realtime API (ASMX/XML)     │
-                 │      api.irishrail.ie  (HACON upstream)    │
-                 └──────────────────────┬─────────────────────┘
-                                        │
-                                  HTTP polling
-                                        │
-            ┌───────────────────────────▼───────────────────────────┐
-            │                  daemon (Python 3.11)                  │
-            │   async fetch, content-hash dedup, schema writes       │
-            └───────────────────────────┬───────────────────────────┘
-                                        │
-                                  INSERT (sqlx)
-                                        │
-                ┌───────────────────────▼───────────────────────┐
-                │       TimescaleDB (PostgreSQL 18 + ext)        │
-                │   hypertables: train_snapshots,                │
-                │   station_events, train_movements              │
-                │   relational: stations, users, refresh_tokens  │
-                └───────┬────────────────────────────┬──────────┘
-                        │                            │
-                  read (sqlx)                  read (sqlx)
-                        │                            │
-        ┌───────────────▼───────────┐     ┌──────────▼─────────┐
-        │   api (Rust, Axum)         │     │  chatbot service    │
-        │   /graphql  /auth/*        │◄────│  (MCP tools over    │
-        │   /billing/*  /health      │     │   GraphQL schema)   │
-        └───────┬────────────────────┘     └─────────────────────┘
-                │ HTTP (cookies)
-                ▼
-        ┌──────────────────────────┐
-        │   dashboard (React 19,    │       ┌──────────────────────┐
-        │   Vite+, URQL, Tailwind)  │       │  Polar.sh (or Stripe) │
-        │                           │◄──────│  Checkout + webhooks  │
-        └──────────────────────────┘       └──────────────────────┘
-                │
-                ▼
-        Cloudflare Tunnel  →  traein.semyon.ie
+Irish Rail Realtime API ──► rail daemon ──┐
+                                          │
+NTA GTFS + GTFS-Realtime ─► bus daemon ───┤
+                                          ▼
+TimescaleDB ◄──sqlx──► API (Rust: GraphQL, auth, billing, chat) ◄──► Polar.sh
+                            ▲
+                            │ Clerk bearer token
+                            ▼
+                      dashboard (React 19)
+                            ▲
+                            │
+                    Cloudflare Tunnel
+                            ▲
+                            │
+                    traein.semyon.ie
 ```
 
 ## Service responsibilities
@@ -48,10 +25,10 @@ Four services, one database.
 | Service | Language | Job | Doc |
 |---------|----------|-----|-----|
 | `daemon` | Python | polls Irish Rail, dedups, writes time-series | [scraper.md](scraper.md) |
-| `api` | Rust (Axum) | GraphQL query layer, auth, billing webhooks | [api.md](api.md) |
-| `dashboard` | TypeScript (React) | live map, station UI, account, pricing | [dashboard.md](dashboard.md) |
-| `chatbot` | TypeScript/Python | natural-language queries via tool calls | [chatbot.md](chatbot.md) |
-| `db` | PostgreSQL 18 + TimescaleDB | hypertables and relational tables | [scraper.md](scraper.md#schema), [auth-billing.md](auth-billing.md#schema) |
+| `bus-daemon` | Python | imports NTA GTFS and polls bus timings + vehicle positions | [buses.md](buses.md) |
+| `api` | Rust (Axum) | GraphQL, auth, billing, and tool-grounded rail chat | [api.md](api.md) |
+| `dashboard` | TypeScript (React) | rail map, station and bus UI, account, pricing | [dashboard.md](dashboard.md) |
+| `db` | PostgreSQL 18 + TimescaleDB | hypertables and relational tables | [scraper.md](scraper.md#schema), [buses.md](buses.md#tables), [auth-billing.md](auth-billing.md#schema) |
 | `cloudflared` | — | edge tunnel to `traein.semyon.ie` | [deployment.md](deployment.md) |
 
 The dashboard never reaches the database directly. Everything goes through the API.
@@ -67,8 +44,15 @@ station_events  (hypertable)     ── arrival/departure board entries
 train_movements (hypertable)     ── per-train per-stop movement log
 fetch_history                    ── audit of every upstream call
 
+transit_feed_versions            ── immutable NTA static-feed identities
+bus_agencies/routes/trips/stops  ── versioned GTFS reference data
+bus_stop_times                   ── service-day schedule seconds
+bus_stop_updates (regular table) ── deduplicated realtime predictions and delays
+bus_trip_update_freshness        ── current full-feed trip membership
+bus_vehicle_positions            ── current full-feed bus locations
+
 users                            ── account, role, polar_customer_id
-refresh_tokens                   ── opaque, hashed at rest
+billing_webhook_events           ── Polar replay protection
 ```
 
 Full DDL and rationale in [scraper.md](scraper.md#schema) and [auth-billing.md](auth-billing.md#schema).
@@ -76,18 +60,21 @@ Full DDL and rationale in [scraper.md](scraper.md#schema) and [auth-billing.md](
 ## Request shapes
 
 - **Anonymous web visitor**: dashboard → `/graphql` → Postgres. Public resolvers only.
-- **Free-tier user**: cookie `access_token` → `/graphql`. Middleware injects `AuthUser`; resolvers can gate analytics behind role.
-- **Paid user (chatbot)**: dashboard → `/chat` → chatbot service → tool calls against the API → Postgres. Tier check at the chatbot entrypoint, not per-tool.
+- **Free-tier user**: Clerk session token → `/graphql`. Middleware injects the local `AuthUser`; resolvers gate analytics behind its Polar-managed role.
+- **Paid user (assistant)**: dashboard → API `/chat` → bounded internal GraphQL tool calls → Postgres. The Rust chat handler checks the local plan before any model request.
 - **Polar webhook**: Polar → `/billing/webhook` → signature check → role update in `users`.
 
 ## Local vs prod
 
-The whole stack runs from a single `docker-compose.yml`. Production differences are env-only:
+The repository `docker-compose.yml` is the development contract. Production uses `/home/semyon/server-stacks/irish-rail/stack.yaml` and a private `stack.env`; Jenkins targets those exact operator files. Production-specific details include:
 
-- `COOKIE_SECURE=true`
+- Clerk production keys and exact-host DNS
 - `CORS_ORIGINS=https://traein.semyon.ie`
 - `cloudflared` service active with a real `CLOUDFLARE_TUNNEL_TOKEN`
 - Polar live keys instead of sandbox
+- schema-first rollout of daemon, API and dashboard without recreating the database
+
+Fresh PG18 stacks mount their named volume at `/var/lib/postgresql`. The current production database still uses a legacy anonymous parent-volume mount and must not be recreated until that data is backed up and migrated.
 
 See [deployment.md](deployment.md) for the full env matrix.
 
