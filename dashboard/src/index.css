@@ -1791,3 +1791,23 @@
     animation: none !important;
   }
 }
+
+/* Both transport modes use the same full-height live-map workspace. */
+.map-shell > .bus-map-frame {
+  height: 100%;
+  border-top: 0;
+}
+.map-shell .bus-vehicle-detail {
+  z-index: 40;
+  right: 14px;
+  left: auto;
+  max-height: calc(100% - 80px);
+  overflow-y: auto;
+}
+@media (max-width: 640px) {
+  .map-shell .bus-vehicle-detail {
+    right: 10px;
+    left: 10px;
+    max-height: 50%;
+  }
+}

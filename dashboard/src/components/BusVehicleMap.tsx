@@ -16,7 +16,7 @@ import {
   speedKmh,
   type BusVehicle,
 } from "../utils/busVehicles";
-import { Card, Icon } from "./ui";
+import { Icon } from "./ui";
 import {
   applyIrelandMapTheme,
   createIrelandMap,
@@ -94,14 +94,6 @@ export default function BusVehicleMap({
     [selectedKey, vehicles],
   );
 
-  const latestUpdate = useMemo(
-    () =>
-      vehicles.reduce<string | null>((latest, vehicle) => {
-        const candidate = vehicle.sourceTimestamp || vehicle.fetchedAt;
-        return !latest || new Date(candidate) > new Date(latest) ? candidate : latest;
-      }, null),
-    [vehicles],
-  );
   const feedState = busFeedState(realtimeStatus, fetching && realtimeStatus == null);
 
   const containerRef = useCallback(
@@ -365,126 +357,103 @@ export default function BusVehicleMap({
   const occupancy = selectedVehicle ? humanizeGtfsValue(selectedVehicle.occupancyStatus) : null;
 
   return (
-    <Card
-      title="Bus routes and live positions"
-      description={
-        shapeMode === "live"
-          ? "Live vehicles over the scheduled GTFS paths for their current trips."
-          : "Representative scheduled GTFS paths, with realtime vehicles layered on when available."
-      }
-      index={2}
-      className="bus-map-card"
-      actions={
-        <span className="bus-map-count">
-          {feedState.isLive ? <span className="live-dot" /> : null}
-          {!feedState.isLive
-            ? routeShapes.length > 0
-              ? `${routeShapes.length} scheduled paths`
-              : feedState.badge
-            : fetching && vehicles.length === 0
-              ? "Loading positions"
-              : `${vehicles.length.toLocaleString()} buses · ${updateTime(latestUpdate)}`}
-        </span>
-      }
-    >
-      <div className="bus-map-frame">
-        <div
-          ref={containerRef}
-          className="bus-map-canvas"
-          role="region"
-          aria-label="Bus routes and live positions map"
-        />
+    <div className="bus-map-frame">
+      <div
+        ref={containerRef}
+        className="bus-map-canvas"
+        role="region"
+        aria-label="Bus routes and live positions map"
+      />
 
-        {vehicles.length === 0 && routeShapes.length === 0 ? (
-          <div className="bus-map-empty">
-            <Icon name="bus" />
-            <strong>
-              {shapesFetching
-                ? "Loading scheduled route paths"
-                : feedState.isLive && fetching
-                  ? "Loading live vehicle positions"
-                  : "Scheduled route paths unavailable"}
-            </strong>
-            <span>
-              {shapesFetching
-                ? "The map will focus on the selected stop when its routes arrive."
-                : "The active GTFS feed has no imported route geometry for this view."}
-            </span>
-          </div>
-        ) : null}
+      {vehicles.length === 0 && routeShapes.length === 0 ? (
+        <div className="bus-map-empty">
+          <Icon name="bus" />
+          <strong>
+            {shapesFetching
+              ? "Loading scheduled route paths"
+              : feedState.isLive && fetching
+                ? "Loading live vehicle positions"
+                : "Scheduled route paths unavailable"}
+          </strong>
+          <span>
+            {shapesFetching
+              ? "The map will focus on the selected stop when its routes arrive."
+              : "The active GTFS feed has no imported route geometry for this view."}
+          </span>
+        </div>
+      ) : null}
 
-        {selectedVehicle ? (
-          <aside className="bus-vehicle-detail" aria-label="Selected bus">
-            <button
-              type="button"
-              className="icon-btn"
-              aria-label="Close bus details"
-              onClick={() => setSelectedKey(null)}
-            >
-              <Icon name="x" />
-            </button>
-            <div className="flex min-w-0 items-start gap-3 pr-9">
-              <span className="bus-route-chip">{busVehicleRoute(selectedVehicle)}</span>
-              <div className="min-w-0">
-                <strong>
-                  {selectedVehicle.headsign ||
-                    selectedVehicle.routeLongName ||
-                    "Destination not reported"}
-                </strong>
-                <small>
-                  {selectedVehicle.operatorName || "Operator unavailable"}
-                  {selectedVehicle.vehicleLabel || selectedVehicle.vehicleId
-                    ? ` · ${selectedVehicle.vehicleLabel || selectedVehicle.vehicleId}`
-                    : ""}
-                </small>
-              </div>
+      {selectedVehicle ? (
+        <aside className="bus-vehicle-detail" aria-label="Selected bus">
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label="Close bus details"
+            onClick={() => setSelectedKey(null)}
+          >
+            <Icon name="x" />
+          </button>
+          <div className="flex min-w-0 items-start gap-3 pr-9">
+            <span className="bus-route-chip">{busVehicleRoute(selectedVehicle)}</span>
+            <div className="min-w-0">
+              <strong>
+                {selectedVehicle.headsign ||
+                  selectedVehicle.routeLongName ||
+                  "Destination not reported"}
+              </strong>
+              <small>
+                {selectedVehicle.operatorName || "Operator unavailable"}
+                {selectedVehicle.vehicleLabel || selectedVehicle.vehicleId
+                  ? ` · ${selectedVehicle.vehicleLabel || selectedVehicle.vehicleId}`
+                  : ""}
+              </small>
             </div>
-            <dl>
-              <div>
-                <dt>Status</dt>
-                <dd>{status || "Position reported"}</dd>
-              </div>
-              <div>
-                <dt>Speed</dt>
-                <dd>{speed == null ? "Not reported" : `${speed} km/h`}</dd>
-              </div>
-              <div>
-                <dt>Occupancy</dt>
-                <dd>{occupancy || "Not reported"}</dd>
-              </div>
-              <div>
-                <dt>Stop</dt>
-                <dd>
-                  {selectedVehicle.stopId ||
-                    (selectedVehicle.currentStopSequence == null
-                      ? "Not reported"
-                      : `Sequence ${selectedVehicle.currentStopSequence}`)}
-                </dd>
-              </div>
-              <div>
-                <dt>Bearing</dt>
-                <dd>
-                  {selectedVehicle.bearing == null
-                    ? "Not reported"
-                    : `${Math.round(selectedVehicle.bearing)}°`}
-                </dd>
-              </div>
-              <div>
-                <dt>Updated</dt>
-                <dd>{updateTime(selectedVehicle.sourceTimestamp || selectedVehicle.fetchedAt)}</dd>
-              </div>
-            </dl>
-          </aside>
-        ) : null}
-
-        {mapError ? (
-          <div className="bus-map-empty">
-            <Icon name="alert" />
-            <strong>Map unavailable</strong>
-            <span>The position feed loaded, but this browser could not draw the map.</span>
           </div>
-        ) : null}
-      </div>
-    </Card>
+          <dl>
+            <div>
+              <dt>Status</dt>
+              <dd>{status || "Position reported"}</dd>
+            </div>
+            <div>
+              <dt>Speed</dt>
+              <dd>{speed == null ? "Not reported" : `${speed} km/h`}</dd>
+            </div>
+            <div>
+              <dt>Occupancy</dt>
+              <dd>{occupancy || "Not reported"}</dd>
+            </div>
+            <div>
+              <dt>Stop</dt>
+              <dd>
+                {selectedVehicle.stopId ||
+                  (selectedVehicle.currentStopSequence == null
+                    ? "Not reported"
+                    : `Sequence ${selectedVehicle.currentStopSequence}`)}
+              </dd>
+            </div>
+            <div>
+              <dt>Bearing</dt>
+              <dd>
+                {selectedVehicle.bearing == null
+                  ? "Not reported"
+                  : `${Math.round(selectedVehicle.bearing)}°`}
+              </dd>
+            </div>
+            <div>
+              <dt>Updated</dt>
+              <dd>{updateTime(selectedVehicle.sourceTimestamp || selectedVehicle.fetchedAt)}</dd>
+            </div>
+          </dl>
+        </aside>
+      ) : null}
+
+      {mapError ? (
+        <div className="bus-map-empty">
+          <Icon name="alert" />
+          <strong>Map unavailable</strong>
+          <span>The position feed loaded, but this browser could not draw the map.</span>
+        </div>
+      ) : null}
+    </div>
   );
 }

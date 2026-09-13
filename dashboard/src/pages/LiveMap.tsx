@@ -1,3 +1,4 @@
+import LiveMapShell from "../components/LiveMapShell";
 import { useState } from "react";
 import TrainMap, { type MapRouteSelection, type MapStationSelection } from "../components/TrainMap";
 import NetworkStats, { type RailBoardEvent } from "../components/NetworkStats";
@@ -60,20 +61,22 @@ export default function LiveMap() {
   const hasSheet = Boolean(selectedTrain || selectedStation || selectedRoute);
 
   return (
-    <div className={`map-shell${hasSheet ? " has-sheet" : ""}`}>
-      <TrainMap
-        trains={trains}
-        stations={stations}
-        selectedTrainCode={selectedTrain?.trainCode}
-        selectedTrainDate={selectedTrain?.trainDate}
-        selectedStationCode={selectedStation?.stationCode}
-        onTrainClick={selectTrain}
-        onStationClick={selectStation}
-        onRouteClick={selectRoute}
-      />
-      <div className="pointer-events-none absolute left-3 top-3 z-30 sm:left-4 sm:top-4">
-        <NetworkStats trains={trains} stations={stations} board={board} />
-      </div>
+    <LiveMapShell
+      hasSheet={hasSheet}
+      map={
+        <TrainMap
+          trains={trains}
+          stations={stations}
+          selectedTrainCode={selectedTrain?.trainCode}
+          selectedTrainDate={selectedTrain?.trainDate}
+          selectedStationCode={selectedStation?.stationCode}
+          onTrainClick={selectTrain}
+          onStationClick={selectStation}
+          onRouteClick={selectRoute}
+        />
+      }
+      summary={<NetworkStats trains={trains} stations={stations} board={board} />}
+    >
       {selectedTrain && (
         <TrainDetail
           trainCode={selectedTrain.trainCode}
@@ -87,6 +90,6 @@ export default function LiveMap() {
       {selectedRoute && (
         <RouteDetail route={selectedRoute} onClose={() => setSelectedRoute(null)} />
       )}
-    </div>
+    </LiveMapShell>
   );
 }
