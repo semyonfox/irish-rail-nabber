@@ -181,9 +181,8 @@ Option 2 is what is currently deployed; option 1 is the correct long-term fix.
 ## Quick verification
 
 ```bash
-docker compose up -d
-sleep 30
-docker compose logs daemon --tail=20
+test "$(docker inspect -f '{{.State.Health.Status}}' irish_rail_daemon)" = healthy
+docker logs irish_rail_daemon --tail=20
 ```
 
 Full verification checklist in [testing.md](testing.md).

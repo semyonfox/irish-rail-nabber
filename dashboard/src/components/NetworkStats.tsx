@@ -1,65 +1,74 @@
-import { COUNTRY_BOARD, LIVE_TRAINS, STATIONS } from "../graphql/queries";
-import { usePollingQuery } from "../utils/usePollingQuery";
+import type { LiveTrain, RailStation } from "./TrainMap";
+import { MiniStat } from "./ui";
 
-interface Train {
-  trainCode: string;
-}
-
-interface Station {
-  stationCode: string;
-}
-
-interface BoardEvent {
+export interface RailBoardEvent {
   lateMinutes: number | null;
 }
 
-interface TrainsData {
-  liveTrains: Train[];
+interface Props {
+  trains: LiveTrain[];
+  stations: RailStation[];
+  board: RailBoardEvent[];
 }
 
-interface StationsData {
-  stations: Station[];
-}
-
-interface CountryBoardData {
-  countryBoard: BoardEvent[];
-}
-
-export default function NetworkStats() {
-  const [{ data: trainsData }] = usePollingQuery<TrainsData>({
-    query: LIVE_TRAINS,
-    pollInterval: 10000,
-  });
-  const [{ data: stationsData }] = usePollingQuery<StationsData>({
-    query: STATIONS,
-  });
-  const [{ data: boardData }] = usePollingQuery<CountryBoardData>({
-    query: COUNTRY_BOARD,
-    variables: { limit: 100, minutes: 45 },
-    pollInterval: 15000,
-  });
-
-  const trains = trainsData?.liveTrains ?? [];
-  const stations = stationsData?.stations ?? [];
-  const board = boardData?.countryBoard ?? [];
+export default function NetworkStats({ trains, stations, board }: Props) {
+  const mapped = trains.filter((train) => train.latitude != null && train.longitude != null);
   const delayed = board.filter((row) => (row.lateMinutes ?? 0) >= 5).length;
   const severe = board.filter((row) => (row.lateMinutes ?? 0) >= 15).length;
 
-  const stats = [
-    { label: "Live trains", value: trains.length, tone: "text-white" },
-    { label: "Delayed", value: delayed, tone: "text-[var(--rail-orange)]" },
-    { label: "Severe", value: severe, tone: "text-[var(--rail-red)]" },
-    { label: "Control points", value: stations.length, tone: "text-white" },
-  ];
-
   return (
-    <div className="network-readout pointer-events-auto" aria-label="Live network summary">
-      {stats.map((stat) => (
-        <div key={stat.label} className="network-readout-item">
-          <span className={`network-readout-value ${stat.tone}`}>{stat.value}</span>
-          <span className="network-readout-label">{stat.label}</span>
-        </div>
-      ))}
+    <div
+      className="float-card rise pointer-events-auto w-[min(300px,calc(100vw-24px))] p-4"
+      aria-label="Live network summary"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <span className="eyebrow">
+          <span className="live-dot" />
+          Live now
+        </span>
+        <span className="code">
+          {mapped.length}/{trains.length} on map
+        </span>
+      </div>
+      <div className="mt-3 flex items-baseline gap-2">
+        <span className="text-[46px] font-semibold leading-none tracking-[-0.035em]">
+          {trains.length}
+        </span>
+        <span className="text-[15px] text-ink-2">trains running</span>
+      </div>
+      <div className="mt-4 grid grid-cols-3 gap-2">
+        <MiniStat
+          label="Late"
+          value={delayed}
+          tone={delayed > 0 ? "warn" : undefined}
+          title="Services 5+ minutes late on boards over the next 45 minutes"
+        />
+        <MiniStat
+          label="Severe"
+          value={severe}
+          tone={severe > 0 ? "bad" : undefined}
+          title="Services 15+ minutes late on boards over the next 45 minutes"
+        />
+        <MiniStat label="Stations" value={stations.length} />
+      </div>
+      <div className="mt-4 hidden flex-wrap gap-x-4 gap-y-1.5 border-t border-line pt-3 text-[12.5px] text-muted sm:flex">
+        <span className="legend">
+          <i className="legend-train" />
+          Train
+        </span>
+        <span className="legend">
+          <i className="legend-station" />
+          Station
+        </span>
+        <span className="legend">
+          <i className="legend-track" />
+          Track
+        </span>
+        <span className="legend">
+          <i className="legend-route" />
+          Selected route
+        </span>
+      </div>
     </div>
   );
 }

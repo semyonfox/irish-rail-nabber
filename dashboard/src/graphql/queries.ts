@@ -1,8 +1,8 @@
 import { gql } from "urql";
 
-export const LIVE_TRAINS = gql`
-  query LiveTrains($trainType: String) {
-    liveTrains(trainType: $trainType) {
+export const LIVE_RAIL_OVERVIEW = gql`
+  query LiveRailOverview($boardLimit: Int, $boardMinutes: Int) {
+    liveTrains {
       trainCode
       latitude
       longitude
@@ -10,6 +10,9 @@ export const LIVE_TRAINS = gql`
       direction
       trainType
       fetchedAt
+    }
+    countryBoard(limit: $boardLimit, minutes: $boardMinutes) {
+      lateMinutes
     }
   }
 `;
@@ -179,6 +182,76 @@ export const FETCH_STATUS = gql`
       lastRecordCount
       lastDurationMs
       lastFetched
+    }
+  }
+`;
+
+export const BUS_STOPS = gql`
+  query BusStops($search: String, $limit: Int) {
+    busStops(search: $search, limit: $limit) {
+      stopId
+      stopCode
+      stopName
+      latitude
+      longitude
+    }
+  }
+`;
+
+export const BUS_LIVE_OVERVIEW = gql`
+  query BusLiveOverview(
+    $stopId: String!
+    $includeBoard: Boolean!
+    $boardLimit: Int
+    $vehicleLimit: Int
+    $hours: Int
+    $routeLimit: Int
+  ) {
+    busStopBoard(stopId: $stopId, limit: $boardLimit) @include(if: $includeBoard) {
+      entityId
+      tripId
+      routeId
+      routeShortName
+      routeLongName
+      operatorName
+      headsign
+      serviceDate
+      scheduledTime
+      expectedTime
+      delaySeconds
+      scheduleRelationship
+      fetchedAt
+    }
+    busVehicles(limit: $vehicleLimit) {
+      entityId
+      vehicleId
+      vehicleLabel
+      tripId
+      routeId
+      routeShortName
+      routeLongName
+      operatorName
+      headsign
+      latitude
+      longitude
+      bearing
+      speedMetersPerSecond
+      currentStopSequence
+      stopId
+      currentStatus
+      occupancyStatus
+      sourceTimestamp
+      fetchedAt
+    }
+    busRouteDelays(hours: $hours, limit: $routeLimit) {
+      routeId
+      routeShortName
+      routeLongName
+      operatorName
+      avgDelaySeconds
+      onTimePct
+      sampleCount
+      lastUpdated
     }
   }
 `;

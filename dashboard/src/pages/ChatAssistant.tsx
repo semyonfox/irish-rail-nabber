@@ -1,8 +1,10 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Link } from "react-router-dom";
 
 import { useAuth } from "../auth/useAuth";
-import { api, ApiError, type ChatResponse, type ChatToolCall } from "../graphql/api";
+import { BrandMark, Empty, Icon } from "../components/ui";
+import { api, type ChatResponse, type ChatToolCall } from "../graphql/api";
+import { chatErrorMessage } from "./chatError";
 
 interface ChatMessage {
   id: string;
@@ -31,10 +33,6 @@ function isPaidRole(role: string | null | undefined) {
   return role === "coffee" || role === "pro" || role === "admin";
 }
 
-function toolSummary(tool: ChatToolCall) {
-  return `${tool.name} (${tool.rows} rows${tool.truncated ? ", truncated" : ""})`;
-}
-
 function formatToolArgs(args: Record<string, unknown>) {
   return Object.entries(args)
     .map(([key, value]) => `${key}: ${String(value)}`)
@@ -54,19 +52,16 @@ export default function ChatAssistant() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: "welcome",
-      role: "assistant",
-      text: "Ask me about Irish Rail arrivals, delays, routes, or network status. I can predict likely delay windows from recent history.",
-    },
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
 
   const canUseChat = isPaidRole(user?.role);
-
   const canSend = !loading && !authLoading && input.trim().length > 0 && canUseChat;
 
-  const quickPrompts = useMemo(() => QUICK_PROMPTS, []);
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages, loading]);
 
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -75,77 +70,74 @@ export default function ChatAssistant() {
       return;
     }
 
-    const userMessage: ChatMessage = {
-      id: makeId(),
-      role: "user",
-      text: trimmed,
-    };
-    setMessages((current) => [...current, userMessage]);
+    setMessages((current) => [...current, { id: makeId(), role: "user", text: trimmed }]);
     setInput("");
     setLoading(true);
     setError("");
 
     try {
       const reply: ChatResponse = await api.chat(trimmed);
-      const assistantMessage: ChatMessage = {
-        id: makeId(),
-        role: "assistant",
-        text: preview(reply.answer),
-        tools: reply.tools,
-        model: reply.model,
-      };
-      setMessages((current) => [...current, assistantMessage]);
-    } catch (err) {
-      const rateLimited = err instanceof ApiError && err.status === 429;
-      const message = rateLimited
-        ? "You’ve reached today’s request limit. It resets automatically, or you can upgrade for a larger allowance."
-        : err instanceof ApiError
-          ? err.message
-          : "Failed to get a reply from the model.";
-      setError(message);
       setMessages((current) => [
         ...current,
         {
           id: makeId(),
           role: "assistant",
-          text: message,
-          error: true,
+          text: preview(reply.answer),
+          tools: reply.tools,
+          model: reply.model,
         },
+      ]);
+    } catch (err) {
+      const message = chatErrorMessage(err);
+      setError(message);
+      setMessages((current) => [
+        ...current,
+        { id: makeId(), role: "assistant", text: message, error: true },
       ]);
     } finally {
       setLoading(false);
     }
   }
 
+  function onComposerKey(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      formRef.current?.requestSubmit();
+    }
+  }
+
   if (authLoading) {
-    return (
-      <div className="mx-auto max-w-5xl px-6 py-10">
-        <div className="rounded border border-[var(--rail-border)] bg-[var(--rail-surface)] p-6">
-          <p className="text-sm text-[var(--rail-muted)]">Checking permissions…</p>
-        </div>
-      </div>
-    );
+    return <Empty className="h-full">Checking your plan…</Empty>;
   }
 
   if (!canUseChat) {
     return (
-      <div className="mx-auto flex min-h-[60vh] max-w-5xl flex-col justify-center px-6 py-10">
-        <div className="rounded-xl border border-[var(--rail-border)] bg-[var(--rail-surface)] p-8">
-          <h2 className="text-2xl font-semibold text-white">Chat is a paid feature</h2>
-          <p className="mt-3 max-w-xl text-sm leading-relaxed text-[var(--rail-muted)]">
-            Irish Rail AI chat is available on Coffee and Pro plans.
-          </p>
-          <p className="mt-2 text-sm text-[var(--rail-muted)]">
-            Sign in with an upgraded role or continue on the free path for live maps and station
-            tools.
-          </p>
-          <div className="mt-6 flex gap-3">
-            <Link
-              to="/pricing"
-              className="rounded bg-[var(--rail-green)] px-4 py-2 text-sm font-semibold text-black"
-            >
-              Upgrade
-            </Link>
+      <div className="page">
+        <div className="page-inner min-h-full justify-center">
+          <div className="card rise mx-auto w-full max-w-xl p-8 text-center sm:p-10">
+            <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-brand-soft text-brand">
+              <Icon name="chat" className="h-6 w-6" />
+            </span>
+            <h1 className="display mt-5 font-display text-[44px] leading-none">
+              Ask the <em>network</em>
+            </h1>
+            <p className="mx-auto mt-4 max-w-md text-ink-2">
+              The rail assistant answers questions about arrivals, delays and route reliability
+              using live and historical data. It’s included with Coffee Club and Pro.
+            </p>
+            <ul className="mx-auto mt-6 max-w-md space-y-2 text-left">
+              {QUICK_PROMPTS.slice(0, 2).map((prompt) => (
+                <li key={prompt} className="rounded-xl bg-wash px-4 py-3 text-[14px] text-ink-2">
+                  “{prompt}”
+                </li>
+              ))}
+            </ul>
+            <div className="mt-7 flex justify-center">
+              <Link to="/pricing" className="btn btn-primary btn-lg">
+                See plans
+                <Icon name="arrow" />
+              </Link>
+            </div>
           </div>
         </div>
       </div>
@@ -153,115 +145,141 @@ export default function ChatAssistant() {
   }
 
   return (
-    <div className="mx-auto flex h-[calc(100vh-4rem)] max-w-6xl flex-col px-4 py-6">
-      <div className="mb-4 rounded-lg border border-[var(--rail-border)] bg-[var(--rail-surface)] px-4 py-3">
-        <p className="text-xs uppercase tracking-[0.15em] text-[var(--rail-muted)]">AI Assistant</p>
-        <h2 className="text-xl font-semibold text-white">Irish Rail Coach</h2>
-        <p className="mt-1 text-sm text-[var(--rail-muted)]">
-          Ask for arrivals, delays, route reliability, station trends, and live network status.
-        </p>
-      </div>
+    <div className="flex h-full flex-col">
+      <div ref={scrollRef} className="page min-h-0 flex-1">
+        <div className="mx-auto flex max-w-3xl flex-col gap-7 px-4 py-10">
+          <header className="rise">
+            <p className="eyebrow">Assistant</p>
+            <h1 className="page-title">
+              Ask the <em>network</em>
+            </h1>
+            <p className="page-desc">
+              Arrivals, delays, route reliability and station trends. Answers are grounded in live
+              and stored train data.
+            </p>
+          </header>
 
-      <div className="mb-3 flex-1 overflow-auto rounded-lg border border-[var(--rail-border)] bg-[var(--rail-bg)] p-4">
-        <div className="space-y-3">
-          {messages.map((message) => (
-            <div
-              key={message.id}
-              className={`rounded-lg border px-4 py-3 ${
-                message.role === "user"
-                  ? "border-[var(--rail-green)]/40 bg-[var(--rail-green)]/10"
-                  : message.error
-                    ? "border-[var(--rail-red)]/50 bg-[var(--rail-red)]/10"
-                    : "border-[var(--rail-border)] bg-[var(--rail-surface)]"
-              }`}
-            >
-              <p
-                className={`text-xs font-semibold ${message.role === "user" ? "text-[var(--rail-green)]" : "text-[var(--rail-muted)]"}`}
-              >
-                {message.role === "user" ? "You" : "RailGPT"}
-              </p>
-              <p className="mt-1 whitespace-pre-wrap text-sm text-white">{message.text}</p>
-              {message.model ? (
-                <p className="mt-2 text-xs text-[var(--rail-muted)]">Model: {message.model}</p>
-              ) : null}
-              {message.tools && message.tools.length > 0 ? (
-                <details className="mt-3">
-                  <summary className="cursor-pointer text-sm text-[var(--rail-muted)]">
-                    Tools used ({message.tools.length})
-                  </summary>
-                  <div className="mt-2 space-y-2">
-                    {message.tools.map((tool) => (
-                      <div
-                        key={`${message.id}-${tool.name}`}
-                        className="rounded border border-[var(--rail-border)] bg-[var(--rail-bg)] p-3"
-                      >
-                        <p className="text-sm font-semibold text-white">{toolSummary(tool)}</p>
-                        <p className="mt-1 text-xs text-[var(--rail-muted)]">
-                          Args: {formatToolArgs(tool.arguments)}
-                        </p>
-                        <pre className="mt-2 max-h-40 overflow-auto rounded border border-[var(--rail-border)] bg-black/20 p-2 text-xs whitespace-pre-wrap text-[var(--rail-muted)]">
-                          {tool.result}
-                        </pre>
-                      </div>
-                    ))}
-                  </div>
-                </details>
-              ) : null}
+          {messages.length === 0 ? (
+            <div className="grid gap-2 sm:grid-cols-2">
+              {QUICK_PROMPTS.map((prompt, index) => (
+                <button
+                  key={prompt}
+                  type="button"
+                  onClick={() => setInput(prompt)}
+                  className="card rise p-4 text-left text-[14px] text-ink-2 transition hover:text-ink hover:shadow-md"
+                  style={{ "--i": index + 1 } as React.CSSProperties}
+                >
+                  {prompt}
+                </button>
+              ))}
             </div>
-          ))}
-        </div>
-      </div>
+          ) : null}
 
-      <div className="mb-2 flex flex-wrap gap-2">
-        {quickPrompts.map((prompt) => (
-          <button
-            key={prompt}
-            type="button"
-            onClick={() => setInput(prompt)}
-            className="rounded border border-[var(--rail-border)] bg-[var(--rail-surface)] px-3 py-1.5 text-left text-xs text-[var(--rail-muted)] transition hover:border-[var(--rail-green)]/60 hover:text-white"
-            disabled={loading}
-          >
-            {prompt}
-          </button>
-        ))}
-      </div>
+          {messages.map((message) =>
+            message.role === "user" ? (
+              <div
+                key={message.id}
+                className="max-w-[85%] self-end whitespace-pre-wrap rounded-[20px] rounded-br-md bg-ink px-4 py-3 text-[15px] text-white"
+              >
+                {message.text}
+              </div>
+            ) : (
+              <div key={message.id} className="flex gap-3">
+                <BrandMark className="h-8 w-8 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 text-[13px] font-semibold">
+                    Rail assistant
+                    {message.model ? (
+                      <span className="code font-normal">{message.model}</span>
+                    ) : null}
+                  </div>
+                  <div
+                    className={`mt-1 whitespace-pre-wrap text-[15px] leading-relaxed ${
+                      message.error ? "tone-block px-4 py-3" : "text-ink"
+                    }`}
+                    data-tone={message.error ? "bad" : undefined}
+                  >
+                    {message.text}
+                  </div>
+                  {message.tools && message.tools.length > 0 ? (
+                    <details className="mt-3 rounded-xl border border-line bg-card">
+                      <summary className="cursor-pointer px-3 py-2 text-[13px] font-semibold text-ink-2">
+                        Looked up {message.tools.length}{" "}
+                        {message.tools.length === 1 ? "source" : "sources"}
+                      </summary>
+                      <div className="space-y-2 border-t border-line p-3">
+                        {message.tools.map((tool) => (
+                          <div key={`${message.id}-${tool.name}`}>
+                            <div className="flex flex-wrap items-center gap-2 text-[13px]">
+                              <span className="chip">{tool.name}</span>
+                              <span className="text-muted">
+                                {tool.rows} rows{tool.truncated ? ", truncated" : ""}
+                              </span>
+                            </div>
+                            <p className="code mt-1">{formatToolArgs(tool.arguments)}</p>
+                            <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg bg-wash p-2 font-mono text-[12px] text-ink-2">
+                              {tool.result}
+                            </pre>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  ) : null}
+                </div>
+              </div>
+            ),
+          )}
 
-      <form onSubmit={sendMessage} className="space-y-2">
-        <label htmlFor="chat-input" className="sr-only">
-          Ask a question
-        </label>
-        <textarea
-          id="chat-input"
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          placeholder='Try: "How late is the 10:10 from Heuston?"'
-          className="min-h-24 w-full rounded-lg border border-[var(--rail-border)] bg-[var(--rail-surface)] p-3 text-sm text-white outline-none focus:border-[var(--rail-green)]"
-          disabled={loading}
-        />
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <button
-            type="submit"
-            disabled={!canSend}
-            className="rounded bg-[var(--rail-green)] px-4 py-2 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {loading ? "Getting answer..." : "Ask RailGPT"}
-          </button>
-          <p className="text-xs text-[var(--rail-muted)]">
-            Model is constrained to train data and live tooling.
-          </p>
-        </div>
-      </form>
-
-      {error ? (
-        <div className="mt-2 flex items-center justify-between gap-3 text-sm text-[var(--rail-red)]">
-          <p>{error}</p>
-          {/request limit/i.test(error) ? (
-            <Link to="/pricing" className="shrink-0 text-[var(--rail-green)]">
-              View plans
-            </Link>
+          {loading ? (
+            <div className="flex items-center gap-3" aria-live="polite">
+              <BrandMark className="h-8 w-8 shrink-0" />
+              <span className="typing" aria-label="Assistant is thinking">
+                <span />
+                <span />
+                <span />
+              </span>
+            </div>
           ) : null}
         </div>
-      ) : null}
+      </div>
+
+      <div className="border-t border-line bg-paper/90 backdrop-blur">
+        <form ref={formRef} onSubmit={sendMessage} className="mx-auto max-w-3xl px-4 py-4">
+          <label htmlFor="chat-input" className="sr-only">
+            Ask a question
+          </label>
+          <div className="card flex items-end gap-2 p-2 focus-within:shadow-[0_0_0_3px_rgb(11_107_77/0.15),var(--shadow-card)]">
+            <textarea
+              id="chat-input"
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              onKeyDown={onComposerKey}
+              rows={2}
+              placeholder="How late is the 10:10 from Heuston?"
+              className="min-h-12 flex-1 resize-none bg-transparent px-2 py-1.5 text-[15px] outline-none placeholder:text-[#979d97]"
+              disabled={loading}
+            />
+            <button
+              type="submit"
+              disabled={!canSend}
+              className="btn btn-primary h-10 w-10 shrink-0 rounded-full p-0"
+              aria-label="Send question"
+            >
+              <Icon name="up" />
+            </button>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[12.5px] text-muted">
+            <span>Enter to send, Shift+Enter for a new line</span>
+            {error && /request limit/i.test(error) ? (
+              <Link to="/pricing" className="font-semibold text-brand">
+                View plans
+              </Link>
+            ) : (
+              <span>Answers use train data and live tools only</span>
+            )}
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

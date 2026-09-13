@@ -120,6 +120,67 @@ pub struct DelayHistoryRow {
 }
 
 #[derive(sqlx::FromRow, Debug)]
+pub struct BusStopRow {
+    pub stop_id: String,
+    pub stop_code: Option<String>,
+    pub stop_name: Option<String>,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+}
+
+#[derive(sqlx::FromRow, Debug)]
+pub struct BusDepartureRow {
+    pub entity_id: Option<String>,
+    pub trip_id: Option<String>,
+    pub route_id: Option<String>,
+    pub route_short_name: Option<String>,
+    pub route_long_name: Option<String>,
+    pub operator_name: Option<String>,
+    pub headsign: Option<String>,
+    pub service_date: Option<NaiveDate>,
+    pub scheduled_time: Option<DateTime<Utc>>,
+    pub expected_time: Option<DateTime<Utc>>,
+    pub delay_seconds: Option<i32>,
+    pub schedule_relationship: Option<String>,
+    pub fetched_at: DateTime<Utc>,
+}
+
+#[derive(sqlx::FromRow, Debug)]
+pub struct BusRouteDelayRow {
+    pub route_id: String,
+    pub route_short_name: Option<String>,
+    pub route_long_name: Option<String>,
+    pub operator_name: Option<String>,
+    pub avg_delay_seconds: f64,
+    pub on_time_pct: f64,
+    pub sample_count: i64,
+    pub last_updated: DateTime<Utc>,
+}
+
+#[derive(sqlx::FromRow, Debug)]
+pub struct BusVehicleRow {
+    pub entity_id: Option<String>,
+    pub vehicle_id: Option<String>,
+    pub vehicle_label: Option<String>,
+    pub trip_id: Option<String>,
+    pub route_id: Option<String>,
+    pub route_short_name: Option<String>,
+    pub route_long_name: Option<String>,
+    pub operator_name: Option<String>,
+    pub headsign: Option<String>,
+    pub latitude: f64,
+    pub longitude: f64,
+    pub bearing: Option<f64>,
+    pub speed_meters_per_second: Option<f64>,
+    pub current_stop_sequence: Option<i32>,
+    pub stop_id: Option<String>,
+    pub current_status: Option<String>,
+    pub occupancy_status: Option<String>,
+    pub source_timestamp: Option<DateTime<Utc>>,
+    pub fetched_at: DateTime<Utc>,
+}
+
+#[derive(sqlx::FromRow, Debug)]
 #[allow(dead_code)]
 pub struct FetchHistoryRow {
     pub endpoint: Option<String>,
@@ -134,11 +195,11 @@ pub struct FetchHistoryRow {
 pub struct UserRow {
     pub id: uuid::Uuid,
     pub email: String,
-    pub password_hash: String,
+    pub clerk_user_id: Option<String>,
     pub display_name: Option<String>,
     pub role: String,
-    pub stripe_customer_id: Option<String>,
-    pub stripe_subscription_id: Option<String>,
+    pub polar_customer_id: Option<String>,
+    pub polar_subscription_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -148,24 +209,15 @@ impl std::fmt::Debug for UserRow {
         f.debug_struct("UserRow")
             .field("id", &self.id)
             .field("email", &self.email)
-            .field("password_hash", &"[REDACTED]")
+            .field("clerk_user_id", &self.clerk_user_id)
             .field("display_name", &self.display_name)
             .field("role", &self.role)
-            .field("stripe_customer_id", &self.stripe_customer_id)
-            .field("stripe_subscription_id", &self.stripe_subscription_id)
+            .field("polar_customer_id", &self.polar_customer_id)
+            .field("polar_subscription_id", &self.polar_subscription_id)
             .field("created_at", &self.created_at)
             .field("updated_at", &self.updated_at)
             .finish()
     }
-}
-
-#[derive(sqlx::FromRow, Debug)]
-pub struct RefreshTokenRow {
-    pub id: uuid::Uuid,
-    pub user_id: uuid::Uuid,
-    pub token_hash: String,
-    pub expires_at: DateTime<Utc>,
-    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

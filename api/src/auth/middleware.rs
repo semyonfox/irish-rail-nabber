@@ -1,23 +1,41 @@
-use axum::{extract::Request, middleware::Next, response::Response};
+use axum::{
+    extract::{Request, State},
+    http::header,
+    middleware::Next,
+    response::Response,
+};
 use axum_extra::extract::CookieJar;
 
-use crate::auth::tokens;
-use crate::models::AuthUser;
+use crate::{auth::clerk, state::AppState};
 
-pub async fn auth_middleware(jar: CookieJar, mut req: Request, next: Next) -> Response {
-    let auth_user = jar.get("access_token").and_then(|cookie| {
-        let Ok(secret) = std::env::var("JWT_SECRET") else {
-            return None;
-        };
+// the dashboard sends a bearer token; clerk-js also keeps a __session cookie
+// on the app origin, which covers plain browser requests
+fn session_token(req: &Request, jar: &CookieJar) -> Option<String> {
+    req.headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            jar.get("__session")
+                .map(|cookie| cookie.value().to_string())
+        })
+}
 
-        tokens::verify_access_token(cookie.value(), &secret)
-            .ok()
-            .map(|claims| AuthUser {
-                id: claims.sub,
-                email: claims.email,
-                role: claims.role,
-            })
-    });
+pub async fn auth_middleware(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    mut req: Request,
+    next: Next,
+) -> Response {
+    let mut auth_user = None;
+    if let Some(token) = session_token(&req, &jar) {
+        if let Some(claims) = clerk::verify_session_token(&token).await {
+            auth_user = clerk::resolve_user(&state.pool, &claims).await;
+        }
+    }
 
     req.extensions_mut().insert(auth_user);
     next.run(req).await

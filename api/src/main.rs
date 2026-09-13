@@ -18,10 +18,12 @@ use axum::{
     Extension, Router,
 };
 use std::path::Path;
-use tower_http::cors::CorsLayer;
+use tower_http::{cors::CorsLayer, limit::RequestBodyLimitLayer};
 
 use models::AuthUser;
 use state::{AppState, QueryCache};
+
+const MAX_GRAPHQL_BODY_BYTES: usize = 128 * 1024;
 
 async fn graphql_handler(
     State(state): State<AppState>,
@@ -83,16 +85,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .allow_credentials(true);
 
     let auth_routes = Router::new()
-        .route("/register", post(auth::handlers::register))
-        .route("/login", post(auth::handlers::login))
-        .route("/refresh", post(auth::handlers::refresh))
-        .route("/logout", post(auth::handlers::logout))
+        .route("/config", get(auth::handlers::config))
         .route("/session", get(auth::handlers::session))
         .route("/me", get(auth::handlers::me));
 
     let billing_routes = Router::new()
-        .route("/checkout", post(billing::handlers::checkout))
-        .route("/portal", post(billing::handlers::portal))
+        .route(
+            "/checkout",
+            post(billing::handlers::checkout).layer(axum_middleware::from_fn_with_state(
+                app_state.clone(),
+                rate_limit::billing_checkout_rate_limit,
+            )),
+        )
+        .route(
+            "/portal",
+            post(billing::handlers::portal).layer(axum_middleware::from_fn_with_state(
+                app_state.clone(),
+                rate_limit::billing_portal_rate_limit,
+            )),
+        )
         .route("/limits", get(billing::handlers::limits))
         .route("/usage", get(billing::handlers::usage));
 
@@ -100,6 +111,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let graphql_routes = Router::new()
         .route("/graphql", get(graphql_playground).post(graphql_handler))
+        .layer(RequestBodyLimitLayer::new(MAX_GRAPHQL_BODY_BYTES))
         .layer(axum_middleware::from_fn_with_state(
             app_state.clone(),
             rate_limit::graphql_rate_limit,
@@ -115,7 +127,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nest("/billing", billing_routes)
         .route("/billing/webhook", post(billing::handlers::webhook))
         .route("/health", get(health))
-        .layer(axum_middleware::from_fn(auth::middleware::auth_middleware))
+        .layer(axum_middleware::from_fn_with_state(
+            app_state.clone(),
+            auth::middleware::auth_middleware,
+        ))
         .layer(cors)
         .with_state(app_state);
 

@@ -20,7 +20,10 @@ export function usePollingQuery<
   });
 
   const fetchingRef = useRef(result.fetching);
-  fetchingRef.current = result.fetching;
+
+  useEffect(() => {
+    fetchingRef.current = result.fetching;
+  }, [result.fetching]);
 
   useEffect(() => {
     if (!opts.pollInterval || opts.pause) return;

@@ -1,31 +1,32 @@
 #!/bin/bash
 set -e
 
-export PGPASSWORD="$POSTGRES_PASSWORD"
+: "${DATABASE_URL:?set DATABASE_URL}"
 
 # wait for database to be ready
 echo "Waiting for TimescaleDB to be ready..."
-until psql -h "db" -U "$POSTGRES_USER" -d "postgres" -c "SELECT 1" 2>/dev/null; do
+until psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -c "SELECT 1" >/dev/null 2>&1; do
   sleep 1
 done
 
-echo "Database is ready. Creating and initializing schema..."
-psql -h "db" -U "$POSTGRES_USER" -d "postgres" -tc "SELECT 1 FROM pg_database WHERE datname = '${POSTGRES_DB}'" | grep -q 1 || \
-    psql -h "db" -U "$POSTGRES_USER" -d "postgres" -c "CREATE DATABASE \"${POSTGRES_DB}\""
+if [ "${SKIP_DB_MIGRATIONS:-0}" != "1" ]; then
+  echo "Database is ready. Initializing schema..."
+  psql -v ON_ERROR_STOP=1 "$DATABASE_URL" < schema.sql
 
-psql -h "db" -U "$POSTGRES_USER" -d "$POSTGRES_DB" < schema.sql
-
-# run migrations in order (idempotent - uses IF NOT EXISTS / IF EXISTS)
-if [ -d "/app/migrations" ]; then
-  echo "Running migrations..."
-  for migration in /app/migrations/*.sql; do
-    if [ -f "$migration" ]; then
-      echo "  Applying $(basename "$migration")..."
-      psql -h "db" -U "$POSTGRES_USER" -d "$POSTGRES_DB" < "$migration"
-    fi
-  done
-  echo "Migrations complete."
+  # run migrations in order (idempotent - uses IF NOT EXISTS / IF EXISTS)
+  if [ -d "/app/migrations" ]; then
+    echo "Running migrations..."
+    for migration in /app/migrations/*.sql; do
+      if [ -f "$migration" ]; then
+        echo "  Applying $(basename "$migration")..."
+        psql -v ON_ERROR_STOP=1 "$DATABASE_URL" < "$migration"
+      fi
+    done
+    echo "Migrations complete."
+  fi
+else
+  echo "Database is ready. Migrations already completed by the migrate service."
 fi
 
-echo "Schema initialized. Starting daemon..."
+echo "Starting process..."
 exec "$@"

@@ -518,7 +518,7 @@ use sqlx::PgPool;
 
 pub async fn create_pool() -> PgPool {
     let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://irish_data:secure_password@server:9898/ireland_public".to_string());
+        .unwrap_or_else(|_| "postgres://irish_data:<db-password>@server:9898/ireland_public".to_string());
 
     PgPoolOptions::new()
         .max_connections(10)
@@ -1581,7 +1581,7 @@ In `docker-compose.yml`, find the `api` service and add these environment variab
 
 ```yaml
 environment:
-  DATABASE_URL: postgresql://irish_data:secure_password@db:5432/ireland_public
+  DATABASE_URL: postgresql://irish_data:<db-password>@db:5432/ireland_public
   JWT_SECRET: ${JWT_SECRET:-change-me-to-a-real-secret-in-production}
   JWT_ACCESS_EXPIRY: "900"
   JWT_REFRESH_EXPIRY: "604800"
@@ -2548,7 +2548,7 @@ Verify the full auth flow works.
 Create/update `.env.local` in `api/` directory:
 
 ```bash
-DATABASE_URL=postgres://irish_data:secure_password@localhost:9898/ireland_public
+DATABASE_URL=postgres://irish_data:<db-password>@localhost:9898/ireland_public
 JWT_SECRET=dev-secret-change-in-production-must-be-long-enough-64chars!!
 JWT_ACCESS_EXPIRY=900
 JWT_REFRESH_EXPIRY=604800

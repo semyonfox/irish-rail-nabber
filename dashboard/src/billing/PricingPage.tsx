@@ -2,59 +2,89 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/useAuth";
-import { api, ApiError, type RateLimits } from "../graphql/api";
+import { Icon, PageHeader } from "../components/ui";
+import { api, ApiError, type PaidPlan, type RateLimits } from "../graphql/api";
 
-const plans = [
+interface Plan {
+  id: "free" | PaidPlan;
+  name: string;
+  amount: string;
+  period: string;
+  blurb: string;
+  features: string[];
+  paidPlan: PaidPlan | null;
+  featured?: boolean;
+}
+
+const plans: Plan[] = [
   {
     id: "free",
     name: "Free",
-    price: "EUR0",
-    features: ["Live map", "Stations", "Limited API access"],
-    priceId: "",
+    amount: "€0",
+    period: "",
+    blurb: "Live rail and bus departures.",
+    features: ["Live rail map", "Station and bus stop boards", "Daily data access"],
+    paidPlan: null,
   },
   {
     id: "coffee",
     name: "Coffee Club",
-    price: "EUR25/mo",
-    features: ["Everything in Free", "Analytics", "Higher request limits"],
-    priceId: import.meta.env.VITE_STRIPE_COFFEE_PRICE_ID || "",
+    amount: "€5",
+    period: "/month",
+    blurb: "For regular commuters and the curious.",
+    features: [
+      "Everything in Free",
+      "Rail analytics",
+      "Rail assistant chat",
+      "Higher daily request limit",
+    ],
+    paidPlan: "coffee",
+    featured: true,
   },
   {
     id: "pro",
     name: "Pro",
-    price: "EUR75/mo",
-    features: ["Everything in Coffee", "Unlimited requests", "Priority support"],
-    priceId: import.meta.env.VITE_STRIPE_PRO_PRICE_ID || "",
+    amount: "€25",
+    period: "/month",
+    blurb: "For heavier use across the dashboard.",
+    features: ["Everything in Coffee", "No fixed daily cap; fair use applies", "Priority support"],
+    paidPlan: "pro",
   },
 ];
 
 export default function PricingPage() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, billingEnabled } = useAuth();
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
-  const [loadingLimits, setLoadingLimits] = useState(false);
+  const [loadingLimits, setLoadingLimits] = useState(true);
   const [error, setError] = useState("");
   const [limits, setLimits] = useState<RateLimits | null>(null);
 
   const requestLimitText = (planId: string) => {
     if (!limits) {
-      return "Loading limits...";
+      return "Request limits unavailable";
     }
 
     if (limits.unlimited_roles.includes(planId)) {
-      return "Unlimited requests";
+      return "No fixed daily cap. Fair use applies.";
     }
 
     if (planId === "coffee") {
-      return limits.coffee === null ? "Unlimited requests" : `Up to ${limits.coffee} requests/day`;
+      return limits.coffee === null
+        ? "No fixed daily cap. Fair use applies."
+        : `Up to ${limits.coffee.toLocaleString()} data requests a day`;
     }
 
     if (planId === "pro") {
-      return "Unlimited requests";
+      return limits.pro === null
+        ? "No fixed daily cap. Fair use applies."
+        : `Up to ${limits.pro.toLocaleString()} data requests a day`;
     }
 
     if (planId === "free") {
-      return limits.free === null ? "Unlimited requests" : `Up to ${limits.free} requests/day`;
+      return limits.free === null
+        ? "No fixed daily cap. Fair use applies."
+        : `Up to ${limits.free.toLocaleString()} data requests a day`;
     }
 
     return "Limited by plan";
@@ -62,7 +92,6 @@ export default function PricingPage() {
 
   useEffect(() => {
     let active = true;
-    setLoadingLimits(true);
     api
       .limits()
       .then((payload) => {
@@ -86,18 +115,22 @@ export default function PricingPage() {
     };
   }, []);
 
-  async function startCheckout(priceId: string) {
+  async function startCheckout(plan: PaidPlan) {
     if (!user) {
       navigate("/register");
       return;
     }
+    if (user.role !== "free") {
+      navigate("/account");
+      return;
+    }
 
-    setLoadingPlan(priceId);
+    setLoadingPlan(plan);
     setError("");
 
     try {
-      const { url } = await api.checkout(priceId);
-      window.location.href = url;
+      const { url } = await api.checkout(plan);
+      window.location.assign(url);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "failed to start checkout");
     } finally {
@@ -106,50 +139,102 @@ export default function PricingPage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-10">
-      <h2 className="text-2xl font-bold text-white">Pricing</h2>
-      <p className="mt-2 text-sm text-[var(--rail-muted)]">
-        Pick a plan when you need deeper analytics access.
-      </p>
+    <div className="page">
+      <div className="page-inner max-w-5xl">
+        <PageHeader
+          eyebrow="Pricing"
+          title={
+            <>
+              Pick your <em>line</em>
+            </>
+          }
+          description="The live rail map, bus departures and station boards are free. Plans add rail analytics, the assistant and more daily data requests."
+        />
 
-      {error ? <p className="mt-4 text-sm text-[var(--rail-red)]">{error}</p> : null}
+        {error ? (
+          <p role="alert" className="tone-block px-4 py-3 text-[14px]" data-tone="bad">
+            {error}
+          </p>
+        ) : null}
 
-      <div className="mt-8 grid gap-4 md:grid-cols-3">
-        {plans.map((plan) => {
-          const current = user?.role === plan.id;
-          const limitText = loadingLimits ? "Loading limits..." : requestLimitText(plan.id);
+        <div className="grid gap-4 md:grid-cols-3">
+          {plans.map((plan, index) => {
+            const current = user?.role === plan.id;
+            const limitText = loadingLimits ? "Loading limits…" : requestLimitText(plan.id);
+            const featured = plan.featured === true;
 
-          return (
-            <div
-              key={plan.id}
-              className="rounded-lg border border-[var(--rail-border)] bg-[var(--rail-surface)] p-5"
-            >
-              <h3 className="text-lg font-semibold text-white">{plan.name}</h3>
-              <p className="mt-1 text-sm text-[var(--rail-muted)]">{plan.price}</p>
-              <p className="mt-2 text-sm text-[var(--rail-muted)]">Requests: {limitText}</p>
-              <ul className="mt-4 space-y-2 text-sm text-[var(--rail-muted)]">
-                {plan.features.map((feature) => (
-                  <li key={feature}>+ {feature}</li>
-                ))}
-              </ul>
-              <div className="mt-6">
-                {current ? (
-                  <span className="text-sm font-medium text-[var(--rail-green)]">Current plan</span>
-                ) : plan.priceId ? (
-                  <button
-                    onClick={() => startCheckout(plan.priceId)}
-                    disabled={loadingPlan !== null}
-                    className="w-full rounded bg-[var(--rail-green)] py-2 text-sm font-semibold text-black disabled:opacity-60"
-                  >
-                    {loadingPlan === plan.priceId ? "Redirecting..." : "Subscribe"}
-                  </button>
-                ) : (
-                  <span className="text-sm text-[var(--rail-muted)]">No checkout needed</span>
-                )}
+            return (
+              <div
+                key={plan.id}
+                className={`card rise relative flex flex-col p-6 ${featured ? "bg-ink text-white" : ""}`}
+                style={{ "--i": index + 1 } as React.CSSProperties}
+              >
+                {featured ? (
+                  <span className="absolute right-5 top-5 rounded-full bg-white/12 px-2.5 py-1 text-[12px] font-semibold text-white">
+                    Includes the assistant
+                  </span>
+                ) : null}
+                <h2 className="text-[17px] font-semibold">{plan.name}</h2>
+                <p className={`mt-1 text-[14px] ${featured ? "text-white/70" : "text-muted"}`}>
+                  {plan.blurb}
+                </p>
+                <div className="mt-6 flex items-baseline gap-1">
+                  <span className="font-display text-[56px] leading-none">{plan.amount}</span>
+                  {plan.period ? (
+                    <span className={featured ? "text-white/70" : "text-muted"}>{plan.period}</span>
+                  ) : null}
+                </div>
+                {plan.paidPlan ? (
+                  <p className={`mt-2 text-[12.5px] ${featured ? "text-white/60" : "text-muted"}`}>
+                    Includes applicable taxes
+                  </p>
+                ) : null}
+                <p className={`mt-3 text-[13.5px] ${featured ? "text-white/70" : "text-muted"}`}>
+                  {limitText}
+                </p>
+                <ul className="mt-6 flex-1 space-y-2.5 text-[14.5px]">
+                  {plan.features.map((feature) => (
+                    <li key={feature} className="flex items-center gap-2.5">
+                      <Icon
+                        name="check"
+                        className={`h-4 w-4 shrink-0 ${featured ? "text-[#7fd8b4]" : "text-brand"}`}
+                      />
+                      {feature}
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-8">
+                  {current ? (
+                    <span
+                      className={`btn w-full cursor-default ${featured ? "bg-white/10 text-white" : "bg-brand-soft text-brand"}`}
+                    >
+                      Your current plan
+                    </span>
+                  ) : plan.paidPlan && billingEnabled ? (
+                    <button
+                      type="button"
+                      onClick={() => plan.paidPlan && startCheckout(plan.paidPlan)}
+                      disabled={loadingPlan !== null}
+                      className={`btn w-full ${featured ? "btn-brand" : "btn-primary"}`}
+                    >
+                      {user && user.role !== "free"
+                        ? "Manage current plan"
+                        : loadingPlan === plan.paidPlan
+                          ? "Redirecting…"
+                          : `Choose ${plan.name}`}
+                    </button>
+                  ) : (
+                    <span
+                      className={`block text-center text-[13.5px] ${featured ? "text-white/60" : "text-muted"}`}
+                    >
+                      {plan.id === "free" ? "No card needed" : "Checkout not configured"}
+                    </span>
+                  )}
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
     </div>
   );

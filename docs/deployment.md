@@ -1,6 +1,6 @@
 # Deployment
 
-The stack runs from a single `docker-compose.yml`. Production today is a home server fronted by Cloudflare Tunnel at `traein.semyon.ie`. Cloud options below.
+The repository includes `docker-compose.yml` for development. Production runs `/home/semyon/server-stacks/irish-rail/stack.yaml` with its private `stack.env`, fronted by Cloudflare Tunnel at `traein.semyon.ie`. Cloud options are below.
 
 For backups and disaster recovery procedures see [Recovery](#backups-and-recovery).
 
@@ -8,49 +8,46 @@ For backups and disaster recovery procedures see [Recovery](#backups-and-recover
 
 ```
 db            timescale/timescaledb:2.25.2-pg18      database
+migrate       irish-rail-nabber-daemon:latest        one-shot schema gate
 daemon        irish-rail-nabber-daemon:latest        Python scraper
+bus-daemon    irish-rail-nabber-daemon:latest        NTA bus collector
 api           irish-rail-nabber-api:latest           Rust Axum
 dashboard     irish-rail-nabber-dashboard:latest     nginx + static SPA
 cloudflared   cloudflare/cloudflared:latest          edge tunnel
 ```
 
-`db` is the only stateful service (volume `postgres_data`). Everything else is stateless and can be rebuilt at will.
+`db` is the only stateful service. Fresh PG18 stacks mount the named `postgres_data` volume at `/var/lib/postgresql`, which contains PG18's actual `PGDATA` directory. The one-shot `migrate` service must complete before either collector or the API starts, so bus startup does not depend on the unrelated Irish Rail healthcheck. The current production container predates the volume correction and must not be recreated until its anonymous volume is safely migrated. Everything else is stateless and can be rebuilt at will.
 
 Service responsibilities are described in [architecture.md](architecture.md#service-responsibilities).
 
 ## Env template
 
-Production env files must live in deployment secret storage, not in git. Start from the tracked safe template:
+Production env files must live in deployment secret storage, not in git. For the current server, start from `/home/semyon/server-stacks/irish-rail/stack.env.example`, save the populated file as `stack.env`, and keep it mode `600`. The repository's tracked `.env.production.example` is a safe reference for local or alternative deployments; never put real values in it. The production Compose command must always pass the private operator file with `--env-file`.
 
 ```bash
-cp .env.production.example /home/semyon/jenkins/env/irish-rail-nabber.env
-chmod 600 /home/semyon/jenkins/env/irish-rail-nabber.env
-```
-
-Then replace placeholders on the server or in Jenkins credentials. The repository ignores `.env.production` and `.env.*.production`; keep real values in `/home/semyon/jenkins/env/irish-rail-nabber.env`, Jenkins credentials, or another ignored local env file. If any real secret was previously committed, rotate it before trusting production again.
-
-The same variables can also be dropped into `.env.local` for local testing. `.env.local` is gitignored.
-
-```bash
-# database (used by db, daemon, api)
+# database (use the same URL-encoded password in DATABASE_URL)
 POSTGRES_USER=irish_data
-POSTGRES_PASSWORD=<strong-random>
+POSTGRES_PASSWORD=<strong-random-password>
 POSTGRES_DB=ireland_public
-DATABASE_URL=postgres://irish_data:***@db:5432/ireland_public
+DATABASE_URL=postgresql://irish_data:<url-encoded-password>@db:5432/ireland_public
+
+# NTA buses (obtain the key from the NTA developer portal)
+NTA_API_KEY=<private-api-key>
+NTA_GTFS_URL=https://www.transportforireland.ie/transitData/Data/GTFS_Realtime.zip
+NTA_GTFSR_URL=https://api.nationaltransport.ie/gtfsr/v2/gtfsr?format=json
+BUS_STATIC_REFRESH_SECONDS=86400
+BUS_REALTIME_INTERVAL_SECONDS=60
+BUS_REALTIME_RETENTION_DAYS=7
 
 # auth
-JWT_SECRET=<openssl rand -hex 32>
-JWT_ACCESS_EXPIRY=900
-JWT_REFRESH_EXPIRY=604800
-COOKIE_SECURE=true
+CLERK_PUBLISHABLE_KEY=pk_live_...
+CLERK_SECRET_KEY=sk_live_...
 
-# routing
-APP_URL=https://traein.semyon.ie
-CORS_ORIGINS=https://traein.semyon.ie
-API_RATE_LIMIT_FREE_TIER_LIMIT=1000
-API_RATE_LIMIT_COFFEE_TIER_LIMIT=10000
+# tier limits
+API_RATE_LIMIT_FREE_TIER_LIMIT=25000
+API_RATE_LIMIT_COFFEE_TIER_LIMIT=100000
 API_RATE_LIMIT_UNLIMITED_ROLES=pro,admin
-API_RATE_LIMIT_IP_SALT=rail-salt
+API_RATE_LIMIT_IP_SALT=<strong-random-value>
 
 # chatbot LLM (OghmaNotes-compatible OpenAI-style endpoint)
 LLM_API_URL=https://api.moonshot.ai/v1
@@ -71,38 +68,36 @@ CHAT_TOOL_RESULT_MAX_CHARS=3500
 # CHAT_MAX_TOKENS=1200
 
 # billing (Polar.sh — primary, see auth-billing.md)
-POLAR_ACCESS_TOKEN=polar_at_...
-POLAR_WEBHOOK_SECRET=polar_wh_...
+POLAR_CHECKOUT_ENABLED=false
+POLAR_ACCESS_TOKEN=polar_oat_...
+POLAR_WEBHOOK_SECRET=whsec_...
 POLAR_ORGANIZATION_ID=...
 POLAR_COFFEE_PRODUCT_ID=...
 POLAR_PRO_PRODUCT_ID=...
 POLAR_ENVIRONMENT=production
 
-# billing (Stripe — legacy, optional until removed)
-STRIPE_SECRET_KEY=
-STRIPE_WEBHOOK_SECRET=
-STRIPE_COFFEE_PRICE_ID=
-STRIPE_PRO_PRICE_ID=
-
 # edge
 CLOUDFLARE_TUNNEL_TOKEN=...
 ```
 
-The Jenkins pipeline also loads `/home/semyon/jenkins/env/irish-rail-nabber.env` when present, matching the OghmaNotes deployment pattern. Put production `LLM_*` values there, or the fallback OpenAI-compatible names above, instead of committing secrets.
+Jenkins deploys the operator stack with `/home/semyon/server-stacks/irish-rail/stack.env`. It does not source the old Jenkins-specific env file. Keep all NTA, Clerk, Polar, LLM, rate-limit and tunnel values in the operator file instead of committing secrets.
 
 Full description of each variable is in [auth-billing.md](auth-billing.md#polar-config-env) and [api.md](api.md#environment).
 
-## First-time setup
+## Existing production rollout
 
 ```bash
-git clone <repo>
-cd irish-rail-nabber
-cp .env.local.example .env.local       # if present; otherwise use the template above
-docker compose pull
-docker compose up -d
+cd /home/semyon/server-stacks/irish-rail
+test -r stack.env
+chmod 600 stack.env
+test "$(docker inspect -f '{{.State.Health.Status}}' irish_rail_db)" = healthy
+timeout 120 docker compose --env-file stack.env -f stack.yaml run --rm --no-deps migrate
+docker compose --env-file stack.env -f stack.yaml up -d --no-build --no-deps daemon bus-daemon api dashboard
 sleep 30
-docker compose logs --tail=50
+docker compose --env-file stack.env -f stack.yaml logs --tail=50
 ```
+
+This is the existing-production rollout path. Create `stack.env` from `stack.env.example` only during initial setup; never overwrite the existing private production file during a rollout. Do not recreate the PG18 database container until its legacy anonymous data volume has been backed up and migrated to the corrected named-volume mount.
 
 Verify the daemon is collecting and the API is up using the checklist in [testing.md](testing.md).
 
@@ -144,45 +139,47 @@ See [ROADMAP.md](../ROADMAP.md) for revenue phasing.
 
 ## Backups and recovery
 
-The full disaster-recovery plan, including verification queries and emergency procedures, is at `private/RECOVERY_PLAN.md` (gitignored). Summary here.
+The private operator runbook holds emergency procedures. The production layout below is the current source of truth.
 
 ### Backup schedule
 
-- **Hourly**: `pg_dump | gzip` to `backups/hourly/`, keep last 6.
-- **Daily 02:00**: `pg_dump | gzip` to `backups/daily/`, keep indefinitely.
-- Driven by cron on the host, script `backup-db.sh`.
+- `/etc/cron.d/server-stacks-backups` starts the production job hourly at minute `00` and daily at `02:00`.
+- It writes custom-format PostgreSQL archives and matching cluster-globals SQL files under `/mnt/media/backups/irish-rail/postgres/`.
+- Retention is 24 hourly, 14 daily, 8 weekly, 12 monthly, and yearly indefinitely. Weekly snapshots are copied on Sunday, monthly on day 1, and yearly on January 1.
+- The repository's `backup-db.sh` uses a different legacy gzip/plain-SQL layout. It is not the production backup job or a recovery source of truth.
 
 ### Targets
 
 | Metric | Target | Current |
 |--------|--------|---------|
-| RPO (max data loss) | < 1 h | < 1 h (hourly) |
-| RTO (recovery time) | < 15 min | ~5–10 min |
+| RPO (max data loss) | < 1 h | Hourly archives observed; alerting still needs proof |
+| RTO (recovery time) | < 15 min | Unknown until a timed disposable restore passes |
 
-### Restore (most common)
+### Restore rehearsal
+
+Do not rehearse against `ireland_public`. Restore into a disposable PostgreSQL 18 and TimescaleDB instance with the same extension version, using the PostgreSQL 18 client in that container. Timescale requires its pre/post-restore functions and does not support parallel `pg_restore` for this workflow.
 
 ```bash
 ssh semyon@server
-docker stop irish_rail_daemon
+BACKUP=/mnt/media/backups/irish-rail/postgres/hourly/<verified-archive>.dump
 
-BACKUP=$(ls -t backups/hourly/*.sql.gz | head -1)
-gunzip -c "$BACKUP" > /tmp/restore.sql
-
-docker exec -i irish_rail_db psql -U irish_data -d postgres \
-  -c "DROP DATABASE IF EXISTS ireland_public; CREATE DATABASE ireland_public;"
-docker exec -i irish_rail_db psql -U irish_data -d ireland_public < /tmp/restore.sql
-docker start irish_rail_daemon
+# Run these against a disposable target, never irish_rail_db.
+docker exec restore_test createdb -U irish_data ireland_public_restore_test
+docker exec restore_test psql -v ON_ERROR_STOP=1 -U irish_data \
+  -d ireland_public_restore_test \
+  -c 'CREATE EXTENSION IF NOT EXISTS timescaledb; SELECT timescaledb_pre_restore();'
+docker exec -i restore_test pg_restore --exit-on-error --no-owner --no-privileges \
+  -U irish_data -d ireland_public_restore_test < "$BACKUP"
+docker exec restore_test psql -v ON_ERROR_STOP=1 -U irish_data \
+  -d ireland_public_restore_test \
+  -c 'SELECT timescaledb_post_restore(); ANALYZE;'
 ```
 
-Then run the verification queries from [testing.md](testing.md).
+Then run the verification queries from [testing.md](testing.md), record elapsed time, and remove only the explicitly named disposable target after review. See Timescale's [logical backup and restore procedure](https://docs.timescale.com/self-hosted/latest/backup-and-restore/logical-backup/) for the extension-specific contract.
 
 ### Monthly test
 
-```bash
-./recover.sh test    # restores latest backup to ireland_public_test, leaves prod untouched
-```
-
-This must pass once a month. If it has not run in 30 days, the next restore is unverified.
+There is no automated restore-rehearsal command yet. Until a disposable restore is completed and recorded, catalog readability is verified but recoverability and the RTO are not.
 
 ## Logs
 
@@ -195,17 +192,20 @@ This must pass once a month. If it has not run in 30 days, the next restore is u
 Migrations are SQL files under `migrations/`, applied in numeric order. Apply on demand:
 
 ```bash
-docker exec -i irish_rail_db psql -U irish_data -d ireland_public \
+docker exec -i irish_rail_db psql -v ON_ERROR_STOP=1 -U irish_data -d ireland_public \
   < migrations/<NNN>_<name>.sql
 ```
 
-`schema.sql` (in the daemon image) idempotently creates the initial set on first boot. Anything past the initial schema is a numbered migration.
+Run migrations before switching the API image. New API code may query a column added by the same release, so starting API and daemon together can create a temporary 500-error window. The Jenkins deployment runs the candidate daemon once with `/bin/true`, waits for every SQL file to succeed, and only then recreates the services.
+
+`schema.sql` (in the daemon image) idempotently creates the initial set on first boot. Anything past the initial schema is a numbered migration. The daemon invokes `psql` with `ON_ERROR_STOP`, so a failed statement aborts deployment instead of being reported as complete.
 
 ## Related docs
 
 - [architecture.md](architecture.md) — service topology
 - [scraper.md](scraper.md) — known networking issues, daemon behaviour
+- [buses.md](buses.md) — NTA access, collector limits, and bus verification
 - [api.md](api.md) — Rust service env
-- [auth-billing.md](auth-billing.md) — Polar/Stripe env
+- [auth-billing.md](auth-billing.md) — Clerk and Polar environment
 - [testing.md](testing.md) — post-deploy verification
 - [../ROADMAP.md](../ROADMAP.md) — when to scale up

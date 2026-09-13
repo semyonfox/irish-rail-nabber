@@ -1,6 +1,7 @@
 import { TRAIN_JOURNEY } from "../graphql/queries";
 import { usePollingQuery } from "../utils/usePollingQuery";
-import { formatTime, delayColor } from "../utils/format";
+import { formatTime, shortDelay } from "../utils/format";
+import { DelayPill, Empty, MiniStat, Sheet } from "./ui";
 
 interface Movement {
   trainCode: string;
@@ -65,12 +66,6 @@ function stopKind(stop: Movement) {
   return "Stop";
 }
 
-function delayText(delayMin: number | null) {
-  if (delayMin == null) return "N/A";
-  if (delayMin <= 0) return "RT";
-  return `+${delayMin}m`;
-}
-
 export default function TrainDetail({ trainCode, onClose }: Props) {
   const [{ data, fetching }] = usePollingQuery<TrainJourneyData>({
     query: TRAIN_JOURNEY,
@@ -96,118 +91,96 @@ export default function TrainDetail({ trainCode, onClose }: Props) {
   const progress = stops.length > 0 ? Math.round((completedStops / stops.length) * 100) : 0;
 
   return (
-    <div className="fixed inset-y-0 right-0 z-50 w-full overflow-auto border-l border-[var(--rail-border)] bg-[var(--rail-surface)] p-4 shadow-xl sm:w-96">
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-bold text-white">{trainCode}</h2>
-          <p className="text-sm text-[var(--rail-muted)]">
-            {origin} → {destination}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="p-2 text-[var(--rail-muted)] hover:bg-[var(--rail-bg)] hover:text-white"
-          aria-label="Close train panel"
-        >
-          ✕
-        </button>
-      </div>
-
-      {fetching && !data && <p className="text-[var(--rail-muted)]">Loading journey...</p>}
-      {!fetching && stops.length === 0 && (
-        <p className="border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3 text-sm text-[var(--rail-muted)]">
-          No station-by-station journey has been captured for this train yet.
-        </p>
-      )}
-
-      {stops.length > 0 && (
+    <Sheet
+      label="train details"
+      onClose={onClose}
+      eyebrow={
         <>
-          <div className="mb-4 grid grid-cols-2 gap-2 text-sm">
-            <div className="border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3">
-              <div className="text-xs text-[var(--rail-muted)]">Stops</div>
-              <div className="text-xl font-semibold text-white">{stops.length}</div>
-            </div>
-            <div className="border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3">
-              <div className="text-xs text-[var(--rail-muted)]">Late stops</div>
-              <div className="text-xl font-semibold text-[var(--rail-warn)]">
-                {delayedStops.length}
-              </div>
-            </div>
-            <div className="border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3">
-              <div className="text-xs text-[var(--rail-muted)]">Severe stops</div>
-              <div className="text-xl font-semibold text-[var(--rail-red)]">
-                {severeStops.length}
-              </div>
-            </div>
-            <div className="border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3">
-              <div className="text-xs text-[var(--rail-muted)]">Worst</div>
-              <div className="text-xl font-semibold text-white">
-                {delayText(worstStop?.delayMin ?? null)}
-              </div>
-            </div>
+          Train <span className="chip">{trainCode}</span>
+        </>
+      }
+      title={origin && destination ? `${origin} to ${destination}` : `Train ${trainCode}`}
+      subtitle={
+        stops.length > 0 ? `${stops.length} calling points · ${progress}% complete` : undefined
+      }
+    >
+      {fetching && !data ? <Empty>Loading journey…</Empty> : null}
+      {!fetching && stops.length === 0 ? (
+        <Empty>No station-by-station journey has been captured for this train yet.</Empty>
+      ) : null}
+
+      {stops.length > 0 ? (
+        <>
+          <div className="grid grid-cols-2 gap-2">
+            <MiniStat label="Stops" value={stops.length} />
+            <MiniStat label="Worst" value={shortDelay(worstStop?.delayMin ?? null)} />
+            <MiniStat
+              label="Late stops"
+              value={delayedStops.length}
+              tone={delayedStops.length > 0 ? "warn" : undefined}
+            />
+            <MiniStat
+              label="Severe stops"
+              value={severeStops.length}
+              tone={severeStops.length > 0 ? "bad" : undefined}
+            />
           </div>
 
-          <div className="mb-4 border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3">
-            <div className="mb-2 flex items-center justify-between text-xs text-[var(--rail-muted)]">
+          <div className="rounded-2xl border border-line p-4">
+            <div className="section-label">
               <span>Journey progress</span>
-              <span>{progress}%</span>
+              <span className="code">{progress}%</span>
             </div>
-            <div className="h-2 bg-[var(--rail-surface)]">
-              <div className="h-2 bg-[var(--rail-green)]" style={{ width: `${progress}%` }} />
+            <div className="meter">
+              <span style={{ width: `${progress}%` }} />
             </div>
-            {nextStop && (
-              <div className="mt-3 flex items-start justify-between gap-3 text-sm">
+            {nextStop ? (
+              <div className="mt-4 flex items-center justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="truncate font-semibold text-white">
-                    {stopKind(nextStop)} {formatTime(stopTime(nextStop))}
-                  </div>
-                  <div className="truncate text-xs text-[var(--rail-muted)]">
+                  <div className="text-[12.5px] text-muted">Next stop</div>
+                  <div className="truncate font-semibold">
                     {nextStop.locationFullName || nextStop.locationCode}
                   </div>
                 </div>
-                <span
-                  className="shrink-0 text-xs font-semibold"
-                  style={{ color: delayColor(stopDelay(nextStop)) }}
-                >
-                  {delayText(stopDelay(nextStop))}
-                </span>
+                <div className="flex shrink-0 items-center gap-3">
+                  <span className="board-time">{formatTime(stopTime(nextStop))}</span>
+                  <DelayPill minutes={stopDelay(nextStop)} />
+                </div>
               </div>
-            )}
+            ) : null}
+          </div>
+
+          <div>
+            <div className="section-label">Calling points</div>
+            <ol className="timeline">
+              {stopRows.map(({ stop, delayMin }) => {
+                const isComplete = Boolean(stop.actualArrival || stop.actualDeparture);
+                const isNext = nextStop?.locationOrder === stop.locationOrder;
+                return (
+                  <li key={stop.locationOrder}>
+                    <span className="tl-rail" data-done={isComplete} data-next={isNext}>
+                      <span className="tl-dot" />
+                    </span>
+                    <div className="min-w-0">
+                      <div
+                        className={`truncate text-[14.5px] ${isNext ? "font-semibold" : "font-medium"} ${isComplete ? "text-ink-2" : "text-ink"}`}
+                      >
+                        {stop.locationFullName || stop.locationCode}
+                      </div>
+                      <div className="code mt-0.5">
+                        {stopKind(stop)} {formatTime(stopTime(stop))} · sched{" "}
+                        {formatTime(scheduledTime(stop))}
+                        {stop.stopType ? ` · ${stop.stopType}` : ""}
+                      </div>
+                    </div>
+                    <DelayPill minutes={delayMin} />
+                  </li>
+                );
+              })}
+            </ol>
           </div>
         </>
-      )}
-
-      <div className="space-y-1">
-        {stopRows.map(({ stop, delayMin }) => {
-          const scheduled = scheduledTime(stop);
-          const observed = stopTime(stop);
-          const isComplete = Boolean(stop.actualArrival || stop.actualDeparture);
-          return (
-            <div
-              key={stop.locationOrder}
-              className="flex items-center gap-3 px-3 py-2 hover:bg-[var(--rail-bg)]"
-            >
-              <div
-                className={`h-3 w-3 shrink-0 rounded-full ${isComplete ? "" : "ring-2 ring-white/20"}`}
-                style={{ backgroundColor: delayColor(delayMin) }}
-              />
-              <div className="flex-1 min-w-0">
-                <div className="truncate text-sm font-medium text-white">
-                  {stop.locationFullName || stop.locationCode}
-                </div>
-                <div className="text-xs text-[var(--rail-muted)]">
-                  {stopKind(stop)} {formatTime(observed)} · sched {formatTime(scheduled)}
-                  {stop.stopType && ` · ${stop.stopType}`}
-                </div>
-              </div>
-              <span className="text-xs font-medium" style={{ color: delayColor(delayMin) }}>
-                {delayText(delayMin)}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
+      ) : null}
+    </Sheet>
   );
 }

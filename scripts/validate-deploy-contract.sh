@@ -2,9 +2,13 @@
 set -euo pipefail
 
 required_files=(
+  .dockerignore
   Dockerfile
   daemon.py
+  bus_daemon.py
+  docker-compose.yml
   docker-entrypoint.sh
+  migrations/011_bus_gtfs.sql
   requirements.txt
   schema.sql
   api/Cargo.toml
@@ -30,6 +34,10 @@ if [ ! -d migrations ]; then
 fi
 
 grep -Fq 'route("/health"' api/src/main.rs
+grep -Fxq '!bus_daemon.py' .dockerignore
+grep -Fq 'COPY bus_daemon.py .' Dockerfile
+grep -Fq '  bus-daemon:' docker-compose.yml
+grep -Fq '  migrate:' docker-compose.yml
 grep -Fq 'COPY nginx.conf /etc/nginx/conf.d/default.conf' dashboard/Dockerfile
 grep -Fq 'apk add --no-cache wget' dashboard/Dockerfile
 grep -Fq 'HEALTHCHECK' dashboard/Dockerfile
