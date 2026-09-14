@@ -248,7 +248,7 @@ class IrishRailDaemon:
         # dedup state
         self.prev_trains_hash: Optional[str] = None
         self.prev_boards_hashes: Dict[str, str] = {}
-        self.prev_movement_hashes: Dict[str, str] = {}
+        self.prev_movement_hashes: Dict[tuple[str, str, str, int], str] = {}
         self.prev_train_at_station_hashes: Dict[str, str] = {}
         # key: "train_code:station_code:train_date"
         # value: hash of (status, late_minutes, last_location, due_in, expected_arrival, expected_departure)
@@ -960,7 +960,7 @@ class IrishRailDaemon:
           (was crashing: PostgreSQL rejects ''::TIME)
         - AutoArrival/AutoDepart "1"/"0" -> True/False via to_bool
           (was checking == "true", always False)
-        - per-train content hash dedup (was re-inserting all stops every 60s)
+        - per-stop content hash dedup, published only after a successful commit
         - train_code stripped of trailing whitespace (API quirk)
         """
         xml = await self.fetch_api(
@@ -973,40 +973,63 @@ class IrishRailDaemon:
         try:
             root = parse_xml(xml)
 
-            # build content hash across all stops for dedup
-            stop_fingerprints = []
-            for movement in root:
-                loc = extract_text(movement, "LocationCode")
-                arr = extract_text(movement, "Arrival")
-                dep = extract_text(movement, "Departure")
-                exp_arr = extract_text(movement, "ExpectedArrival")
-                exp_dep = extract_text(movement, "ExpectedDeparture")
-                stop_fingerprints.append(f"{loc}:{arr}:{dep}:{exp_arr}:{exp_dep}")
-
-            content_hash = stable_hash(*stop_fingerprints)
-            cache_key = f"{train_code}:{train_date}"
-
-            if self.prev_movement_hashes.get(cache_key) == content_hash:
-                return -1
-
-            self.prev_movement_hashes[cache_key] = content_hash
-
+            pending_hashes: Dict[tuple[str, str, str, int], str] = {}
             count = 0
             async with self.pool.connection() as conn:
                 for movement in root:
                     try:
-                        code = extract_text(movement, "TrainCode")
+                        code = extract_text(movement, "TrainCode").strip()
                         if not code:
                             continue
 
-                        code = code.strip()
-                        location_code = extract_text(movement, "LocationCode").upper()
+                        location_code = extract_text(movement, "LocationCode").strip().upper()
                         stop_type = extract_text(movement, "StopType") or None
                         if stop_type == "-":
                             stop_type = None
 
-                        await conn.execute(
-                            """INSERT INTO train_movements
+                        values = (
+                            code,
+                            (extract_text(movement, "TrainDate") or train_date).strip(),
+                            location_code,
+                            extract_text(movement, "LocationFullName") or None,
+                            int(
+                                extract_text(movement, "LocationOrder", "0") or "0"
+                            ),
+                            extract_text(movement, "LocationType"),
+                            extract_text(movement, "TrainOrigin"),
+                            extract_text(movement, "TrainDestination"),
+                            to_time_or_none(
+                                extract_text(movement, "ScheduledArrival")
+                            ),
+                            to_time_or_none(
+                                extract_text(movement, "ScheduledDeparture")
+                            ),
+                            to_time_or_none(
+                                extract_text(movement, "ExpectedArrival")
+                            ),
+                            to_time_or_none(
+                                extract_text(movement, "ExpectedDeparture")
+                            ),
+                            to_time_or_none(extract_text(movement, "Arrival")),
+                            to_time_or_none(extract_text(movement, "Departure")),
+                            to_bool(extract_text(movement, "AutoArrival")),
+                            to_bool(extract_text(movement, "AutoDepart")),
+                            stop_type,
+                        )
+                    except (ValueError, TypeError) as error:
+                        logger.warning("invalid movement for %s: %s", train_code, error)
+                        continue
+
+                    # LocationOrder distinguishes repeated visits to the same station.
+                    cache_key = (code, values[1], location_code, values[4])
+                    fingerprint = stable_hash(*values)
+                    previous = pending_hashes.get(
+                        cache_key, self.prev_movement_hashes.get(cache_key)
+                    )
+                    if previous == fingerprint:
+                        continue
+                    await conn.execute(
+                        """INSERT INTO train_movements
                                (train_code, train_date, location_code,
                                 location_full_name, location_order,
                                 location_type, train_origin, train_destination,
@@ -1017,47 +1040,14 @@ class IrishRailDaemon:
                                 stop_type, fetched_at)
                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                                        %s, %s, %s, %s, %s, %s, %s, NOW())""",
-                            (
-                                code,
-                                extract_text(movement, "TrainDate"),
-                                location_code,
-                                extract_text(movement, "LocationFullName") or None,
-                                int(
-                                    extract_text(movement, "LocationOrder", "0") or "0"
-                                ),
-                                extract_text(movement, "LocationType"),
-                                extract_text(movement, "TrainOrigin"),
-                                extract_text(movement, "TrainDestination"),
-                                to_time_or_none(
-                                    extract_text(movement, "ScheduledArrival")
-                                ),
-                                to_time_or_none(
-                                    extract_text(movement, "ScheduledDeparture")
-                                ),
-                                to_time_or_none(
-                                    extract_text(movement, "ExpectedArrival")
-                                ),
-                                to_time_or_none(
-                                    extract_text(movement, "ExpectedDeparture")
-                                ),
-                                to_time_or_none(extract_text(movement, "Arrival")),
-                                to_time_or_none(extract_text(movement, "Departure")),
-                                to_bool(extract_text(movement, "AutoArrival")),
-                                to_bool(extract_text(movement, "AutoDepart")),
-                                stop_type,
-                            ),
-                        )
-                        count += 1
-                    except Exception as e:
-                        loc_code = extract_text(movement, "LocationCode", "?")
-                        logger.warning(
-                            f"movement INSERT failed for {train_code} "
-                            f"at {loc_code}: {e}"
-                        )
-
+                        values,
+                    )
+                    pending_hashes[cache_key] = fingerprint
+                    count += 1
                 await conn.commit()
 
-            return count
+            self.prev_movement_hashes.update(pending_hashes)
+            return count if count else -1
 
         except Exception as e:
             logger.error(f"train movements fetch failed for {train_code}: {e}")
@@ -1081,9 +1071,12 @@ class IrishRailDaemon:
                 code = extract_text(train, "TrainCode")
                 date = extract_text(train, "TrainDate")
                 if code and date:
-                    active_keys.add(f"{code}:{date}")
+                    active_keys.add(f"{code.strip()}:{date.strip()}")
 
-            stale_keys = set(self.prev_movement_hashes.keys()) - active_keys
+            stale_keys = {
+                key for key in self.prev_movement_hashes
+                if f"{key[0]}:{key[1]}" not in active_keys
+            }
             for key in stale_keys:
                 del self.prev_movement_hashes[key]
 

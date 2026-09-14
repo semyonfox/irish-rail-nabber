@@ -219,6 +219,9 @@ export const BUS_LIVE_OVERVIEW = gql`
   query BusLiveOverview(
     $stopId: String!
     $includeBoard: Boolean!
+    $includeVehicles: Boolean!
+    $includeShapes: Boolean!
+    $includeDelays: Boolean!
     $boardLimit: Int
     $vehicleLimit: Int
     $shapeLimit: Int
@@ -227,6 +230,8 @@ export const BUS_LIVE_OVERVIEW = gql`
   ) {
     busRealtimeStatus {
       lastSuccessAt
+      vehiclesLastSuccessAt
+      tripUpdatesLastSuccessAt
       isLive
     }
     busStopBoard(stopId: $stopId, limit: $boardLimit) @include(if: $includeBoard) {
@@ -244,11 +249,12 @@ export const BUS_LIVE_OVERVIEW = gql`
       scheduleRelationship
       fetchedAt
     }
-    busVehicles(limit: $vehicleLimit) {
+    busVehicles(limit: $vehicleLimit) @include(if: $includeVehicles) {
       entityId
       vehicleId
       vehicleLabel
       tripId
+      shapeId
       routeId
       routeShortName
       routeLongName
@@ -265,7 +271,7 @@ export const BUS_LIVE_OVERVIEW = gql`
       sourceTimestamp
       fetchedAt
     }
-    busLiveRouteShapes(limit: $shapeLimit) {
+    busLiveRouteShapes(limit: $shapeLimit) @include(if: $includeShapes) {
       routeId
       routeShortName
       shapeId
@@ -276,7 +282,7 @@ export const BUS_LIVE_OVERVIEW = gql`
         sequence
       }
     }
-    busRouteDelays(hours: $hours, limit: $routeLimit) {
+    busRouteDelays(hours: $hours, limit: $routeLimit) @include(if: $includeDelays) {
       routeId
       routeShortName
       routeLongName

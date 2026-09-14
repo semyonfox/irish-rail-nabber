@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
 
+import { busMotionPath, busMotionPosition } from "../utils/busMotion";
 import { useTheme } from "../theme";
 import { busFeedState, type BusRealtimeStatus } from "../utils/busRealtime";
 import {
@@ -84,6 +85,7 @@ export default function BusVehicleMap({
   const { theme } = useTheme();
   const palette = transitMapPalette(theme);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  const previousVehiclesRef = useRef(new Map<string, BusVehicle>());
   const lastFitKeyRef = useRef<string | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
@@ -322,14 +324,46 @@ export default function BusVehicleMap({
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
 
-    const features = vehicles.map((vehicle) =>
-      pointFeature([vehicle.longitude, vehicle.latitude], {
-        vehicleKey: busVehicleKey(vehicle),
-        routeLabel: busVehicleRoute(vehicle),
-        selected: busVehicleKey(vehicle) === selectedKey,
-      }),
+    const shapes = new Map(routeShapes.map((shape) => [shape.shapeId, busShapeCoordinates(shape)]));
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const paths = vehicles.map((vehicle) =>
+      reducedMotion.matches
+        ? null
+        : busMotionPath(
+            previousVehiclesRef.current.get(busVehicleKey(vehicle)),
+            vehicle,
+            vehicle.shapeId ? shapes.get(vehicle.shapeId) : undefined,
+          ),
     );
-    setSourceData(mapRef.current, VEHICLE_SOURCE_ID, featureCollection(features));
+    previousVehiclesRef.current = new Map(
+      vehicles.map((vehicle) => [busVehicleKey(vehicle), vehicle]),
+    );
+    let frame = 0;
+    const started = performance.now();
+    const animated = paths.some((path) => path != null);
+    const draw = (time: number) => {
+      if (!mapRef.current) return;
+      const fraction = reducedMotion.matches ? 1 : Math.min(1, (time - started) / 1_200);
+      const features = vehicles.map((vehicle, index) => {
+        const path = paths[index];
+        const coordinate: [number, number] = path
+          ? busMotionPosition(path, fraction)
+          : [vehicle.longitude, vehicle.latitude];
+        return pointFeature(coordinate, {
+          vehicleKey: busVehicleKey(vehicle),
+          routeLabel: busVehicleRoute(vehicle),
+          selected: busVehicleKey(vehicle) === selectedKey,
+        });
+      });
+      setSourceData(mapRef.current, VEHICLE_SOURCE_ID, featureCollection(features));
+      if (animated && fraction < 1) frame = requestAnimationFrame(draw);
+    };
+    draw(started);
+    return () => cancelAnimationFrame(frame);
+  }, [mapReady, routeShapes, selectedKey, vehicles]);
+
+  useEffect(() => {
+    if (!mapReady || !mapRef.current) return;
 
     if (vehicles.length === 0 || lastFitKeyRef.current === "vehicles") return;
     lastFitKeyRef.current = "vehicles";

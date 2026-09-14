@@ -71,6 +71,8 @@ describe("live overview operations", () => {
 
     expect(childFields(BUS_LIVE_OVERVIEW, "busRealtimeStatus")).toEqual([
       "lastSuccessAt",
+      "vehiclesLastSuccessAt",
+      "tripUpdatesLastSuccessAt",
       "isLive",
     ]);
 
@@ -94,6 +96,7 @@ describe("live overview operations", () => {
       "vehicleId",
       "vehicleLabel",
       "tripId",
+      "shapeId",
       "routeId",
       "routeShortName",
       "routeLongName",

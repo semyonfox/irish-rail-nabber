@@ -13,6 +13,7 @@ const vehicle: BusVehicle = {
   vehicleId: "vehicle-7",
   vehicleLabel: "Fleet 7",
   tripId: "trip-7",
+  shapeId: "shape-7",
   routeId: "route-404",
   routeShortName: "404",
   routeLongName: "Oranmore to Eyre Square",
