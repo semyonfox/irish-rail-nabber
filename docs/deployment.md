@@ -1,5 +1,11 @@
 # Deployment
 
+The Jenkins candidate smoke test uses the temporary subnet `10.254.40.0/28`.
+It was checked against the server's Docker networks and host routes on
+14 September 2026. This avoids exhausted Docker default address pools; the
+pipeline removes the candidate network after each test. Recheck overlap when
+moving the job to another host. The production network is separate.
+
 The repository includes `docker-compose.yml` for development. Production runs `/home/semyon/server-stacks/irish-rail/stack.yaml` with its private `stack.env`, fronted by Cloudflare Tunnel at `traein.semyon.ie`. Cloud options are below.
 
 For backups and disaster recovery procedures see [Recovery](#backups-and-recovery).

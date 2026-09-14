@@ -18,6 +18,7 @@ pipeline {
     DAEMON_IMAGE_REPO = 'irish-rail-nabber-daemon'
     API_IMAGE_REPO = 'irish-rail-nabber-api'
     DASHBOARD_IMAGE_REPO = 'irish-rail-nabber-dashboard'
+    CANDIDATE_SUBNET = '10.254.40.0/28'
   }
 
   stages {
@@ -151,7 +152,8 @@ pipeline {
           trap cleanup_candidate EXIT
 
           cleanup_candidate
-          docker network create "$NETWORK" >/dev/null
+          # Reserve a small test subnet because the shared host's default pools are full.
+          docker network create --subnet "$CANDIDATE_SUBNET" "$NETWORK" >/dev/null
           docker run -d --name "$DB_CANDIDATE" \
             --network "$NETWORK" \
             --network-alias db \
