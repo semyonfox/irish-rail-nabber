@@ -138,15 +138,25 @@ impl BusQuery {
             .try_get_with((), async move {
                 let row = sqlx::query_as::<_, BusRealtimeStatusRow>(
                     "SELECT
+                        MAX(fetched_at) FILTER (WHERE endpoint = 'nta_vehicles')
+                            AT TIME ZONE 'UTC' AS vehicles_last_success_at,
+                        MAX(fetched_at) FILTER (WHERE endpoint = 'nta_trip_updates')
+                            AT TIME ZONE 'UTC' AS trip_updates_last_success_at,
                         MAX(fetched_at) AT TIME ZONE 'UTC' AS last_success_at,
                         COALESCE(
                             MAX(fetched_at) >
                                 (NOW() AT TIME ZONE 'UTC') - INTERVAL '3 minutes',
                             FALSE
                         ) AS is_live
-                     FROM fetch_history
-                     WHERE endpoint IN ('nta_trip_updates', 'nta_vehicles')
-                       AND status = 'success'",
+                     FROM (
+                         (SELECT endpoint, fetched_at FROM fetch_history
+                          WHERE endpoint = 'nta_vehicles' AND status = 'success'
+                          ORDER BY fetched_at DESC LIMIT 1)
+                         UNION ALL
+                         (SELECT endpoint, fetched_at FROM fetch_history
+                          WHERE endpoint = 'nta_trip_updates' AND status = 'success'
+                          ORDER BY fetched_at DESC LIMIT 1)
+                     ) latest",
                 )
                 .fetch_one(&pool)
                 .await?;
@@ -426,6 +436,7 @@ impl BusQuery {
                         vehicle.vehicle_id,
                         vehicle.vehicle_label,
                         vehicle.trip_id,
+                        trip.shape_id,
                         COALESCE(vehicle.route_id, trip.route_id) AS route_id,
                         NULLIF(BTRIM(route.route_short_name), '') AS route_short_name,
                         NULLIF(BTRIM(route.route_long_name), '') AS route_long_name,
@@ -1042,11 +1053,17 @@ mod tests {
     #[test]
     fn realtime_status_serializes_the_last_success_in_utc() {
         let status = BusRealtimeStatus::from(BusRealtimeStatusRow {
+            vehicles_last_success_at: None,
+            trip_updates_last_success_at: Some(
+                Utc.with_ymd_and_hms(2026, 9, 13, 12, 45, 0).unwrap(),
+            ),
             last_success_at: Some(Utc.with_ymd_and_hms(2026, 9, 13, 12, 45, 0).unwrap()),
             is_live: true,
         });
 
         assert!(status.is_live);
+        assert!(status.vehicles_last_success_at.is_none());
+        assert_eq!(status.trip_updates_last_success_at, status.last_success_at);
         assert_eq!(
             status.last_success_at.as_deref(),
             Some("2026-09-13T12:45:00Z")

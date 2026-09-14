@@ -1,6 +1,6 @@
 # Irish Rail Nabber
 
-A multi-service rail-data platform built to explore asynchronous ingestion, time-series storage, Rust APIs and containerized delivery.
+A multi-service rail and bus data platform built to explore asynchronous ingestion, time-series storage, Rust APIs and containerized delivery.
 
 ```text
 Irish Rail realtime XML ─┐
@@ -37,6 +37,11 @@ NTA GTFS + GTFS-Realtime┘
 | `docker-compose.yml` | local/container service topology |
 
 ## Development and scope
+
+Use `main` as the base for new worktrees and pull requests. The former rail-only
+`master` branch is preserved as `archive/legacy-master` and is no longer maintained.
+Bus collection, route geometry, delays and update limits are documented in
+[Bus data](./docs/buses.md).
 
 This is an actively developed portfolio system. Runtime availability, LLM configuration and billing integrations are environment-dependent; the repository should not be read as a public uptime or pricing commitment.
 

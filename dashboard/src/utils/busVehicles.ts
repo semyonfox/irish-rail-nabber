@@ -3,6 +3,7 @@ export interface BusVehicle {
   vehicleId: string | null;
   vehicleLabel: string | null;
   tripId: string | null;
+  shapeId: string | null;
   routeId: string | null;
   routeShortName: string | null;
   routeLongName: string | null;

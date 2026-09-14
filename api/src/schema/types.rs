@@ -132,6 +132,7 @@ pub struct BusVehicle {
     pub vehicle_id: Option<String>,
     pub vehicle_label: Option<String>,
     pub trip_id: Option<String>,
+    pub shape_id: Option<String>,
     pub route_id: Option<String>,
     pub route_short_name: Option<String>,
     pub route_long_name: Option<String>,
@@ -156,6 +157,7 @@ impl From<BusVehicleRow> for BusVehicle {
             vehicle_id: row.vehicle_id,
             vehicle_label: row.vehicle_label,
             trip_id: row.trip_id,
+            shape_id: row.shape_id,
             route_id: row.route_id,
             route_short_name: row.route_short_name,
             route_long_name: row.route_long_name,
@@ -193,6 +195,8 @@ pub struct BusRouteShape {
 
 #[derive(Clone, SimpleObject)]
 pub struct BusRealtimeStatus {
+    pub vehicles_last_success_at: Option<String>,
+    pub trip_updates_last_success_at: Option<String>,
     pub last_success_at: Option<String>,
     pub is_live: bool,
 }
@@ -200,6 +204,8 @@ pub struct BusRealtimeStatus {
 impl From<BusRealtimeStatusRow> for BusRealtimeStatus {
     fn from(row: BusRealtimeStatusRow) -> Self {
         Self {
+            vehicles_last_success_at: utc_datetime_to_string(&row.vehicles_last_success_at),
+            trip_updates_last_success_at: utc_datetime_to_string(&row.trip_updates_last_success_at),
             last_success_at: utc_datetime_to_string(&row.last_success_at),
             is_live: row.is_live,
         }

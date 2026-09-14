@@ -1,5 +1,7 @@
 export interface BusRealtimeStatus {
   lastSuccessAt: string | null;
+  vehiclesLastSuccessAt?: string | null;
+  tripUpdatesLastSuccessAt?: string | null;
   isLive: boolean;
 }
 
@@ -52,4 +54,30 @@ export function busFeedState(status: BusRealtimeStatus | null, fetching: boolean
     isLive: false,
     isLoading: false,
   };
+}
+
+// A healthy TripUpdates feed must not make stale vehicle positions look live.
+export function busSourceStatus(
+  status: BusRealtimeStatus | null,
+  source: "vehicles" | "tripUpdates",
+  now = Date.now(),
+): BusRealtimeStatus | null {
+  if (!status) return null;
+  const lastSuccessAt =
+    (source === "vehicles" ? status.vehiclesLastSuccessAt : status.tripUpdatesLastSuccessAt) ??
+    null;
+  const age = lastSuccessAt == null ? NaN : now - Date.parse(lastSuccessAt);
+  return { ...status, lastSuccessAt, isLive: Number.isFinite(age) && age >= 0 && age < 180_000 };
+}
+
+export function busUpdateAge(value: string | null | undefined, now = Date.now()) {
+  if (!value) return "No successful update";
+  const age = now - Date.parse(value);
+  if (!Number.isFinite(age) || age < 0) return "Time unavailable";
+  const seconds = Math.floor(age / 1_000);
+  if (seconds >= 86_400)
+    return `${Math.floor(seconds / 86_400)}d ${Math.floor((seconds % 86_400) / 3_600)}h ago`;
+  if (seconds >= 3_600)
+    return `${Math.floor(seconds / 3_600)}h ${Math.floor((seconds % 3_600) / 60)}m ago`;
+  return seconds < 60 ? `${seconds}s ago` : `${Math.floor(seconds / 60)}m ${seconds % 60}s ago`;
 }

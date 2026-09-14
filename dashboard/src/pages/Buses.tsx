@@ -5,7 +5,12 @@ import BusVehicleMap from "../components/BusVehicleMap";
 import RequestError from "../components/RequestError";
 import { Card, DelayPill, Empty, Icon, PageHeader, SearchInput, Segmented } from "../components/ui";
 import { BUS_LIVE_OVERVIEW, BUS_SCHEDULED_ROUTE_SHAPES, BUS_STOPS } from "../graphql/queries";
-import { busFeedState, type BusRealtimeStatus } from "../utils/busRealtime";
+import {
+  busFeedState,
+  busSourceStatus,
+  busUpdateAge,
+  type BusRealtimeStatus,
+} from "../utils/busRealtime";
 import type { BusRouteShape } from "../utils/busShapes";
 import type { BusVehicle } from "../utils/busVehicles";
 import { usePollingQuery } from "../utils/usePollingQuery";
@@ -52,9 +57,9 @@ interface BusStopsData {
 interface BusLiveOverviewData {
   busRealtimeStatus: BusRealtimeStatus;
   busStopBoard?: BusDeparture[];
-  busVehicles: BusVehicle[];
-  busLiveRouteShapes: BusRouteShape[];
-  busRouteDelays: BusRouteDelay[];
+  busVehicles?: BusVehicle[];
+  busLiveRouteShapes?: BusRouteShape[];
+  busRouteDelays?: BusRouteDelay[];
 }
 
 interface BusScheduledRouteShapesData {
@@ -102,6 +107,12 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
   const [selectedStop, setSelectedStop] = useState<BusStop | null>(null);
   const selectedStopId = selectedStop?.stopId ?? null;
   const [hours, setHours] = useState(24);
+  const [now, setNow] = useState(Date.now);
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1_000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const id = setTimeout(() => setSettledSearch(search.trim()), 250);
@@ -129,28 +140,49 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
       query: BUS_LIVE_OVERVIEW,
       variables: {
         stopId: selectedStopId ?? "",
-        includeBoard: selectedStopId != null,
+        includeBoard: view === "stops" && selectedStopId != null,
+        includeVehicles: view === "live",
+        includeShapes: false,
+        includeDelays: view === "network",
         boardLimit: 30,
         vehicleLimit: 2_000,
         shapeLimit: 100,
         hours: view === "network" ? hours : 24,
-        routeLimit: 20,
+        routeLimit: 100,
+      },
+      pollInterval: view === "network" ? 60_000 : 15_000,
+    });
+
+  // Geometry can be large and slow. It must not hold up positions or stop boards.
+  const [{ data: shapesData, fetching: liveShapesFetching, error: liveShapesError }, retryShapes] =
+    usePollingQuery<BusLiveOverviewData>({
+      query: BUS_LIVE_OVERVIEW,
+      pause: view !== "live",
+      variables: {
+        stopId: "",
+        includeBoard: false,
+        includeVehicles: false,
+        includeShapes: true,
+        includeDelays: false,
+        shapeLimit: 100,
       },
       pollInterval: 60_000,
     });
 
   const departures = liveData?.busStopBoard ?? [];
   const realtimeStatus = liveData?.busRealtimeStatus ?? null;
-  const feedState = busFeedState(realtimeStatus, liveFetching && !liveData);
+  const sourceStatus = busSourceStatus(
+    realtimeStatus,
+    view === "live" ? "vehicles" : "tripUpdates",
+    now,
+  );
+  const feedState = busFeedState(sourceStatus, liveFetching && !liveData);
   const vehicles = liveData?.busVehicles ?? [];
-  const liveRouteShapes = liveData?.busLiveRouteShapes ?? [];
+  const liveRouteShapes = shapesData?.busLiveRouteShapes ?? [];
   const scheduledRouteShapes = scheduledShapesData?.busScheduledRouteShapes ?? [];
   const useLiveRouteShapes = feedState.isLive && liveRouteShapes.length > 0;
   const routeShapes = useLiveRouteShapes ? liveRouteShapes : scheduledRouteShapes;
   const routes = liveData?.busRouteDelays ?? [];
-  const busesOnTime = routes.length
-    ? routes.reduce((sum, route) => sum + route.onTimePct, 0) / routes.length
-    : null;
 
   if (view === "live") {
     return (
@@ -159,9 +191,9 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
           <BusVehicleMap
             vehicles={feedState.isLive ? vehicles : []}
             routeShapes={routeShapes}
-            realtimeStatus={realtimeStatus}
+            realtimeStatus={sourceStatus}
             fetching={liveFetching}
-            shapesFetching={scheduledShapesFetching}
+            shapesFetching={scheduledShapesFetching || liveShapesFetching}
             shapeMode={useLiveRouteShapes ? "live" : "scheduled"}
             shapeFocusKey={selectedStopId ?? "network"}
           />
@@ -176,13 +208,8 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
             stats={[
               {
                 label: "Routes",
-                value: routes.length,
-                title: "Routes sampled over the last 24 hours",
-              },
-              {
-                label: "Within 5m",
-                value: busesOnTime == null ? "--" : `${busesOnTime.toFixed(0)}%`,
-                title: "Mean route on-time percentage over the last 24 hours",
+                value: new Set(routeShapes.map((shape) => shape.routeId)).size,
+                title: "Routes represented by the loaded paths, not the entire network",
               },
               {
                 label: "Paths",
@@ -193,9 +220,32 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
           >
             <p className="mt-3 text-xs text-muted">
               {useLiveRouteShapes
-                ? "Live vehicles and their routes."
+                ? "Estimated glides connect reported positions along the trip path."
                 : "Scheduled routes. Live positions appear when the feed is available."}
             </p>
+            <p className="mt-3 text-xs text-muted">
+              Positions: {busUpdateAge(realtimeStatus?.vehiclesLastSuccessAt, now)}.
+              <br />
+              Predictions: {busUpdateAge(realtimeStatus?.tripUpdatesLastSuccessAt, now)}.
+              <br />
+              NTA updates about every two minutes. Checked every 15 seconds.
+            </p>
+            <button
+              type="button"
+              className="mt-3 text-xs underline"
+              disabled={liveFetching}
+              onClick={() => retryLive({ requestPolicy: "network-only" })}
+            >
+              {liveFetching ? "Checking updates…" : "Check for updates"}
+            </button>
+            {liveShapesError && (
+              <RequestError
+                bare
+                error={liveShapesError}
+                onRetry={() => retryShapes({ requestPolicy: "network-only" })}
+                title="Live route paths unavailable"
+              />
+            )}
             {liveError && (
               <RequestError
                 bare
@@ -255,6 +305,11 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
             </span>
           }
         />
+
+        <p className="mb-4 text-xs text-muted">
+          Predictions updated {busUpdateAge(realtimeStatus?.tripUpdatesLastSuccessAt, now)}. Each
+          feed normally updates about every two minutes.
+        </p>
 
         {liveError && !liveData ? (
           <RequestError
@@ -385,7 +440,7 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
         {view === "network" && (
           <Card
             title="Routes under pressure"
-            description="Routes with the highest average delay in the selected window."
+            description="Up to 100 routes, ranked by average reported stop delay. These are predictions, not measured arrival punctuality."
             index={5}
             actions={
               <Segmented
@@ -405,6 +460,7 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
                     <th className="num">Average delay</th>
                     <th className="num">Within 5 min</th>
                     <th className="num">Stop updates</th>
+                    <th>Last update</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -435,11 +491,14 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
                       </td>
                       <td className="num">{route.onTimePct.toFixed(1)}%</td>
                       <td className="num text-muted">{route.sampleCount.toLocaleString()}</td>
+                      <td className="text-muted" title={route.lastUpdated ?? undefined}>
+                        {busUpdateAge(route.lastUpdated, now)}
+                      </td>
                     </tr>
                   ))}
                   {!liveFetching && routes.length === 0 && !liveError ? (
                     <tr>
-                      <td colSpan={5} className="py-12 text-center text-muted">
+                      <td colSpan={6} className="py-12 text-center text-muted">
                         Route history starts building after the first realtime poll.
                       </td>
                     </tr>

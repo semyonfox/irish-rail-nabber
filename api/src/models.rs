@@ -164,6 +164,7 @@ pub struct BusVehicleRow {
     pub vehicle_id: Option<String>,
     pub vehicle_label: Option<String>,
     pub trip_id: Option<String>,
+    pub shape_id: Option<String>,
     pub route_id: Option<String>,
     pub route_short_name: Option<String>,
     pub route_long_name: Option<String>,
@@ -194,6 +195,8 @@ pub struct BusShapePointRow {
 
 #[derive(sqlx::FromRow, Debug)]
 pub struct BusRealtimeStatusRow {
+    pub vehicles_last_success_at: Option<DateTime<Utc>>,
+    pub trip_updates_last_success_at: Option<DateTime<Utc>>,
     pub last_success_at: Option<DateTime<Utc>>,
     pub is_live: bool,
 }

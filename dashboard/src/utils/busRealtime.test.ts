@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vite-plus/test";
 
-import { busFeedState } from "./busRealtime";
+import { busFeedState, busSourceStatus, busUpdateAge } from "./busRealtime";
 
 describe("bus realtime presentation", () => {
   test("distinguishes loading, live, static-only and stale feeds", () => {
@@ -22,5 +22,39 @@ describe("bus realtime presentation", () => {
 
     expect(offline.emptyDescription).toContain("Stop search remains available");
     expect(offline.emptyDescription).toContain("Departures and vehicle tracking need");
+  });
+});
+
+describe("independent bus feed freshness", () => {
+  const now = Date.parse("2026-09-14T12:00:00Z");
+  const status = {
+    isLive: true,
+    lastSuccessAt: "2026-09-14T11:59:55Z",
+    tripUpdatesLastSuccessAt: "2026-09-14T11:59:55Z",
+    vehiclesLastSuccessAt: "2026-09-14T11:56:00Z",
+  };
+
+  test("successful predictions cannot revive stale vehicles", () => {
+    expect(busSourceStatus(status, "vehicles", now)?.isLive).toBe(false);
+    expect(busSourceStatus(status, "tripUpdates", now)?.isLive).toBe(true);
+    expect(busSourceStatus(status, "tripUpdates", now + 180_000)?.isLive).toBe(false);
+  });
+
+  test("missing, invalid and future timestamps do not claim a live feed", () => {
+    expect(busSourceStatus(null, "vehicles", now)).toBeNull();
+    for (const timestamp of [null, "bad", "2026-09-14T12:01:00Z"]) {
+      expect(
+        busSourceStatus({ ...status, vehiclesLastSuccessAt: timestamp }, "vehicles", now)?.isLive,
+      ).toBe(false);
+    }
+  });
+
+  test("displays update ages without treating a missing timestamp as now", () => {
+    expect(busUpdateAge(status.tripUpdatesLastSuccessAt, now)).toBe("5s ago");
+    expect(busUpdateAge(status.vehiclesLastSuccessAt, now)).toBe("4m 0s ago");
+    expect(busUpdateAge("2026-09-14T06:00:00Z", now)).toBe("6h 0m ago");
+    expect(busUpdateAge("2026-09-12T11:00:00Z", now)).toBe("2d 1h ago");
+    expect(busUpdateAge(null, now)).toBe("No successful update");
+    expect(busUpdateAge("bad", now)).toBe("Time unavailable");
   });
 });
