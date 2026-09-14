@@ -797,6 +797,12 @@ impl BusQuery {
         let result = cache
             .bus_route_delays
             .try_get_with(cache_key, async move {
+                let mut transaction = pool.begin().await?;
+                // The national history can exceed Docker's shared-memory limit
+                // in a parallel hash join. Keep this setting local to this query.
+                sqlx::query("SET LOCAL enable_parallel_hash = off")
+                    .execute(&mut *transaction)
+                    .await?;
                 let rows = sqlx::query_as::<_, BusRouteDelayRow>(
                     "WITH candidates AS (
                 SELECT
@@ -909,8 +915,9 @@ impl BusQuery {
                 )
                 .bind(hours)
                 .bind(i64::from(limit))
-                .fetch_all(&pool)
+                .fetch_all(&mut *transaction)
                 .await?;
+                transaction.commit().await?;
 
                 Ok::<_, sqlx::Error>(Arc::new(
                     rows.into_iter().map(BusRouteDelay::from).collect(),
