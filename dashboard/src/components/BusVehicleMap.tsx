@@ -17,7 +17,7 @@ import {
   speedKmh,
   type BusVehicle,
 } from "../utils/busVehicles";
-import { Icon } from "./ui";
+import { Icon, Sheet } from "./ui";
 import {
   applyIrelandMapTheme,
   createIrelandMap,
@@ -104,7 +104,11 @@ export default function BusVehicleMap({
 
       let map: maplibregl.Map;
       try {
-        map = createIrelandMap(node, theme);
+        map = createIrelandMap(
+          node,
+          theme,
+          'Bus data: <a href="https://www.nationaltransport.ie/" target="_blank" rel="noreferrer">NTA</a> · <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">CC BY 4.0</a>',
+        );
       } catch (error) {
         setMapError(error instanceof Error ? error.message : "Map unavailable");
         return;
@@ -404,46 +408,39 @@ export default function BusVehicleMap({
           <Icon name="bus" />
           <strong>
             {shapesFetching
-              ? "Loading scheduled route paths"
+              ? "Loading bus routes"
               : feedState.isLive && fetching
                 ? "Loading live vehicle positions"
-                : "Scheduled route paths unavailable"}
+                : "Bus routes unavailable"}
           </strong>
           <span>
             {shapesFetching
-              ? "The map will focus on the selected stop when its routes arrive."
-              : "The active GTFS feed has no imported route geometry for this view."}
+              ? "Routes will appear when they finish loading."
+              : "No bus positions or routes are available right now. Please try again shortly."}
           </span>
         </div>
       ) : null}
 
       {selectedVehicle ? (
-        <aside className="bus-vehicle-detail" aria-label="Selected bus">
-          <button
-            type="button"
-            className="icon-btn"
-            aria-label="Close bus details"
-            onClick={() => setSelectedKey(null)}
-          >
-            <Icon name="x" />
-          </button>
-          <div className="flex min-w-0 items-start gap-3 pr-9">
-            <span className="bus-route-chip">{busVehicleRoute(selectedVehicle)}</span>
-            <div className="min-w-0">
-              <strong>
-                {selectedVehicle.headsign ||
-                  selectedVehicle.routeLongName ||
-                  "Destination not reported"}
-              </strong>
-              <small>
-                {selectedVehicle.operatorName || "Operator unavailable"}
-                {selectedVehicle.vehicleLabel || selectedVehicle.vehicleId
-                  ? ` · ${selectedVehicle.vehicleLabel || selectedVehicle.vehicleId}`
-                  : ""}
-              </small>
-            </div>
-          </div>
-          <dl>
+        <Sheet
+          label="bus details"
+          onClose={() => setSelectedKey(null)}
+          eyebrow={
+            <>
+              <span className="bus-route-chip">{busVehicleRoute(selectedVehicle)}</span>Bus
+            </>
+          }
+          title={
+            selectedVehicle.headsign || selectedVehicle.routeLongName || "Destination not reported"
+          }
+          subtitle={[
+            selectedVehicle.operatorName || "Operator unavailable",
+            selectedVehicle.vehicleLabel || selectedVehicle.vehicleId,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        >
+          <dl className="bus-vehicle-facts">
             <div>
               <dt>Status</dt>
               <dd>{status || "Position reported"}</dd>
@@ -478,7 +475,7 @@ export default function BusVehicleMap({
               <dd>{updateTime(selectedVehicle.sourceTimestamp || selectedVehicle.fetchedAt)}</dd>
             </div>
           </dl>
-        </aside>
+        </Sheet>
       ) : null}
 
       {mapError ? (

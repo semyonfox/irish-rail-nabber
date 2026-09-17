@@ -121,7 +121,7 @@ export default function AccountPage() {
             <dl className="card-body grid gap-4 text-[14.5px]">
               <div className="flex items-center justify-between gap-4 border-b border-line pb-4">
                 <dt className="text-muted">Email</dt>
-                <dd className="truncate font-medium">{user.email}</dd>
+                <dd className="min-w-0 break-words text-right font-medium">{user.email}</dd>
               </div>
               <div className="flex items-center justify-between gap-4 border-b border-line pb-4">
                 <dt className="text-muted">Plan</dt>

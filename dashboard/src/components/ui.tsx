@@ -1,4 +1,4 @@
-import { useEffect, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import { delayTone, shortDelay } from "../utils/format";
 
 const icons = {
@@ -202,7 +202,7 @@ export function Kpi({
         {label}
       </div>
       <div className="kpi-value">{value}</div>
-      {detail ? <div className="kpi-detail line-clamp-2">{detail}</div> : null}
+      {detail ? <div className="kpi-detail">{detail}</div> : null}
     </div>
   );
 }
@@ -330,6 +330,17 @@ export function Sheet({
   onClose: () => void;
   children: ReactNode;
 }) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const previousFocus = document.activeElement;
+    closeRef.current?.focus({ preventScroll: true });
+    return () => {
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
+        previousFocus.focus({ preventScroll: true });
+      }
+    };
+  }, []);
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
@@ -346,7 +357,13 @@ export function Sheet({
           <h2 className="sheet-title">{title}</h2>
           {subtitle ? <div className="sheet-sub">{subtitle}</div> : null}
         </div>
-        <button type="button" className="icon-btn" onClick={onClose} aria-label={`Close ${label}`}>
+        <button
+          ref={closeRef}
+          type="button"
+          className="icon-btn"
+          onClick={onClose}
+          aria-label={`Close ${label}`}
+        >
           <Icon name="x" />
         </button>
       </div>

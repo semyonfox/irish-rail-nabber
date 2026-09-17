@@ -126,8 +126,8 @@ export default function RouteDetail({ route, onClose }: Props) {
           >
             <span className="board-time">{eventTime(event)}</span>
             <div className="min-w-0">
-              <div className="truncate text-[14.5px] font-semibold">{event.endpointName}</div>
-              <div className="truncate text-[12.5px] text-muted">
+              <div className="break-words text-[14.5px] font-semibold">{event.endpointName}</div>
+              <div className="break-words text-[12.5px] text-muted">
                 <span className="code">{event.trainCode}</span> · {event.origin || "—"} →{" "}
                 {event.destination || "—"} · Due {dueLabel(event.dueIn)}
               </div>

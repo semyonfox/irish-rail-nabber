@@ -179,7 +179,7 @@ export default function ChatAssistant() {
             message.role === "user" ? (
               <div
                 key={message.id}
-                className="max-w-[85%] self-end whitespace-pre-wrap rounded-[20px] rounded-br-md bg-ink px-4 py-3 text-[15px] text-white"
+                className="max-w-[85%] self-end whitespace-pre-wrap break-words rounded-[20px] rounded-br-md bg-ink px-4 py-3 text-[15px] text-[var(--color-on-ink)]"
               >
                 {message.text}
               </div>
@@ -194,7 +194,7 @@ export default function ChatAssistant() {
                     ) : null}
                   </div>
                   <div
-                    className={`mt-1 whitespace-pre-wrap text-[15px] leading-relaxed ${
+                    className={`mt-1 whitespace-pre-wrap break-words text-[15px] leading-relaxed ${
                       message.error ? "tone-block px-4 py-3" : "text-ink"
                     }`}
                     data-tone={message.error ? "bad" : undefined}
@@ -216,8 +216,10 @@ export default function ChatAssistant() {
                                 {tool.rows} rows{tool.truncated ? ", truncated" : ""}
                               </span>
                             </div>
-                            <p className="code mt-1">{formatToolArgs(tool.arguments)}</p>
-                            <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg bg-wash p-2 font-mono text-[12px] text-ink-2">
+                            <p className="code mt-1 break-words">
+                              {formatToolArgs(tool.arguments)}
+                            </p>
+                            <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-wash p-2 font-mono text-[12px] text-ink-2">
                               {tool.result}
                             </pre>
                           </div>
@@ -256,7 +258,7 @@ export default function ChatAssistant() {
               onKeyDown={onComposerKey}
               rows={2}
               placeholder="How late is the 10:10 from Heuston?"
-              className="min-h-12 flex-1 resize-none bg-transparent px-2 py-1.5 text-[15px] outline-none placeholder:text-[var(--placeholder)]"
+              className="min-h-12 min-w-0 flex-1 resize-none bg-transparent px-2 py-1.5 text-[15px] outline-none placeholder:text-[var(--placeholder)]"
               disabled={loading}
             />
             <button
@@ -269,7 +271,7 @@ export default function ChatAssistant() {
             </button>
           </div>
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[12.5px] text-muted">
-            <span>Enter to send, Shift+Enter for a new line</span>
+            <span className="hidden sm:inline">Enter to send, Shift+Enter for a new line</span>
             {error && /request limit/i.test(error) ? (
               <Link to="/pricing" className="font-semibold text-brand">
                 View plans

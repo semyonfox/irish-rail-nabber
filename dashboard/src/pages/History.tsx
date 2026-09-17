@@ -149,7 +149,7 @@ export default function History() {
               <span className="field-label">Detail</span>
               <Segmented label="Detail" options={buckets} value={bucket} onChange={setBucket} />
             </div>
-            <div className="min-w-56 flex-1">
+            <div className="w-full min-w-0 sm:min-w-56 sm:flex-1">
               <label className="field-label" htmlFor="history-station">
                 Scope
               </label>
