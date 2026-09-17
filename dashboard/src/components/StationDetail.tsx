@@ -1,7 +1,7 @@
 import { STATION_BOARD } from "../graphql/queries";
 import { usePollingQuery } from "../utils/usePollingQuery";
 import { formatTime, shortDelay } from "../utils/format";
-import type { MapStationSelection } from "./TrainMap";
+import type { RailStation } from "./TrainMap";
 import { DelayPill, Empty, MiniStat, Sheet } from "./ui";
 
 interface StationEvent {
@@ -25,11 +25,11 @@ interface StationBoardData {
 }
 
 interface Props {
-  station: MapStationSelection;
+  station: RailStation;
   onClose: () => void;
 }
 
-function stationTypeLabel(station: MapStationSelection) {
+function stationTypeLabel(station: RailStation) {
   if (station.isDart) return "DART";
   if (station.stationType === "M") return "Mainline";
   if (station.stationType === "S") return "Suburban";
@@ -133,7 +133,7 @@ export default function StationDetail({ station, onClose }: Props) {
                 {eventTime(nextEvent)}
               </span>
               <div className="min-w-0">
-                <div className="truncate font-semibold">{routeText(nextEvent)}</div>
+                <div className="break-words font-semibold">{routeText(nextEvent)}</div>
                 <div className="code">
                   {nextEvent.trainCode} · {eventKind(nextEvent) === "Dep" ? "departs" : "arrives"}
                 </div>
@@ -142,7 +142,9 @@ export default function StationDetail({ station, onClose }: Props) {
             <DelayPill minutes={nextEvent.lateMinutes} />
           </div>
           {nextEvent.lastLocation ? (
-            <div className="mt-2 truncate text-[12.5px] text-ink-2">{nextEvent.lastLocation}</div>
+            <div className="mt-2 break-words text-[12.5px] text-ink-2">
+              {nextEvent.lastLocation}
+            </div>
           ) : null}
         </div>
       ) : null}
@@ -162,8 +164,8 @@ export default function StationDetail({ station, onClose }: Props) {
             <div key={`${event.trainCode}-${scheduled}-${expected}`} className="board-row">
               <span className="board-time">{eventTime(event)}</span>
               <div className="min-w-0">
-                <div className="truncate text-[14.5px] font-semibold">{routeText(event)}</div>
-                <div className="truncate text-[12.5px] text-muted">
+                <div className="break-words text-[14.5px] font-semibold">{routeText(event)}</div>
+                <div className="break-words text-[12.5px] text-muted">
                   <span className="code">{event.trainCode}</span> · Due {dueLabel(event.dueIn)}
                   {event.lastLocation ? ` · ${event.lastLocation}` : ""}
                 </div>
@@ -174,9 +176,11 @@ export default function StationDetail({ station, onClose }: Props) {
         })}
       </div>
 
-      <div className="code">
-        {station.latitude.toFixed(4)}, {station.longitude.toFixed(4)}
-      </div>
+      {station.latitude != null && station.longitude != null && (
+        <div className="code">
+          {station.latitude.toFixed(4)}, {station.longitude.toFixed(4)}
+        </div>
+      )}
     </Sheet>
   );
 }

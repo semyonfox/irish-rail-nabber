@@ -139,7 +139,7 @@ export default function TrainDetail({ trainCode, trainDate, onClose }: Props) {
               <div className="mt-4 flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-[12.5px] text-muted">Next stop</div>
-                  <div className="truncate font-semibold">
+                  <div className="break-words font-semibold">
                     {nextStop.locationFullName || nextStop.locationCode}
                   </div>
                 </div>
@@ -164,7 +164,7 @@ export default function TrainDetail({ trainCode, trainDate, onClose }: Props) {
                     </span>
                     <div className="min-w-0">
                       <div
-                        className={`truncate text-[14.5px] ${isNext ? "font-semibold" : "font-medium"} ${isComplete ? "text-ink-2" : "text-ink"}`}
+                        className={`break-words text-[14.5px] ${isNext ? "font-semibold" : "font-medium"} ${isComplete ? "text-ink-2" : "text-ink"}`}
                       >
                         {stop.locationFullName || stop.locationCode}
                       </div>

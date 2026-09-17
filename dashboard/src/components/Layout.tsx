@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 
 import { useAuth } from "../auth/useAuth";
@@ -20,6 +20,16 @@ export default function Layout() {
   const [lastTransportMode, setLastTransportMode] = useState(pathMode ?? "rail");
   const transportMode = pathMode ?? lastTransportMode;
   const links = transportLinks[transportMode];
+  const navRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const nav = navRef.current;
+    const active = nav?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (nav && active) {
+      nav.scrollLeft =
+        active.offsetLeft - nav.offsetLeft - (nav.clientWidth - active.clientWidth) / 2;
+    }
+  }, [pathname, transportMode]);
 
   if (pathMode && pathMode !== lastTransportMode) {
     setLastTransportMode(pathMode);
@@ -59,7 +69,7 @@ export default function Layout() {
           </Link>
         </nav>
 
-        <nav className="nav" aria-label="Primary">
+        <nav ref={navRef} className="nav" aria-label="Primary">
           {links.map((link) => (
             <NavLink
               key={link.to}
@@ -111,7 +121,8 @@ export default function Layout() {
                 Log in
               </Link>
               <Link to="/register" className="btn btn-primary btn-sm">
-                Get access
+                <span className="sm:hidden">Join</span>
+                <span className="hidden sm:inline">Get access</span>
               </Link>
             </>
           )}

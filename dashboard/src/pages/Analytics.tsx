@@ -200,7 +200,7 @@ export default function Analytics() {
                 description="Ranked by delay load: average delay × trains"
               >
                 <div className="overflow-auto">
-                  <table className="data-table min-w-[640px]">
+                  <table className="data-table responsive-table min-w-[640px]">
                     <thead>
                       <tr>
                         <th>Route</th>
@@ -213,16 +213,20 @@ export default function Analytics() {
                     <tbody>
                       {routeImpact.map((route) => (
                         <tr key={`${route.origin}-${route.destination}`}>
-                          <td>
+                          <td data-label="Route">
                             <div className="cell-main">{route.origin}</div>
                             <div className="cell-sub">to {route.destination}</div>
                           </td>
-                          <td>
+                          <td data-label="Average">
                             <DelayPill minutes={route.avgLateMinutes} precise />
                           </td>
-                          <td className="num">{formatPct(route.onTimePct)}</td>
-                          <td className="num text-muted">{route.trainCount}</td>
-                          <td>
+                          <td data-label="Within 5m" className="num">
+                            {formatPct(route.onTimePct)}
+                          </td>
+                          <td data-label="Trains" className="num text-muted">
+                            {route.trainCount}
+                          </td>
+                          <td data-label="Delay load">
                             <LoadMeter value={route.impact} max={maxRouteImpact} />
                           </td>
                         </tr>
@@ -245,7 +249,7 @@ export default function Analytics() {
                 description="Ranked by delay load: average delay × stops"
               >
                 <div className="overflow-auto">
-                  <table className="data-table min-w-[640px]">
+                  <table className="data-table responsive-table min-w-[640px]">
                     <thead>
                       <tr>
                         <th>Station</th>
@@ -258,18 +262,22 @@ export default function Analytics() {
                     <tbody>
                       {stationImpact.map((station) => (
                         <tr key={station.stationCode}>
-                          <td>
+                          <td data-label="Station">
                             <div className="cell-main">{station.stationDesc}</div>
                             <div className="cell-sub">
                               {formatPct(station.onTimePct)} within 5 min
                             </div>
                           </td>
-                          <td>
+                          <td data-label="Average">
                             <DelayPill minutes={station.avgLateMinutes} precise />
                           </td>
-                          <td className="num">+{station.maxLateMinutes}m</td>
-                          <td className="num text-muted">{station.totalEvents.toLocaleString()}</td>
-                          <td>
+                          <td data-label="Worst" className="num">
+                            +{station.maxLateMinutes}m
+                          </td>
+                          <td data-label="Stops" className="num text-muted">
+                            {station.totalEvents.toLocaleString()}
+                          </td>
+                          <td data-label="Delay load">
                             <LoadMeter value={station.impact} max={maxStationImpact} />
                           </td>
                         </tr>

@@ -166,11 +166,11 @@ export default function PricingPage() {
             return (
               <div
                 key={plan.id}
-                className={`card rise relative flex flex-col p-6 ${featured ? "bg-ink text-white" : ""}`}
+                className={`card rise relative flex flex-col p-6 ${featured ? "bg-[#121814] text-white" : ""}`}
                 style={{ "--i": index + 1 } as React.CSSProperties}
               >
                 {featured ? (
-                  <span className="absolute right-5 top-5 rounded-full bg-white/12 px-2.5 py-1 text-[12px] font-semibold text-white">
+                  <span className="mb-3 self-start rounded-full bg-white/12 px-2.5 py-1 text-[12px] font-semibold text-white">
                     Includes the assistant
                   </span>
                 ) : null}

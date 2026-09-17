@@ -44,11 +44,15 @@ export function clerkAppearance(theme: Theme) {
       fontFamily: '"Schibsted Grotesk Variable", ui-sans-serif, system-ui, sans-serif',
     },
     elements: {
-      rootBox: "w-full",
+      rootBox: "w-full min-w-0",
       cardBox: "w-full !max-w-none !rounded-[18px] !shadow-[var(--shadow-card)]",
+      card: "!px-4 sm:!px-8",
+      formFieldInput: "!min-h-11 !text-base sm:!text-sm",
+      formButtonPrimary: "!min-h-11",
+      socialButtonsBlockButton: "!min-h-11",
       header: "!items-start !text-left",
       headerTitle:
-        "!font-display !text-[46px] !font-normal !leading-none !tracking-[-0.01em] !text-ink",
+        "!font-display !text-[38px] sm:!text-[46px] !font-normal !leading-[1.08] !tracking-[-0.01em] !text-ink",
       headerSubtitle: "!mt-3 !text-[15px] !text-ink-2",
     },
   };

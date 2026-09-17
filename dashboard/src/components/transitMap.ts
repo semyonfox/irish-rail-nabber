@@ -82,11 +82,11 @@ export function applyIrelandMapTheme(map: maplibregl.Map, theme: Theme) {
   }
 }
 
-export function createIrelandMap(container: HTMLElement, theme: Theme) {
+export function createIrelandMap(container: HTMLElement, theme: Theme, customAttribution?: string) {
   const palette = transitMapPalette(theme);
   return new maplibregl.Map({
     container,
-    attributionControl: { compact: true },
+    attributionControl: { compact: true, customAttribution },
     style: {
       version: 8,
       glyphs: "https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf",

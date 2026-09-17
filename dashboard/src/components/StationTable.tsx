@@ -34,7 +34,11 @@ const hoursOptions = [
   { value: 168, label: "7 days" },
 ];
 
-export default function StationTable() {
+export default function StationTable({
+  onStationSelect,
+}: {
+  onStationSelect?: (station: Pick<StationStats, "stationCode" | "stationDesc">) => void;
+}) {
   const [sorting, setSorting] = useState<SortingState>([{ id: "avgLateMinutes", desc: true }]);
   const [search, setSearch] = useState("");
   const [hours, setHours] = useState(24);
@@ -52,7 +56,17 @@ export default function StationTable() {
           header: "Station",
           cell: (info) => (
             <span className="flex items-center gap-2">
-              <span className="cell-main">{info.getValue()}</span>
+              {onStationSelect ? (
+                <button
+                  type="button"
+                  className="station-board-link"
+                  onClick={() => onStationSelect(info.row.original)}
+                >
+                  {info.getValue()}
+                </button>
+              ) : (
+                <span className="cell-main">{info.getValue()}</span>
+              )}
               <span className="chip">{info.row.original.stationCode}</span>
             </span>
           ),
@@ -74,7 +88,7 @@ export default function StationTable() {
           cell: (info) => <span className="text-muted">{info.getValue().toLocaleString()}</span>,
         }),
       ]),
-    [],
+    [onStationSelect],
   );
 
   const needle = search.trim().toLowerCase();
@@ -130,8 +144,35 @@ export default function StationTable() {
         />
         <span className="ml-auto text-[13px] text-muted">{rows.length} stations</span>
       </div>
+      <div className="px-4 pb-4 sm:hidden">
+        <label className="field-label" htmlFor="station-sort">
+          Sort stations
+        </label>
+        <select
+          id="station-sort"
+          className="control w-full"
+          value={
+            sorting[0] ? `${sorting[0].id}:${sorting[0].desc ? "desc" : "asc"}` : "stationDesc:asc"
+          }
+          onChange={(event) => {
+            const [id, direction] = event.target.value.split(":");
+            setSorting([{ id, desc: direction === "desc" }]);
+          }}
+        >
+          <option value="stationDesc:asc">Station name, A to Z</option>
+          <option value="stationDesc:desc">Station name, Z to A</option>
+          <option value="avgLateMinutes:desc">Average delay, highest first</option>
+          <option value="avgLateMinutes:asc">Average delay, lowest first</option>
+          <option value="maxLateMinutes:desc">Worst delay, highest first</option>
+          <option value="maxLateMinutes:asc">Worst delay, lowest first</option>
+          <option value="onTimePct:asc">Within 5 min, lowest first</option>
+          <option value="onTimePct:desc">Within 5 min, highest first</option>
+          <option value="totalEvents:desc">Stops observed, most first</option>
+          <option value="totalEvents:asc">Stops observed, fewest first</option>
+        </select>
+      </div>
       <div className="overflow-auto">
-        <table className="data-table min-w-[720px]">
+        <table className="data-table responsive-table min-w-[720px]">
           <thead>
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id}>
@@ -167,7 +208,15 @@ export default function StationTable() {
             {table.getRowModel().rows.map((row) => (
               <tr key={row.id}>
                 {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id} className={cell.column.id === "stationDesc" ? "" : "num"}>
+                  <td
+                    key={cell.id}
+                    data-label={
+                      typeof cell.column.columnDef.header === "string"
+                        ? cell.column.columnDef.header
+                        : cell.column.id
+                    }
+                    className={cell.column.id === "stationDesc" ? "" : "num"}
+                  >
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                   </td>
                 ))}

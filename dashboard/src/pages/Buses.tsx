@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import LiveMapShell from "../components/LiveMapShell";
 import LiveNetworkSummary from "../components/LiveNetworkSummary";
 import BusVehicleMap from "../components/BusVehicleMap";
@@ -106,6 +106,16 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
   const [settledSearch, setSettledSearch] = useState("");
   const [selectedStop, setSelectedStop] = useState<BusStop | null>(null);
   const selectedStopId = selectedStop?.stopId ?? null;
+  const changeStopRef = useRef<HTMLButtonElement>(null);
+  const lastStopRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (window.matchMedia("(max-width: 639px)").matches) {
+      (selectedStopId ? changeStopRef.current : lastStopRef.current)?.focus({
+        preventScroll: true,
+      });
+    }
+  }, [selectedStopId]);
   const [hours, setHours] = useState(24);
   const [now, setNow] = useState(Date.now);
 
@@ -200,7 +210,7 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
         }
         summary={
           <LiveNetworkSummary
-            status={feedState.badge}
+            status={feedState.isLive ? "Live now" : feedState.badge}
             live={feedState.isLive}
             count={feedState.isLive ? vehicles.length : "--"}
             caption="services in live feed"
@@ -211,33 +221,8 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
                 value: new Set(routeShapes.map((shape) => shape.routeId)).size,
                 title: "Routes represented by the loaded paths, not the entire network",
               },
-              {
-                label: "Paths",
-                value: routeShapes.length,
-                title: useLiveRouteShapes ? "Live trip paths" : "Representative scheduled paths",
-              },
             ]}
           >
-            <p className="mt-3 text-xs text-muted">
-              {useLiveRouteShapes
-                ? "Estimated glides connect reported positions along the trip path."
-                : "Scheduled routes. Live positions appear when the feed is available."}
-            </p>
-            <p className="mt-3 text-xs text-muted">
-              Positions: {busUpdateAge(realtimeStatus?.vehiclesLastSuccessAt, now)}.
-              <br />
-              Predictions: {busUpdateAge(realtimeStatus?.tripUpdatesLastSuccessAt, now)}.
-              <br />
-              NTA updates about every two minutes. Checked every 15 seconds.
-            </p>
-            <button
-              type="button"
-              className="mt-3 text-xs underline"
-              disabled={liveFetching}
-              onClick={() => retryLive({ requestPolicy: "network-only" })}
-            >
-              {liveFetching ? "Checking updates…" : "Check for updates"}
-            </button>
             {liveShapesError && (
               <RequestError
                 bare
@@ -262,20 +247,6 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
                 title="Bus routes unavailable"
               />
             )}
-            <p className="mt-3 text-xs text-muted">
-              Bus data:{" "}
-              <a href="https://www.nationaltransport.ie/" target="_blank" rel="noreferrer">
-                NTA
-              </a>
-              {" · "}
-              <a
-                href="https://creativecommons.org/licenses/by/4.0/"
-                target="_blank"
-                rel="noreferrer"
-              >
-                CC BY 4.0
-              </a>
-            </p>
           </LiveNetworkSummary>
         }
       />
@@ -298,18 +269,7 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
               ? "Search for a stop to see its next services."
               : "Delay statistics for bus routes across the network."
           }
-          actions={
-            <span className="bus-feed-badge">
-              {feedState.isLive ? <span className="live-dot" /> : null}
-              {feedState.badge}
-            </span>
-          }
         />
-
-        <p className="mb-4 text-xs text-muted">
-          Predictions updated {busUpdateAge(realtimeStatus?.tripUpdatesLastSuccessAt, now)}. Each
-          feed normally updates about every two minutes.
-        </p>
 
         {liveError && !liveData ? (
           <RequestError
@@ -320,7 +280,7 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
         ) : null}
 
         {view === "stops" && (
-          <div className="bus-workspace">
+          <div className="bus-workspace" data-selected={selectedStopId != null}>
             <Card
               title="Find a stop"
               description="Search by stop name or public stop number."
@@ -354,7 +314,10 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
                     key={stop.stopId}
                     className="bus-stop-option"
                     aria-pressed={stop.stopId === selectedStopId}
-                    onClick={() => setSelectedStop(stop)}
+                    onClick={(event) => {
+                      lastStopRef.current = event.currentTarget;
+                      setSelectedStop(stop);
+                    }}
                   >
                     <span className="bus-stop-pin" aria-hidden="true" />
                     <span>
@@ -378,12 +341,26 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
               title={selectedStop ? stopName(selectedStop) : "Live stop board"}
               description={
                 selectedStop
-                  ? `${stopMeta(selectedStop)} · refreshed from NTA TripUpdates`
+                  ? `${stopMeta(selectedStop)}`
                   : "Choose a stop to see its next services."
               }
               index={4}
               className="bus-board-card"
-              actions={liveFetching ? <span className="code">Updating…</span> : undefined}
+              actions={
+                <>
+                  {liveFetching ? <span className="code">Updating…</span> : null}
+                  {selectedStop && (
+                    <button
+                      type="button"
+                      ref={changeStopRef}
+                      className="btn btn-quiet mobile-change-stop"
+                      onClick={() => setSelectedStop(null)}
+                    >
+                      Change stop
+                    </button>
+                  )}
+                </>
+              }
             >
               {!selectedStopId ? (
                 <div className="bus-board-placeholder">
@@ -409,8 +386,10 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
                       className="bus-departure"
                       key={`${departure.entityId ?? "entity"}-${departure.tripId ?? "trip"}-${departure.expectedTime ?? departure.fetchedAt}`}
                     >
-                      <time dateTime={departure.expectedTime ?? undefined}>
-                        {timeLabel(departure.expectedTime)}
+                      <time
+                        dateTime={departure.expectedTime ?? departure.scheduledTime ?? undefined}
+                      >
+                        {timeLabel(departure.expectedTime ?? departure.scheduledTime)}
                       </time>
                       <span className="bus-route-chip">
                         {routeLabel(departure.routeShortName, departure.routeId)}
@@ -452,7 +431,7 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
             }
           >
             <div className="overflow-auto">
-              <table className="data-table min-w-[700px]">
+              <table className="data-table responsive-table min-w-[700px]">
                 <thead>
                   <tr>
                     <th>Route</th>
@@ -475,7 +454,7 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
                             : undefined
                       }
                     >
-                      <td>
+                      <td data-label="Route">
                         <span className="flex items-center gap-3">
                           <span className="bus-route-chip">
                             {routeLabel(route.routeShortName, route.routeId)}
@@ -485,13 +464,23 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
                           </span>
                         </span>
                       </td>
-                      <td className="text-muted">{route.operatorName || "Unknown"}</td>
-                      <td className="num">
+                      <td data-label="Operator" className="text-muted">
+                        {route.operatorName || "Unknown"}
+                      </td>
+                      <td data-label="Average delay" className="num">
                         <DelayPill minutes={route.avgDelaySeconds / 60} precise />
                       </td>
-                      <td className="num">{route.onTimePct.toFixed(1)}%</td>
-                      <td className="num text-muted">{route.sampleCount.toLocaleString()}</td>
-                      <td className="text-muted" title={route.lastUpdated ?? undefined}>
+                      <td data-label="Within 5 min" className="num">
+                        {route.onTimePct.toFixed(1)}%
+                      </td>
+                      <td data-label="Stop updates" className="num text-muted">
+                        {route.sampleCount.toLocaleString()}
+                      </td>
+                      <td
+                        data-label="Last update"
+                        className="text-muted"
+                        title={route.lastUpdated ?? undefined}
+                      >
                         {busUpdateAge(route.lastUpdated, now)}
                       </td>
                     </tr>

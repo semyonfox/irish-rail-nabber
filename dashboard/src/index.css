@@ -1190,23 +1190,6 @@
       var(--color-paper);
     background-size: 72px 72px;
   }
-  .bus-feed-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 9px;
-    height: 38px;
-    padding: 0 14px;
-    border: 1px solid var(--bus-border);
-    border-radius: 999px;
-    background: var(--color-bus-soft);
-    color: var(--color-bus-deep);
-    font-size: 13px;
-    font-weight: 650;
-  }
-  .bus-feed-badge .live-dot,
-  .bus-feed-badge .live-dot::after {
-    background: var(--color-bus);
-  }
   .bus-hero {
     display: grid;
     grid-template-columns: auto minmax(240px, 1fr) auto auto;
@@ -1339,61 +1322,22 @@
     color: var(--color-muted);
     font-size: 13px;
   }
-  .bus-vehicle-detail {
-    position: absolute;
-    bottom: 16px;
-    left: 16px;
-    width: min(470px, calc(100% - 32px));
-    padding: 16px;
-    border: 1px solid var(--color-line);
-    border-radius: 16px;
-    background: var(--overlay-bg);
-    box-shadow: var(--shadow-float);
-    backdrop-filter: blur(10px);
-  }
-  .bus-vehicle-detail > .icon-btn {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-  }
-  .bus-vehicle-detail strong,
-  .bus-vehicle-detail small {
-    display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .bus-vehicle-detail strong {
-    font-size: 15px;
-    font-weight: 680;
-  }
-  .bus-vehicle-detail small {
-    margin-top: 2px;
-    color: var(--color-muted);
-    font-size: 12.5px;
-  }
-  .bus-vehicle-detail dl {
+  .bus-vehicle-facts {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 10px;
-    margin: 14px 0 0;
-    padding-top: 12px;
-    border-top: 1px solid var(--color-line);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px 16px;
+    margin: 0;
   }
-  .bus-vehicle-detail dt {
+  .bus-vehicle-facts dt {
     color: var(--color-muted);
-    font-size: 10px;
-    font-weight: 650;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-  }
-  .bus-vehicle-detail dd {
-    margin: 2px 0 0;
-    overflow: hidden;
-    font-family: var(--font-mono);
     font-size: 12px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    font-weight: 600;
+  }
+  .bus-vehicle-facts dd {
+    margin: 4px 0 0;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    overflow-wrap: anywhere;
   }
   .bus-workspace {
     display: grid;
@@ -1688,7 +1632,7 @@
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 639px) {
   .brand-sub {
     display: none;
   }
@@ -1753,15 +1697,6 @@
   .bus-map-frame {
     height: 430px;
   }
-  .bus-vehicle-detail {
-    right: 10px;
-    bottom: 10px;
-    left: 10px;
-    width: auto;
-  }
-  .bus-vehicle-detail dl {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 440px) {
@@ -1797,25 +1732,335 @@
   height: 100%;
   border-top: 0;
 }
-.map-shell .bus-vehicle-detail {
-  z-index: 40;
-  right: 14px;
-  left: auto;
-  max-height: calc(100% - 80px);
-  overflow-y: auto;
-}
-@media (max-width: 640px) {
-  .map-shell .bus-vehicle-detail {
-    right: 10px;
-    left: 10px;
-    max-height: 50%;
-  }
-}
-
 /* MapLibre's unlayered positioning overrides rules in @layer components. */
 .bus-map-canvas.maplibregl-map {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
+}
+
+/* Keep the map available while browsing network totals on a phone. */
+.live-summary {
+  width: min(300px, calc(100vw - 24px));
+}
+.live-summary-toggle {
+  display: none;
+}
+@media (max-width: 639px) {
+  .live-summary {
+    width: min(300px, calc(100vw - 84px));
+    padding: 12px;
+    max-height: 45dvh;
+    overflow-y: auto;
+  }
+  .live-summary > div:first-child {
+    flex-wrap: wrap;
+    gap: 2px 8px;
+  }
+  .live-summary-count {
+    margin-top: 8px;
+  }
+  .live-summary-count > span:first-child {
+    font-size: 30px;
+  }
+  .live-summary-count > span:last-child {
+    font-size: 13px;
+  }
+  .live-summary-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    min-height: 44px;
+    margin-top: 4px;
+    border: 0;
+    background: transparent;
+    color: var(--color-ink-2);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .live-summary[data-expanded="false"] .live-summary-details {
+    display: none;
+  }
+  .maplibregl-ctrl-group button {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+/* Shared page content must be allowed to shrink inside flex and grid layouts. */
+.card,
+.card-head > div,
+.card-body,
+.page-inner > *,
+.page-inner section > *,
+.search,
+.mini {
+  min-width: 0;
+}
+.page-title,
+.page-desc,
+.card-title,
+.card-desc,
+.sheet-title,
+.sheet-sub,
+.kpi-detail {
+  overflow-wrap: anywhere;
+}
+.mini-label {
+  white-space: normal;
+}
+.mobile-change-stop {
+  display: none;
+}
+.bus-stop-option strong,
+.bus-departure strong,
+.bus-departure small {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.chat-composer textarea {
+  scroll-margin-bottom: 24px;
+}
+
+@media (max-width: 639px) {
+  .app-header {
+    flex-shrink: 0;
+  }
+  .brand > svg {
+    width: 32px;
+    height: 32px;
+  }
+  .transport-modes {
+    height: 44px;
+  }
+  .transport-mode {
+    height: 38px;
+    min-width: 46px;
+  }
+  .nav-link,
+  .btn,
+  .seg button,
+  .account-link {
+    min-height: 44px;
+  }
+  .icon-btn,
+  .utility-link {
+    width: 44px;
+    height: 44px;
+  }
+  .btn {
+    max-width: 100%;
+    height: auto;
+    padding-top: 10px;
+    padding-bottom: 10px;
+    white-space: normal;
+    line-height: 1.25;
+  }
+  .header-actions {
+    gap: 4px;
+  }
+  .header-actions .btn {
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+  .seg {
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+  .seg button {
+    flex: 1 0 auto;
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+  .control,
+  .search .control,
+  .chat-composer textarea {
+    min-height: 44px;
+    font-size: 16px;
+  }
+  .control {
+    max-width: 100%;
+    min-width: 0;
+  }
+  .page-inner {
+    padding-top: 24px;
+    padding-bottom: max(32px, env(safe-area-inset-bottom));
+  }
+  .page-title {
+    font-size: 38px;
+    line-height: 1.08;
+  }
+  .card-head {
+    padding: 16px;
+  }
+  .card-body {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+  .sheet-head {
+    padding: 16px;
+  }
+  .sheet-body {
+    padding: 16px;
+    overscroll-behavior: contain;
+  }
+  .section-label {
+    flex-wrap: wrap;
+    gap: 4px 8px;
+  }
+  .board-row {
+    grid-template-columns: 48px minmax(0, 1fr);
+    gap: 8px;
+  }
+  .board-row > .pill {
+    grid-column: 2;
+    justify-self: start;
+  }
+  .timeline li {
+    grid-template-columns: 14px minmax(0, 1fr);
+    gap: 8px;
+  }
+  .timeline li > .pill {
+    grid-column: 2;
+    justify-self: start;
+  }
+  .timeline .tl-rail {
+    grid-row: span 2;
+  }
+  .bus-workspace[data-selected="true"] .bus-stop-card,
+  .bus-workspace[data-selected="false"] .bus-board-card {
+    display: none;
+  }
+  .mobile-change-stop {
+    display: inline-flex;
+  }
+  .bus-stop-list {
+    max-height: none;
+  }
+  .bus-departure {
+    grid-template-columns: 50px minmax(0, 1fr) auto;
+  }
+  .bus-departure > .bus-route-chip {
+    grid-column: 2;
+  }
+  .bus-departure > div {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .bus-departure > .pill {
+    grid-column: 3;
+    grid-row: 1;
+  }
+  .responsive-table,
+  .responsive-table tbody {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+  .responsive-table thead {
+    display: none;
+  }
+  .responsive-table tbody tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px 16px;
+    padding: 16px;
+    border-bottom: 1px solid var(--color-line);
+  }
+  .responsive-table td,
+  .responsive-table td.num {
+    display: block;
+    min-width: 0;
+    max-width: none;
+    padding: 0;
+    border: 0;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .responsive-table td:first-child,
+  .responsive-table td[colspan],
+  .responsive-table td[data-label="Route"],
+  .responsive-table td[data-label="Delay load"] {
+    grid-column: 1 / -1;
+  }
+  .responsive-table td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 4px;
+    color: var(--color-muted);
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .responsive-table .truncate {
+    overflow: visible;
+    white-space: normal;
+  }
+  .responsive-table td > .flex {
+    flex-wrap: wrap;
+  }
+  .responsive-table .chip,
+  .responsive-table .bus-route-chip {
+    flex-shrink: 0;
+  }
+  .recharts-default-tooltip,
+  .recharts-tooltip-wrapper {
+    max-width: calc(100vw - 64px);
+    white-space: normal;
+  }
+}
+
+.station-board-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-brand);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+@media (max-width: 639px) {
+  .station-board-link {
+    min-height: 44px;
+  }
+}
+
+.page .grid > * {
+  min-width: 0;
+}
+.bus-page {
+  background: radial-gradient(1100px 380px at 8% -8%, rgb(240 170 42 / 0.07), transparent 70%);
+}
+.bus-page .page-title em,
+.bus-page .eyebrow {
+  color: var(--color-bus-deep);
+}
+
+.bus-map-frame:has(> .sheet) .maplibregl-ctrl-top-right {
+  right: 430px;
+}
+@media (max-width: 639px) {
+  .bus-map-frame:has(> .sheet) .maplibregl-ctrl-top-right {
+    right: 6px;
+  }
+}
+
+@media (max-height: 480px) {
+  .sheet {
+    top: 8px;
+    bottom: 8px;
+    max-height: calc(100% - 16px);
+  }
+  .sheet-head {
+    padding: 12px;
+  }
+  .sheet-title {
+    font-size: 26px;
+  }
 }

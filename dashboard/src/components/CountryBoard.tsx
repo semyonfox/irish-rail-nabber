@@ -308,10 +308,10 @@ export default function CountryBoard({ limit = 90, minutes = 45, compact = false
                 <div className="text-[12.5px] font-semibold text-muted">
                   Biggest delay right now
                 </div>
-                <div className="mt-1 truncate text-[17px] font-semibold tracking-[-0.01em]">
+                <div className="mt-1 break-words text-[17px] font-semibold tracking-[-0.01em]">
                   {routeLabel(topDelay)}
                 </div>
-                <div className="mt-1 truncate text-[13px] text-muted">
+                <div className="mt-1 break-words text-[13px] text-muted">
                   <span className="code">{topDelay.trainCode}</span> at {topDelay.stationDesc} ·{" "}
                   {eventTime(topDelay)} ·{" "}
                   {topDelay.lastLocation || topDelay.status || "location pending"}
@@ -340,7 +340,7 @@ export default function CountryBoard({ limit = 90, minutes = 45, compact = false
                     className="flex items-center justify-between gap-3 text-[14px]"
                   >
                     <div className="min-w-0">
-                      <div className="truncate font-semibold">{station.stationDesc}</div>
+                      <div className="break-words font-semibold">{station.stationDesc}</div>
                       <div className="text-[12.5px] text-muted">
                         {station.due} due · {station.late} late · {station.severe} severe
                       </div>
@@ -366,7 +366,7 @@ export default function CountryBoard({ limit = 90, minutes = 45, compact = false
         </Empty>
       ) : (
         <div className="overflow-auto">
-          <table className="data-table min-w-[860px]">
+          <table className="data-table responsive-table min-w-[860px]">
             <thead>
               <tr>
                 <th>Due</th>
@@ -384,32 +384,34 @@ export default function CountryBoard({ limit = 90, minutes = 45, compact = false
                   key={`${row.trainCode}-${row.stationCode}-${row.trainDate ?? ""}-${row.fetchedAt}`}
                   data-tone={rowTone(row)}
                 >
-                  <td>
+                  <td data-label="Due">
                     <div className="cell-main">{dueLabel(row.dueIn)}</div>
                     <div className="cell-sub">{kindLabel(row)}</div>
                   </td>
-                  <td>
+                  <td data-label="Train">
                     <span className="chip">{row.trainCode}</span>
                     <div className="cell-sub">{row.trainType || "Rail"}</div>
                   </td>
-                  <td>
+                  <td data-label="Station">
                     <div className="cell-main">{row.stationDesc}</div>
                     <div className="cell-sub">{row.stationCode}</div>
                   </td>
-                  <td className="max-w-[320px]">
-                    <div className="truncate font-medium">{routeLabel(row)}</div>
-                    <div className="cell-sub truncate">
+                  <td data-label="Route" className="max-w-[320px]">
+                    <div className="break-words font-medium">{routeLabel(row)}</div>
+                    <div className="cell-sub break-words">
                       {row.lastLocation ? row.lastLocation : row.direction || "-"}
                     </div>
                   </td>
-                  <td>
+                  <td data-label="Time">
                     <div className="font-mono font-semibold">{eventTime(row)}</div>
                     <div className="cell-sub">Sched {scheduledTime(row)}</div>
                   </td>
-                  <td>
+                  <td data-label="Delay">
                     <DelayPill minutes={row.lateMinutes} />
                   </td>
-                  <td className="text-muted">{row.status || "-"}</td>
+                  <td data-label="Status" className="text-muted">
+                    {row.status || "-"}
+                  </td>
                 </tr>
               ))}
             </tbody>
