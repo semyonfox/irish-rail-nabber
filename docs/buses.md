@@ -33,15 +33,35 @@ transit_feed_versions
   ├── bus_stop_times
   └── bus_shape_points
 
-bus_stop_updates
-  └── content-deduplicated arrival/departure predictions and delays
+bus_stop_observations
+  └── compressed archive of each changed stop prediction
+
+bus_stop_live
+  └── latest prediction per active trip and stop for departure boards
+
+bus_delay_samples
+  └── latest non-null delay per trip and stop for seven-day route statistics
 
 bus_trip_update_freshness
-  └── current TripUpdate presence, relationship and last-seen time
+  └── recent TripUpdate presence, relationship and last-seen time
+
+bus_trip_observations
+  └── compressed archive of trip presence at each successful poll
 
 bus_vehicle_positions
   └── one current row per vehicle in the latest full-dataset Vehicles response
+
+bus_vehicle_observations
+  └── compressed archive of each full vehicle snapshot
+
 ```
+
+The backfill copied every surviving legacy stop state and trip-presence row
+before the legacy table was retired. That table deduplicated repeated stop
+states, and an earlier retention job had already removed some older rows, so
+polls and changes missing from it cannot be reconstructed. New observations
+are archived as they arrive. The verified pre-retirement backup retains the
+legacy table for recovery.
 
 GTFS schedule times use integer seconds since the start of the service day. This preserves valid values beyond `24:00:00`, which PostgreSQL `TIME` cannot represent.
 
@@ -50,15 +70,19 @@ GTFS schedule times use integer seconds since the start of the service day. This
 `bus_daemon.py` performs two independent jobs:
 
 1. Download and import the matching static feed when its SHA-256 changes.
-2. Reserve one shared realtime request slot, then alternate TripUpdates and Vehicles. TripUpdates appends changed stop states and refreshes current trip presence. Vehicles replaces the current vehicle snapshot.
+2. Reserve one shared realtime request slot, then alternate TripUpdates and Vehicles. TripUpdates appends changed stop states and records trip presence. Vehicles replaces the current vehicle snapshot and archives every vehicle seen in each poll.
+
+If an active static feed already exists, realtime polling starts during the
+startup static refresh and continues while that feed imports. A first install
+waits for its initial static feed before polling realtime data.
 
 The static import still runs when `NTA_API_KEY` is empty. Realtime collection stays disabled until the key is present. The key is sent only in the `x-api-key` header and must never appear in logs.
 
 The database-backed request reservation adds a one-second safety margin and applies across restarts or concurrent collectors sharing the database. Both operations use the same reservation, so replicas cannot turn the alternating schedule into extra NTA requests. The API reads the resulting database state and serves it to every user without calling NTA again.
 
-Differential feeds are rejected because absence only means removal in a full-dataset feed. TripUpdates changes only stop predictions and trip freshness; Vehicles changes only the vehicle snapshot. One operation never clears the other operation's data. Trip-level freshness lets boards retire removed or canceled trips without rewriting every unchanged stop prediction.
+Differential feeds are rejected because absence only means removal in a full-dataset feed. TripUpdates changes only stop predictions and trip freshness; Vehicles changes only the vehicle snapshot. One operation never clears the other operation's data. Trip-level freshness lets boards retire removed or canceled trips without rewriting every unchanged stop prediction. The board reads `bus_stop_live`; the statistics page reads `bus_delay_samples` joined to recent trip freshness. Predictions and poll presence remain in the compressed observation tables after the live and statistics projections expire.
 
-The current NTA archive contains about 6.6 million bus stop-time rows. Route, trip and stop metadata remains versioned so historical IDs can still be interpreted, but stop times and shape points for inactive versions are removed after the replacement feed activates. A historical feed is rehydrated from its archive before it can become active again. Changed stop predictions are retained for seven days by default and pruned at most once per day; vehicle positions are current state rather than an append-only history.
+The current NTA archive contains about 6.6 million bus stop-time rows. Route, trip and stop metadata remains versioned so historical IDs can still be interpreted, but stop times and shape points for inactive versions are removed after the replacement feed activates. Each successfully imported static ZIP is kept by content hash under `BUS_GTFS_ARCHIVE_DIRECTORY/versions` so the matching schedule can be restored; older versions that predate this archive may lack their ZIP. Stop prediction changes, trip observations and full vehicle snapshots have no retention limit. The observation hypertables compress after three hours; no bus or train history retention policy deletes old observations. Finite disks still need capacity monitoring as the archive grows.
 
 Configuration:
 
@@ -73,7 +97,7 @@ Configuration:
 | `BUS_GTFS_ARCHIVE_DIRECTORY` | optional outside Docker; `/data/gtfs` in Compose |
 | `BUS_STATIC_REFRESH_SECONDS` | `86400` |
 | `BUS_REALTIME_INTERVAL_SECONDS` | `60`, shared by both operations; values below 60 are clamped |
-| `BUS_REALTIME_RETENTION_DAYS` | `7`, must be positive |
+| `BUS_WRITE_LEGACY_STOP_UPDATES` | `0`; `1` is only for rollback to a database that still has the legacy table |
 
 ## GraphQL
 
@@ -87,7 +111,7 @@ busLiveRouteShapes(limit: Int = 100)
 busScheduledRouteShapes(stopId: String, limit: Int = 24)
 ```
 
-The list queries return an empty list before the first feed import. `busRealtimeStatus` reports the newest successful TripUpdates or Vehicles poll and only marks the feed live for three minutes after that poll. Stops, boards, current vehicles, scheduled route shapes and up to 72 hours of route-delay history are public. Coffee, Pro and admin accounts may query the full seven-day retained window.
+The list queries return an empty list before the first feed import. `busRealtimeStatus` reports the newest successful TripUpdates or Vehicles poll and only marks the feed live for three minutes after that poll. Stops, boards, current vehicles, scheduled route shapes and up to 72 hours of route-delay history are public. Coffee, Pro and admin accounts may query up to seven days through the route-delay API.
 
 `busLiveRouteShapes` only considers trips with a vehicle seen in the last five minutes. It returns at most 100 shapes and samples each to at most 500 ordered points. It stays empty until realtime collection succeeds.
 
@@ -121,7 +145,7 @@ WHERE feed_version_id = (
   SELECT id FROM transit_feed_versions WHERE is_active ORDER BY imported_at DESC LIMIT 1
 );
 
-SELECT COUNT(*) FROM bus_stop_updates
+SELECT COUNT(*) FROM bus_stop_observations
 WHERE fetched_at > NOW() - INTERVAL '10 minutes';
 
 SELECT COUNT(*), MAX(last_seen_at) FROM bus_vehicle_positions;
@@ -146,10 +170,10 @@ The last query should show both realtime endpoints alternating, with consecutive
 
 The database already stores the imported national schedule and current realtime
 snapshots. API requests read that state rather than calling NTA for each visitor.
-The bus collector now also keeps the exact last successfully imported ZIP in the
-`bus_gtfs_archives` Docker volume. Filenames are the SHA-256 of the source URL,
-followed by `.zip`. Replacement is atomic, failed imports keep the previous copy,
-and there is one archive per configured source URL. The complete ZIP retains
+The bus collector keeps each successfully imported ZIP under
+`BUS_GTFS_ARCHIVE_DIRECTORY/versions`, named by its content SHA-256. It also
+atomically updates the latest copy for each configured source URL. Failed imports
+leave those files alone. The complete ZIP retains
 calendar files and other source tables even when the importer does not use them.
 An upstream outage leaves the imported database schedule available. The collector
 does not activate an older archive automatically, because its IDs may no longer

@@ -47,9 +47,13 @@ fetch_history                    ── audit of every upstream call
 transit_feed_versions            ── immutable NTA static-feed identities
 bus_agencies/routes/trips/stops  ── versioned GTFS reference data
 bus_stop_times                   ── service-day schedule seconds
-bus_stop_updates (regular table) ── deduplicated realtime predictions and delays
-bus_trip_update_freshness        ── current full-feed trip membership
+bus_stop_observations            ── compressed prediction-change archive
+bus_trip_observations            ── compressed trip-presence archive
+bus_stop_live                    ── current stop-board predictions
+bus_delay_samples                ── recent route-stat delay projection
+bus_trip_update_freshness        ── recent full-feed trip membership
 bus_vehicle_positions            ── current full-feed bus locations
+bus_vehicle_observations         ── compressed vehicle-snapshot archive
 
 users                            ── account, role, polar_customer_id
 billing_webhook_events           ── Polar replay protection
