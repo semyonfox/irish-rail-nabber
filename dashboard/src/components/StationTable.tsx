@@ -1,16 +1,16 @@
 import { useMemo, useState } from "react";
+import { flexRender, type SortingState } from "@tanstack/react-table";
 import {
-  createColumnHelper,
-  flexRender,
   getCoreRowModel,
   getSortedRowModel,
-  useReactTable,
-  type SortingState,
-} from "@tanstack/react-table";
+  legacyCreateColumnHelper,
+  useLegacyTable,
+} from "@tanstack/react-table/legacy";
 import { STATION_DELAY_STATS } from "../graphql/queries";
 import { usePollingQuery } from "../utils/usePollingQuery";
-import { formatPct, delayColor } from "../utils/format";
+import { formatPct } from "../utils/format";
 import RequestError from "./RequestError";
+import { DelayPill, Empty, Icon, SearchInput, Segmented } from "./ui";
 
 interface StationStats {
   stationCode: string;
@@ -25,9 +25,14 @@ interface StationDelayStatsData {
   stationDelayStats: StationStats[];
 }
 
-const col = createColumnHelper<StationStats>();
+const col = legacyCreateColumnHelper<StationStats>();
 
-const hoursOptions = [6, 24, 72, 168];
+const hoursOptions = [
+  { value: 6, label: "6 hours" },
+  { value: 24, label: "24 hours" },
+  { value: 72, label: "3 days" },
+  { value: 168, label: "7 days" },
+];
 
 export default function StationTable() {
   const [sorting, setSorting] = useState<SortingState>([{ id: "avgLateMinutes", desc: true }]);
@@ -41,42 +46,34 @@ export default function StationTable() {
   });
 
   const columns = useMemo(
-    () => [
-      col.accessor("stationDesc", {
-        header: "Station",
-        cell: (info) => (
-          <span>
-            <span className="font-medium text-[var(--rail-text)]">{info.getValue()}</span>{" "}
-            <span className="text-xs text-[var(--rail-muted)]">
-              {info.row.original.stationCode}
+    () =>
+      col.columns([
+        col.accessor("stationDesc", {
+          header: "Station",
+          cell: (info) => (
+            <span className="flex items-center gap-2">
+              <span className="cell-main">{info.getValue()}</span>
+              <span className="chip">{info.row.original.stationCode}</span>
             </span>
-          </span>
-        ),
-      }),
-      col.accessor("avgLateMinutes", {
-        header: "Avg delay",
-        cell: (info) => {
-          const v = info.getValue();
-          return (
-            <span className="tabular-nums" style={{ color: delayColor(v) }}>
-              {v.toFixed(1)} min
-            </span>
-          );
-        },
-      }),
-      col.accessor("maxLateMinutes", {
-        header: "Max delay",
-        cell: (info) => <span className="tabular-nums">{info.getValue()} min</span>,
-      }),
-      col.accessor("onTimePct", {
-        header: "On time %",
-        cell: (info) => <span className="tabular-nums">{formatPct(info.getValue())}</span>,
-      }),
-      col.accessor("totalEvents", {
-        header: "Events",
-        cell: (info) => <span className="tabular-nums">{info.getValue()}</span>,
-      }),
-    ],
+          ),
+        }),
+        col.accessor("avgLateMinutes", {
+          header: "Average delay",
+          cell: (info) => <DelayPill minutes={info.getValue()} precise />,
+        }),
+        col.accessor("maxLateMinutes", {
+          header: "Worst delay",
+          cell: (info) => `+${info.getValue()}m`,
+        }),
+        col.accessor("onTimePct", {
+          header: "Within 5 min",
+          cell: (info) => formatPct(info.getValue()),
+        }),
+        col.accessor("totalEvents", {
+          header: "Stops observed",
+          cell: (info) => <span className="text-muted">{info.getValue().toLocaleString()}</span>,
+        }),
+      ]),
     [],
   );
 
@@ -91,7 +88,7 @@ export default function StationTable() {
     );
   }, [data?.stationDelayStats, needle]);
 
-  const table = useReactTable({
+  const table = useLegacyTable({
     data: rows,
     columns,
     state: { sorting },
@@ -101,12 +98,13 @@ export default function StationTable() {
   });
 
   if (fetching && !data) {
-    return <div className="p-8 text-center text-[var(--rail-muted)]">Loading station data...</div>;
+    return <Empty>Loading station data…</Empty>;
   }
 
   if (error && !data) {
     return (
       <RequestError
+        bare
         error={error}
         onRetry={() => retry({ requestPolicy: "network-only" })}
         title="Station data unavailable"
@@ -116,46 +114,52 @@ export default function StationTable() {
 
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-2 border-b border-[var(--rail-border)] px-3 py-2">
-        <input
-          type="search"
+      <div className="flex flex-wrap items-center gap-2 px-5 py-4">
+        <SearchInput
           value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Filter by station name or code"
-          className="term-control w-64 max-w-full"
-          aria-label="Filter stations"
+          onChange={setSearch}
+          placeholder="Search station name or code"
+          label="Filter stations"
+          className="w-full sm:w-72"
         />
-        <select
+        <Segmented
+          label="Statistics window"
+          options={hoursOptions}
           value={hours}
-          onChange={(event) => setHours(Number(event.target.value))}
-          className="term-control"
-          aria-label="Statistics window"
-        >
-          {hoursOptions.map((option) => (
-            <option key={option} value={option}>
-              Last {option >= 24 ? `${option / 24}d` : `${option}h`}
-            </option>
-          ))}
-        </select>
-        <span className="ml-auto text-xs text-[var(--rail-muted)]">
-          {rows.length} stations · sort by clicking headers
-        </span>
+          onChange={setHours}
+        />
+        <span className="ml-auto text-[13px] text-muted">{rows.length} stations</span>
       </div>
       <div className="overflow-auto">
-        <table className="term-table">
+        <table className="data-table min-w-[720px]">
           <thead>
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id}>
-                {hg.headers.map((h) => (
-                  <th
-                    key={h.id}
-                    onClick={h.column.getToggleSortingHandler()}
-                    className="cursor-pointer hover:text-[var(--rail-text)]"
-                  >
-                    {flexRender(h.column.columnDef.header, h.getContext())}
-                    {{ asc: " ↑", desc: " ↓" }[h.column.getIsSorted() as string] ?? ""}
-                  </th>
-                ))}
+                {hg.headers.map((h) => {
+                  const sorted = h.column.getIsSorted();
+                  return (
+                    <th
+                      key={h.id}
+                      className={h.column.id === "stationDesc" ? "" : "num"}
+                      aria-sort={
+                        sorted === "asc" ? "ascending" : sorted === "desc" ? "descending" : "none"
+                      }
+                    >
+                      <button
+                        type="button"
+                        className="sort-btn"
+                        onClick={h.column.getToggleSortingHandler()}
+                      >
+                        {flexRender(h.column.columnDef.header, h.getContext())}
+                        <Icon
+                          name={
+                            sorted === "asc" ? "sortUp" : sorted === "desc" ? "sortDown" : "sort"
+                          }
+                        />
+                      </button>
+                    </th>
+                  );
+                })}
               </tr>
             ))}
           </thead>
@@ -163,18 +167,17 @@ export default function StationTable() {
             {table.getRowModel().rows.map((row) => (
               <tr key={row.id}>
                 {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
+                  <td key={cell.id} className={cell.column.id === "stationDesc" ? "" : "num"}>
+                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  </td>
                 ))}
               </tr>
             ))}
             {!fetching && table.getRowModel().rows.length === 0 ? (
               <tr>
-                <td
-                  colSpan={columns.length}
-                  className="px-4 py-10 text-center text-[var(--rail-muted)]"
-                >
+                <td colSpan={columns.length} className="py-12 text-center text-muted">
                   {needle
-                    ? `No stations match "${search.trim()}"`
+                    ? `No stations match “${search.trim()}”`
                     : `No station performance records were returned for the selected window.`}
                 </td>
               </tr>

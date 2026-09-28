@@ -1,15 +1,19 @@
 import { gql } from "urql";
 
-export const LIVE_TRAINS = gql`
-  query LiveTrains($trainType: String) {
-    liveTrains(trainType: $trainType) {
+export const LIVE_RAIL_OVERVIEW = gql`
+  query LiveRailOverview($boardLimit: Int, $boardMinutes: Int) {
+    liveTrains {
       trainCode
+      trainDate
       latitude
       longitude
       trainStatus
       direction
       trainType
       fetchedAt
+    }
+    countryBoard(limit: $boardLimit, minutes: $boardMinutes) {
+      lateMinutes
     }
   }
 `;
@@ -179,6 +183,108 @@ export const FETCH_STATUS = gql`
       lastRecordCount
       lastDurationMs
       lastFetched
+    }
+  }
+`;
+
+export const BUS_STOPS = gql`
+  query BusStops($search: String, $limit: Int) {
+    busStops(search: $search, limit: $limit) {
+      stopId
+      stopCode
+      stopName
+      latitude
+      longitude
+    }
+  }
+`;
+
+export const BUS_SCHEDULED_ROUTE_SHAPES = gql`
+  query BusScheduledRouteShapes($stopId: String, $limit: Int) {
+    busScheduledRouteShapes(stopId: $stopId, limit: $limit) {
+      routeId
+      routeShortName
+      shapeId
+      routeColor
+      points {
+        latitude
+        longitude
+        sequence
+      }
+    }
+  }
+`;
+
+export const BUS_LIVE_OVERVIEW = gql`
+  query BusLiveOverview(
+    $stopId: String!
+    $includeBoard: Boolean!
+    $boardLimit: Int
+    $vehicleLimit: Int
+    $shapeLimit: Int
+    $hours: Int
+    $routeLimit: Int
+  ) {
+    busRealtimeStatus {
+      lastSuccessAt
+      isLive
+    }
+    busStopBoard(stopId: $stopId, limit: $boardLimit) @include(if: $includeBoard) {
+      entityId
+      tripId
+      routeId
+      routeShortName
+      routeLongName
+      operatorName
+      headsign
+      serviceDate
+      scheduledTime
+      expectedTime
+      delaySeconds
+      scheduleRelationship
+      fetchedAt
+    }
+    busVehicles(limit: $vehicleLimit) {
+      entityId
+      vehicleId
+      vehicleLabel
+      tripId
+      routeId
+      routeShortName
+      routeLongName
+      operatorName
+      headsign
+      latitude
+      longitude
+      bearing
+      speedMetersPerSecond
+      currentStopSequence
+      stopId
+      currentStatus
+      occupancyStatus
+      sourceTimestamp
+      fetchedAt
+    }
+    busLiveRouteShapes(limit: $shapeLimit) {
+      routeId
+      routeShortName
+      shapeId
+      routeColor
+      points {
+        latitude
+        longitude
+        sequence
+      }
+    }
+    busRouteDelays(hours: $hours, limit: $routeLimit) {
+      routeId
+      routeShortName
+      routeLongName
+      operatorName
+      avgDelaySeconds
+      onTimePct
+      sampleCount
+      lastUpdated
     }
   }
 `;

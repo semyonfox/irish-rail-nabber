@@ -1228,10 +1228,7 @@ class IrishRailDaemon:
 
 
 async def main():
-    db_url = os.getenv(
-        "DATABASE_URL",
-        "postgresql://irish_data:secure_password@localhost:5432/ireland_public",
-    )
+    db_url = os.environ["DATABASE_URL"]
 
     daemon = IrishRailDaemon(db_url)
     await daemon.run()

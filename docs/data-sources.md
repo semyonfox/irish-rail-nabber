@@ -1,6 +1,6 @@
 # Data Sources
 
-The project is fed by one upstream: the Irish Rail Realtime API at `http://api.irishrail.ie/realtime/realtime.asmx`. Everything else (network graph, analysis) is derived from data this API produced.
+The rail side of the project is fed by the Irish Rail Realtime API at `http://api.irishrail.ie/realtime/realtime.asmx`. Everything in the rail network graph and rail analysis is derived from data this API produced. The separate NTA bus sources are documented in [buses.md](buses.md).
 
 For how the daemon polls it, see [scraper.md](scraper.md). For where the data ends up, see [scraper.md#schema](scraper.md#schema).
 

@@ -1,11 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import maplibregl from "maplibre-gl";
-import { LIVE_TRAINS, STATIONS, TRAIN_JOURNEY } from "../graphql/queries";
+import * as maplibregl from "maplibre-gl";
+import { TRAIN_JOURNEY } from "../graphql/queries";
+import { useTheme } from "../theme";
 import { usePollingQuery } from "../utils/usePollingQuery";
 import { loadRailLines, trackPathThrough, type RailCoordinate } from "../utils/railGeometry";
+import {
+  applyIrelandMapTheme,
+  createIrelandMap,
+  emptyCollection,
+  featureCollection,
+  pointFeature,
+  setSourceData,
+  transitMapPalette,
+  type FeatureProperties,
+  type TransitFeature,
+} from "./transitMap";
 
-interface Train {
+export interface LiveTrain {
   trainCode: string;
+  trainDate: string | null;
   latitude: number | null;
   longitude: number | null;
   trainStatus: string | null;
@@ -14,7 +27,7 @@ interface Train {
   fetchedAt: string | null;
 }
 
-interface Station {
+export interface RailStation {
   stationCode: string;
   stationDesc: string;
   stationType: string | null;
@@ -27,14 +40,6 @@ interface Movement {
   locationCode: string | null;
   locationFullName: string | null;
   locationOrder: number;
-}
-
-interface TrainsData {
-  liveTrains: Train[];
-}
-
-interface StationsData {
-  stations: Station[];
 }
 
 interface TrainJourneyData {
@@ -60,25 +65,26 @@ export interface MapRouteSelection {
 }
 
 interface Props {
+  trains: LiveTrain[];
+  stations: RailStation[];
   selectedTrainCode?: string | null;
+  selectedTrainDate?: string | null;
   selectedStationCode?: string | null;
   onTrainClick?: (trainCode: string) => void;
   onStationClick?: (station: MapStationSelection) => void;
   onRouteClick?: (route: MapRouteSelection) => void;
 }
 
-type SourceData = Parameters<maplibregl.GeoJSONSource["setData"]>[0];
-type FeatureProperties = Record<string, string | number | boolean | null>;
-
-const IRELAND_CENTER: [number, number] = [-7.5, 53.4];
-const POLL_MS = 5000;
+const NETWORK_SOURCE_ID = "rail-network";
 const ROUTE_SOURCE_ID = "route-segments";
 const SELECTED_ROUTE_SOURCE_ID = "selected-train-route";
 const SELECTED_STOP_SOURCE_ID = "selected-train-stops";
 const STATION_SOURCE_ID = "stations";
 const TRAIN_SOURCE_ID = "live-trains";
+const NETWORK_LAYER_ID = "rail-network-line";
 const ROUTE_LAYER_ID = "route-segments-line";
 const ROUTE_HIT_LAYER_ID = "route-segments-hit";
+const SELECTED_ROUTE_CASING_LAYER_ID = "selected-train-route-casing";
 const SELECTED_ROUTE_LAYER_ID = "selected-train-route-line";
 const SELECTED_STOP_LAYER_ID = "selected-train-stops-circle";
 const STATION_LAYER_ID = "stations-circle";
@@ -86,49 +92,39 @@ const STATION_LABEL_LAYER_ID = "stations-label";
 const TRAIN_HALO_LAYER_ID = "live-trains-halo";
 const TRAIN_LAYER_ID = "live-trains-circle";
 const TRAIN_LABEL_LAYER_ID = "live-trains-label";
+
+const LABEL_FONT = ["Noto Sans Medium"];
+
 const STATION_RADIUS = [
-  "case",
-  ["get", "selected"],
-  7,
-  4,
+  "interpolate",
+  ["linear"],
+  ["zoom"],
+  6,
+  ["case", ["get", "selected"], 6, 2.5],
+  10,
+  ["case", ["get", "selected"], 8, 4.5],
 ] as unknown as maplibregl.ExpressionSpecification;
-
-function emptyCollection(): SourceData {
-  return { type: "FeatureCollection", features: [] } as unknown as SourceData;
-}
-
-function pointFeature(
-  coordinates: [number, number],
-  properties: FeatureProperties,
-): Record<string, unknown> {
-  return {
-    type: "Feature",
-    geometry: { type: "Point", coordinates },
-    properties,
-  };
-}
+const NETWORK_WIDTH = [
+  "interpolate",
+  ["linear"],
+  ["zoom"],
+  6,
+  1,
+  10,
+  2.2,
+  13,
+  3.5,
+] as unknown as maplibregl.ExpressionSpecification;
 
 function lineFeature(
   coordinates: [number, number][],
   properties: FeatureProperties,
-): Record<string, unknown> {
+): TransitFeature {
   return {
     type: "Feature",
     geometry: { type: "LineString", coordinates },
     properties,
   };
-}
-
-function featureCollection(features: Record<string, unknown>[]): SourceData {
-  return { type: "FeatureCollection", features } as unknown as SourceData;
-}
-
-function getSource(map: maplibregl.Map, id: string): maplibregl.GeoJSONSource | undefined {
-  return map.getSource(id) as maplibregl.GeoJSONSource | undefined;
-}
-
-function setSourceData(map: maplibregl.Map, id: string, data: SourceData) {
-  getSource(map, id)?.setData(data);
 }
 
 function formatType(type: string | null) {
@@ -139,12 +135,17 @@ function formatType(type: string | null) {
 }
 
 export default function TrainMap({
+  trains,
+  stations,
   selectedTrainCode,
+  selectedTrainDate,
   selectedStationCode,
   onTrainClick,
   onStationClick,
   onRouteClick,
 }: Props) {
+  const { theme } = useTheme();
+  const palette = transitMapPalette(theme);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const onTrainClickRef = useRef(onTrainClick);
   const onStationClickRef = useRef(onStationClick);
@@ -180,218 +181,212 @@ export default function TrainMap({
     onRouteClickRef.current = onRouteClick;
   }, [onRouteClick]);
 
-  const [{ data: trainsData }] = usePollingQuery<TrainsData>({
-    query: LIVE_TRAINS,
-    pollInterval: POLL_MS,
-  });
-
-  const [{ data: stationsData }] = usePollingQuery<StationsData>({
-    query: STATIONS,
-  });
-
   const [{ data: journeyData }] = usePollingQuery<TrainJourneyData>({
     query: TRAIN_JOURNEY,
-    variables: { trainCode: selectedTrainCode ?? "" },
+    variables: {
+      trainCode: selectedTrainCode ?? "",
+      trainDate: selectedTrainDate ?? null,
+    },
     pause: !selectedTrainCode,
     pollInterval: 15000,
   });
 
   const stationsByCode = useMemo(() => {
-    const stations = new Map<string, Station>();
-    for (const station of stationsData?.stations ?? []) {
+    const byCode = new Map<string, RailStation>();
+    for (const station of stations) {
       if (station.latitude == null || station.longitude == null) continue;
-      stations.set(station.stationCode, station);
+      byCode.set(station.stationCode, station);
     }
-    return stations;
-  }, [stationsData]);
+    return byCode;
+  }, [stations]);
 
-  const containerRef = useCallback((node: HTMLDivElement | null) => {
-    if (!node) return;
-    if (mapRef.current) return;
+  const containerRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (!node) return;
+      if (mapRef.current) return;
 
-    let map: maplibregl.Map;
-    try {
-      map = new maplibregl.Map({
-        container: node,
-        style: {
-          version: 8,
-          sources: {
-            osm: {
-              type: "raster",
-              tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-              tileSize: 256,
-              attribution: "&copy; OpenStreetMap contributors",
-            },
-          },
-          layers: [
-            {
-              id: "control-background",
-              type: "background",
-              paint: { "background-color": "#0a0c0b" },
-            },
-            {
-              id: "osm",
-              type: "raster",
-              source: "osm",
-              paint: {
-                "raster-opacity": 0.6,
-                "raster-saturation": -0.75,
-                "raster-contrast": 0.08,
-                "raster-brightness-min": 0.08,
-                "raster-brightness-max": 0.72,
-              },
-            },
-          ],
-        },
-        center: IRELAND_CENTER,
-        zoom: 7,
-        maxBounds: [
-          [-12, 50.5],
-          [-4, 56],
-        ],
-      });
-    } catch (error) {
-      setMapError(error instanceof Error ? error.message : "Map unavailable");
-      return;
-    }
-
-    map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
-    map.on("load", () => {
+      let map: maplibregl.Map;
       try {
-        map.addSource(ROUTE_SOURCE_ID, { type: "geojson", data: emptyCollection() });
-        map.addSource(SELECTED_ROUTE_SOURCE_ID, { type: "geojson", data: emptyCollection() });
-        map.addSource(SELECTED_STOP_SOURCE_ID, { type: "geojson", data: emptyCollection() });
-        map.addSource(STATION_SOURCE_ID, { type: "geojson", data: emptyCollection() });
-        map.addSource(TRAIN_SOURCE_ID, { type: "geojson", data: emptyCollection() });
-
-        map.addLayer({
-          id: ROUTE_LAYER_ID,
-          type: "line",
-          source: ROUTE_SOURCE_ID,
-          paint: {
-            "line-color": "#28785b",
-            "line-opacity": 0,
-            "line-width": 0,
-          },
-        });
-
-        map.addLayer({
-          id: ROUTE_HIT_LAYER_ID,
-          type: "line",
-          source: ROUTE_SOURCE_ID,
-          paint: {
-            "line-color": "#ffffff",
-            "line-opacity": 0,
-            "line-width": 16,
-          },
-        });
-
-        map.addLayer({
-          id: SELECTED_ROUTE_LAYER_ID,
-          type: "line",
-          source: SELECTED_ROUTE_SOURCE_ID,
-          paint: {
-            "line-color": "#fab219",
-            "line-opacity": 0.9,
-            "line-width": 4,
-          },
-        });
-
-        map.addLayer({
-          id: STATION_LAYER_ID,
-          type: "circle",
-          source: STATION_SOURCE_ID,
-          paint: {
-            "circle-radius": STATION_RADIUS,
-            "circle-color": ["case", ["get", "selected"], "#fab219", "#8b958e"],
-            "circle-opacity": 0.85,
-            "circle-stroke-color": "#0a0c0b",
-            "circle-stroke-width": ["case", ["get", "selected"], 2.5, 1.25],
-          },
-        });
-
-        map.addLayer({
-          id: STATION_LABEL_LAYER_ID,
-          type: "symbol",
-          source: STATION_SOURCE_ID,
-          minzoom: 8.5,
-          layout: {
-            "text-field": ["get", "name"],
-            "text-size": 11,
-            "text-offset": [0, 1.25],
-            "text-anchor": "top",
-          },
-          paint: {
-            "text-color": "#d8ded9",
-            "text-halo-color": "#0a0c0b",
-            "text-halo-width": 1.25,
-          },
-        });
-
-        map.addLayer({
-          id: SELECTED_STOP_LAYER_ID,
-          type: "circle",
-          source: SELECTED_STOP_SOURCE_ID,
-          paint: {
-            "circle-radius": 5,
-            "circle-color": "#fab219",
-            "circle-stroke-color": "#0a0c0b",
-            "circle-stroke-width": 2,
-          },
-        });
-
-        map.addLayer({
-          id: TRAIN_HALO_LAYER_ID,
-          type: "circle",
-          source: TRAIN_SOURCE_ID,
-          paint: {
-            "circle-radius": ["case", ["get", "selected"], 12, 8],
-            "circle-color": ["case", ["get", "selected"], "#fab219", "#d8ded9"],
-            "circle-opacity": ["case", ["get", "selected"], 0.3, 0.18],
-          },
-        });
-
-        map.addLayer({
-          id: TRAIN_LAYER_ID,
-          type: "circle",
-          source: TRAIN_SOURCE_ID,
-          paint: {
-            "circle-radius": ["case", ["get", "selected"], 8, 5],
-            "circle-color": ["case", ["get", "selected"], "#fab219", "#e6ece8"],
-            "circle-stroke-color": "#0a0c0b",
-            "circle-stroke-width": ["case", ["get", "selected"], 2.5, 1.5],
-          },
-        });
-
-        map.addLayer({
-          id: TRAIN_LABEL_LAYER_ID,
-          type: "symbol",
-          source: TRAIN_SOURCE_ID,
-          minzoom: 7.5,
-          layout: {
-            "text-field": ["get", "trainCode"],
-            "text-size": 11,
-            "text-offset": [0, 1.1],
-            "text-anchor": "top",
-          },
-          paint: {
-            "text-color": "#d8ded9",
-            "text-halo-color": "#0a0c0b",
-            "text-halo-width": 1.5,
-          },
-        });
-
-        setMapReady(true);
+        map = createIrelandMap(node, theme);
       } catch (error) {
-        setMapReady(false);
         setMapError(error instanceof Error ? error.message : "Map unavailable");
-        map.remove();
-        mapRef.current = null;
+        return;
       }
-    });
 
-    mapRef.current = map;
-  }, []);
+      map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
+      map.on("load", () => {
+        try {
+          for (const id of [
+            NETWORK_SOURCE_ID,
+            ROUTE_SOURCE_ID,
+            SELECTED_ROUTE_SOURCE_ID,
+            SELECTED_STOP_SOURCE_ID,
+            STATION_SOURCE_ID,
+            TRAIN_SOURCE_ID,
+          ]) {
+            map.addSource(id, { type: "geojson", data: emptyCollection() });
+          }
+
+          map.addLayer({
+            id: NETWORK_LAYER_ID,
+            type: "line",
+            source: NETWORK_SOURCE_ID,
+            layout: { "line-join": "round", "line-cap": "round" },
+            paint: {
+              "line-color": palette.track,
+              "line-opacity": 0.85,
+              "line-width": NETWORK_WIDTH,
+            },
+          });
+
+          map.addLayer({
+            id: ROUTE_LAYER_ID,
+            type: "line",
+            source: ROUTE_SOURCE_ID,
+            paint: {
+              "line-color": palette.brand,
+              "line-opacity": 0,
+              "line-width": 0,
+            },
+          });
+
+          map.addLayer({
+            id: ROUTE_HIT_LAYER_ID,
+            type: "line",
+            source: ROUTE_SOURCE_ID,
+            paint: {
+              "line-color": palette.casing,
+              "line-opacity": 0,
+              "line-width": 16,
+            },
+          });
+
+          map.addLayer({
+            id: SELECTED_ROUTE_CASING_LAYER_ID,
+            type: "line",
+            source: SELECTED_ROUTE_SOURCE_ID,
+            layout: { "line-join": "round", "line-cap": "round" },
+            paint: {
+              "line-color": palette.casing,
+              "line-opacity": 0.95,
+              "line-width": 9,
+            },
+          });
+
+          map.addLayer({
+            id: SELECTED_ROUTE_LAYER_ID,
+            type: "line",
+            source: SELECTED_ROUTE_SOURCE_ID,
+            layout: { "line-join": "round", "line-cap": "round" },
+            paint: {
+              "line-color": palette.ink,
+              "line-width": 4,
+            },
+          });
+
+          map.addLayer({
+            id: STATION_LAYER_ID,
+            type: "circle",
+            source: STATION_SOURCE_ID,
+            paint: {
+              "circle-radius": STATION_RADIUS,
+              "circle-color": ["case", ["get", "selected"], palette.ink, palette.point],
+              "circle-stroke-color": [
+                "case",
+                ["get", "selected"],
+                palette.casing,
+                palette.pointBorder,
+              ],
+              "circle-stroke-width": ["case", ["get", "selected"], 3, 1.25],
+            },
+          });
+
+          map.addLayer({
+            id: STATION_LABEL_LAYER_ID,
+            type: "symbol",
+            source: STATION_SOURCE_ID,
+            minzoom: 8.5,
+            layout: {
+              "text-field": ["get", "name"],
+              "text-font": LABEL_FONT,
+              "text-size": 11.5,
+              "text-offset": [0, 1.2],
+              "text-anchor": "top",
+            },
+            paint: {
+              "text-color": palette.label,
+              "text-halo-color": palette.labelHalo,
+              "text-halo-width": 1.5,
+            },
+          });
+
+          map.addLayer({
+            id: SELECTED_STOP_LAYER_ID,
+            type: "circle",
+            source: SELECTED_STOP_SOURCE_ID,
+            paint: {
+              "circle-radius": 4.5,
+              "circle-color": palette.point,
+              "circle-stroke-color": palette.ink,
+              "circle-stroke-width": 2,
+            },
+          });
+
+          map.addLayer({
+            id: TRAIN_HALO_LAYER_ID,
+            type: "circle",
+            source: TRAIN_SOURCE_ID,
+            paint: {
+              "circle-radius": ["case", ["get", "selected"], 16, 11],
+              "circle-color": ["case", ["get", "selected"], palette.ink, palette.brand],
+              "circle-opacity": 0.16,
+            },
+          });
+
+          map.addLayer({
+            id: TRAIN_LAYER_ID,
+            type: "circle",
+            source: TRAIN_SOURCE_ID,
+            paint: {
+              "circle-radius": ["case", ["get", "selected"], 8, 5.5],
+              "circle-color": ["case", ["get", "selected"], palette.ink, palette.brand],
+              "circle-stroke-color": palette.casing,
+              "circle-stroke-width": 2,
+            },
+          });
+
+          map.addLayer({
+            id: TRAIN_LABEL_LAYER_ID,
+            type: "symbol",
+            source: TRAIN_SOURCE_ID,
+            minzoom: 8,
+            layout: {
+              "text-field": ["get", "trainCode"],
+              "text-font": LABEL_FONT,
+              "text-size": 11,
+              "text-offset": [0, 1.2],
+              "text-anchor": "top",
+            },
+            paint: {
+              "text-color": palette.ink,
+              "text-halo-color": palette.labelHalo,
+              "text-halo-width": 1.5,
+            },
+          });
+
+          setMapReady(true);
+        } catch (error) {
+          setMapReady(false);
+          setMapError(error instanceof Error ? error.message : "Map unavailable");
+          map.remove();
+          mapRef.current = null;
+        }
+      });
+
+      mapRef.current = map;
+    },
+    [palette, theme],
+  );
 
   useEffect(() => {
     return () => {
@@ -402,6 +397,50 @@ export default function TrainMap({
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!mapReady || !mapRef.current) return;
+    const map = mapRef.current;
+    const next = transitMapPalette(theme);
+
+    applyIrelandMapTheme(map, theme);
+    map.setPaintProperty(NETWORK_LAYER_ID, "line-color", next.track);
+    map.setPaintProperty(ROUTE_LAYER_ID, "line-color", next.brand);
+    map.setPaintProperty(ROUTE_HIT_LAYER_ID, "line-color", next.casing);
+    map.setPaintProperty(SELECTED_ROUTE_CASING_LAYER_ID, "line-color", next.casing);
+    map.setPaintProperty(SELECTED_ROUTE_LAYER_ID, "line-color", next.ink);
+    map.setPaintProperty(STATION_LAYER_ID, "circle-color", [
+      "case",
+      ["get", "selected"],
+      next.ink,
+      next.point,
+    ]);
+    map.setPaintProperty(STATION_LAYER_ID, "circle-stroke-color", [
+      "case",
+      ["get", "selected"],
+      next.casing,
+      next.pointBorder,
+    ]);
+    map.setPaintProperty(STATION_LABEL_LAYER_ID, "text-color", next.label);
+    map.setPaintProperty(STATION_LABEL_LAYER_ID, "text-halo-color", next.labelHalo);
+    map.setPaintProperty(SELECTED_STOP_LAYER_ID, "circle-color", next.point);
+    map.setPaintProperty(SELECTED_STOP_LAYER_ID, "circle-stroke-color", next.ink);
+    map.setPaintProperty(TRAIN_HALO_LAYER_ID, "circle-color", [
+      "case",
+      ["get", "selected"],
+      next.ink,
+      next.brand,
+    ]);
+    map.setPaintProperty(TRAIN_LAYER_ID, "circle-color", [
+      "case",
+      ["get", "selected"],
+      next.ink,
+      next.brand,
+    ]);
+    map.setPaintProperty(TRAIN_LAYER_ID, "circle-stroke-color", next.casing);
+    map.setPaintProperty(TRAIN_LABEL_LAYER_ID, "text-color", next.ink);
+    map.setPaintProperty(TRAIN_LABEL_LAYER_ID, "text-halo-color", next.labelHalo);
+  }, [mapReady, theme]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
@@ -494,9 +533,24 @@ export default function TrainMap({
   }, [mapReady]);
 
   useEffect(() => {
+    if (!mapReady || !mapRef.current || railLines.length === 0) return;
+    setSourceData(
+      mapRef.current,
+      NETWORK_SOURCE_ID,
+      featureCollection([
+        {
+          type: "Feature",
+          geometry: { type: "MultiLineString", coordinates: railLines },
+          properties: {},
+        },
+      ]),
+    );
+  }, [mapReady, railLines]);
+
+  useEffect(() => {
     if (!mapReady || !mapRef.current) return;
 
-    const features = (stationsData?.stations ?? [])
+    const features = stations
       .filter((station) => station.latitude != null && station.longitude != null)
       .map((station) =>
         pointFeature([station.longitude!, station.latitude!], {
@@ -512,12 +566,12 @@ export default function TrainMap({
       );
 
     setSourceData(mapRef.current, STATION_SOURCE_ID, featureCollection(features));
-  }, [mapReady, selectedStationCode, stationsData]);
+  }, [mapReady, selectedStationCode, stations]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
 
-    const features = (trainsData?.liveTrains ?? [])
+    const features = trains
       .filter((train) => train.latitude != null && train.longitude != null)
       .map((train) =>
         pointFeature([train.longitude!, train.latitude!], {
@@ -531,7 +585,7 @@ export default function TrainMap({
       );
 
     setSourceData(mapRef.current, TRAIN_SOURCE_ID, featureCollection(features));
-  }, [mapReady, selectedTrainCode, trainsData]);
+  }, [mapReady, selectedTrainCode, trains]);
 
   const selectedRouteCoordinates = useMemo(() => {
     const coordinates: [number, number][] = [];
@@ -600,39 +654,28 @@ export default function TrainMap({
       bounds.extend(coordinate);
     }
 
+    // keep the route clear of the stats card (left) and detail sheet (right)
+    const wide = mapRef.current.getContainer().clientWidth > 900;
     fittedTrainRef.current = selectedTrainCode;
     mapRef.current.fitBounds(bounds, {
       duration: 700,
       maxZoom: 10,
-      padding: { top: 88, right: 440, bottom: 72, left: 72 },
+      padding: wide
+        ? { top: 72, right: 460, bottom: 56, left: 340 }
+        : { top: 48, right: 32, bottom: 48, left: 32 },
     });
   }, [mapReady, selectedRouteCoordinates, selectedTrainCode]);
-
-  const liveTrainCount = trainsData?.liveTrains?.length ?? 0;
-  const mappedTrainCount =
-    trainsData?.liveTrains?.filter((train) => train.latitude != null && train.longitude != null)
-      .length ?? 0;
-  const stationCount = stationsData?.stations?.length ?? 0;
 
   return (
     <div className="relative h-full w-full">
       <div ref={containerRef} className="h-full w-full" />
       {mapError ? (
-        <div className="absolute inset-0 flex items-center justify-center bg-[var(--rail-bg)]">
-          <div className="border border-[var(--rail-border)] bg-[var(--rail-surface)] px-4 py-3 text-sm text-[var(--rail-muted)]">
-            Map unavailable
+        <div className="absolute inset-0 grid place-items-center bg-paper">
+          <div className="card px-5 py-4 text-[14px] text-muted">
+            The map couldn’t load in this browser.
           </div>
         </div>
       ) : null}
-      <div className="map-status-bar">
-        <span className="map-status-title">
-          <i /> Track feed
-        </span>
-        <span>
-          {mappedTrainCount}/{liveTrainCount} trains plotted
-        </span>
-        <span className="hidden sm:inline">{stationCount} control points</span>
-      </div>
     </div>
   );
 }

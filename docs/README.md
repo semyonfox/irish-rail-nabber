@@ -6,14 +6,15 @@ Single source of truth for irish-rail-nabber. Each doc owns one concern; cross-r
 
 1. [architecture.md](architecture.md) — what the system is and how the pieces fit
 2. [scraper.md](scraper.md) — the Python daemon that collects data
-3. [api.md](api.md) — the Rust GraphQL + REST API
-4. [dashboard.md](dashboard.md) — the React UI
-5. [chatbot.md](chatbot.md) — the AI assistant with database tools
-6. [auth-billing.md](auth-billing.md) — accounts, Polar.sh, paid tiers
-7. [data-sources.md](data-sources.md) — the upstream Irish Rail API
-8. [deployment.md](deployment.md) — Docker, cloud, backups, recovery
-9. [network-graph.md](network-graph.md) — rail topology and visualizations
-10. [testing.md](testing.md) — verification checklists
+3. [buses.md](buses.md) — the NTA GTFS and realtime bus collector
+4. [api.md](api.md) — the Rust GraphQL + REST API
+5. [dashboard.md](dashboard.md) — the React UI
+6. [chatbot.md](chatbot.md) — the AI assistant with database tools
+7. [auth-billing.md](auth-billing.md) — accounts, Polar.sh, paid tiers
+8. [data-sources.md](data-sources.md) — the upstream Irish Rail API
+9. [deployment.md](deployment.md) — Docker, cloud, backups, recovery
+10. [network-graph.md](network-graph.md) — rail topology and visualizations
+11. [testing.md](testing.md) — verification checklists
 
 ## Analysis
 

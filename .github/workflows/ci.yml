@@ -10,6 +10,21 @@ permissions:
   contents: read
 
 jobs:
+  repository-hygiene:
+    name: Repository hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Reject tracked production env files
+        run: |
+          if git ls-files --error-unmatch .env.production >/dev/null 2>&1; then
+            echo "::error::.env.production must not be tracked. Use .env.production.example plus deployment secrets."
+            exit 1
+          fi
+      - name: Validate deploy contract
+        run: bash scripts/validate-deploy-contract.sh
+
   api:
     name: Rust API
     runs-on: ubuntu-latest
@@ -42,11 +57,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Set up Vite+
-        uses: voidzero-dev/setup-vp@v1
+        uses: voidzero-dev/setup-vp@v1.19.0
         with:
           cache: true
+          # The action otherwise performs an unpinned, implicit install before
+          # our explicit lockfile-backed install below.
+          working-directory: dashboard
+          run-install: false
       - name: Install dependencies
-        run: vp install
+        run: vp install --frozen-lockfile
       - name: Check
         run: vp check
       - name: Build
@@ -67,3 +86,5 @@ jobs:
         run: pip install -r requirements.txt
       - name: Compile Python sources
         run: python -m compileall -q .
+      - name: Test bus ingestion
+        run: python -m unittest test_bus_daemon.py

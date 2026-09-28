@@ -4,7 +4,8 @@ The chat route is now a real model-backed assistant:
 
 - Frontend: `dashboard/src/pages/ChatAssistant.tsx`
 - Backend: `api/src/chat.rs`
-- Endpoint: `POST /chat`
+- API endpoint: `POST /chat`
+- Browser-facing proxy: `POST /api/chat`
 
 ## Current status
 
@@ -13,8 +14,7 @@ Done.
 - OpenAI function-calling assistant is wired end-to-end.
 - Model responses are produced from tool results only (no fabricated schedules).
 - Role-gated access: only `coffee`, `pro`, and `admin` users can use chat.
-- The dashboard route `/chat` is fully hooked to backend.
-- Dev and production proxy paths now forward `/chat` to the API.
+- The dashboard page `/chat` calls `/api/chat`; dev and production proxies rewrite that request to the API's `/chat` handler.
 
 ## Toolset used by the model
 
@@ -34,7 +34,7 @@ Each tool maps to a GraphQL query with bounded inputs and output limits:
 
 ## Request/response contract
 
-`POST /chat`
+`POST /api/chat` from the dashboard origin, rewritten to API `POST /chat`.
 
 Payload:
 
@@ -62,6 +62,8 @@ Response:
 }
 ```
 
+The daily Traein quota returns HTTP 429. Model-provider throttling returns HTTP 503 with code `model_provider_rate_limited`, so the dashboard does not tell the user to upgrade. The overall chat deadline returns HTTP 504 with code `chat_timeout`.
+
 ## Infra and limits
 
 Environment knobs:
@@ -84,10 +86,11 @@ Environment knobs:
 - `CHAT_ROUTE_MIN_TRAINS` (default `3`)
 - `CHAT_LIVE_TRAINS_LIMIT` (default `200`)
 
-Docker Compose forwards both the `LLM_*` names and the fallback OpenAI-compatible names. Production should set either the `LLM_*` group or the fallback group in `/home/semyon/jenkins/env/irish-rail-nabber.env`; the tracked `.env.production` file is only a placeholder template.
+Docker Compose forwards both the `LLM_*` names and the fallback OpenAI-compatible names. Production should set either the `LLM_*` group or the fallback group in `/home/semyon/server-stacks/irish-rail/stack.env`; `.env.production.example` is only a placeholder template.
 
 ## Notes
 
 - Tool calls are capped per request and logged back in response.
 - `POST /chat` shares the existing `graphql_rate_limit` middleware in `api/src/main.rs`.
+- The handler has a 110-second overall deadline across all model turns. nginx waits 115 seconds and the browser waits 120 seconds, so the API can return a structured timeout before an outer layer closes the request.
 - Session persistence and streaming responses are not yet implemented; this is a single-turn JSON request/response for now.

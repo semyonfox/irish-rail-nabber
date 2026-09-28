@@ -1,65 +1,83 @@
-import { COUNTRY_BOARD, LIVE_TRAINS, STATIONS } from "../graphql/queries";
-import { usePollingQuery } from "../utils/usePollingQuery";
+import type { LiveTrain, RailStation } from "./TrainMap";
+import LiveNetworkSummary from "./LiveNetworkSummary";
 
-interface Train {
-  trainCode: string;
-}
-
-interface Station {
-  stationCode: string;
-}
-
-interface BoardEvent {
+export interface RailBoardEvent {
   lateMinutes: number | null;
 }
 
-interface TrainsData {
-  liveTrains: Train[];
+interface Props {
+  trains: LiveTrain[];
+  stations: RailStation[];
+  board: RailBoardEvent[];
 }
 
-interface StationsData {
-  stations: Station[];
-}
-
-interface CountryBoardData {
-  countryBoard: BoardEvent[];
-}
-
-export default function NetworkStats() {
-  const [{ data: trainsData }] = usePollingQuery<TrainsData>({
-    query: LIVE_TRAINS,
-    pollInterval: 10000,
-  });
-  const [{ data: stationsData }] = usePollingQuery<StationsData>({
-    query: STATIONS,
-  });
-  const [{ data: boardData }] = usePollingQuery<CountryBoardData>({
-    query: COUNTRY_BOARD,
-    variables: { limit: 100, minutes: 45 },
-    pollInterval: 15000,
-  });
-
-  const trains = trainsData?.liveTrains ?? [];
-  const stations = stationsData?.stations ?? [];
-  const board = boardData?.countryBoard ?? [];
+export default function NetworkStats({ trains, stations, board }: Props) {
+  const mapped = trains.filter((train) => train.latitude != null && train.longitude != null);
+  const unavailable = trains.filter((train) => train.latitude == null || train.longitude == null);
   const delayed = board.filter((row) => (row.lateMinutes ?? 0) >= 5).length;
   const severe = board.filter((row) => (row.lateMinutes ?? 0) >= 15).length;
 
-  const stats = [
-    { label: "Live trains", value: trains.length, tone: "text-white" },
-    { label: "Delayed", value: delayed, tone: "text-[var(--rail-orange)]" },
-    { label: "Severe", value: severe, tone: "text-[var(--rail-red)]" },
-    { label: "Control points", value: stations.length, tone: "text-white" },
-  ];
-
   return (
-    <div className="network-readout pointer-events-auto" aria-label="Live network summary">
-      {stats.map((stat) => (
-        <div key={stat.label} className="network-readout-item">
-          <span className={`network-readout-value ${stat.tone}`}>{stat.value}</span>
-          <span className="network-readout-label">{stat.label}</span>
-        </div>
-      ))}
-    </div>
+    <LiveNetworkSummary
+      status="Live now"
+      live
+      count={trains.length}
+      caption="services in live feed"
+      detail={`${mapped.length}/${trains.length} on map`}
+      stats={[
+        {
+          label: "Late",
+          value: delayed,
+          tone: delayed > 0 ? "warn" : undefined,
+          title: "Services 5+ minutes late on boards over the next 45 minutes",
+        },
+        {
+          label: "Severe",
+          value: severe,
+          tone: severe > 0 ? "bad" : undefined,
+          title: "Services 15+ minutes late on boards over the next 45 minutes",
+        },
+        { label: "Stations", value: stations.length },
+      ]}
+    >
+      {unavailable.length > 0 ? (
+        <details className="mt-3 border-t border-line pt-3 text-[12.5px]">
+          <summary className="cursor-pointer text-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand">
+            {unavailable.length} position{unavailable.length === 1 ? "" : "s"} unavailable
+          </summary>
+          <ul
+            className="mt-2 max-h-32 space-y-1.5 overflow-y-auto pr-1"
+            aria-label="Services without a live map position"
+          >
+            {unavailable.map((train) => (
+              <li key={train.trainCode} className="flex items-baseline justify-between gap-3">
+                <span className="code text-ink">{train.trainCode}</span>
+                <span className="truncate text-right text-muted">
+                  {train.direction || train.trainType || "Location not reported"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
+      <div className="mt-4 hidden flex-wrap gap-x-4 gap-y-1.5 border-t border-line pt-3 text-[12.5px] text-muted sm:flex">
+        <span className="legend">
+          <i className="legend-train" />
+          Train
+        </span>
+        <span className="legend">
+          <i className="legend-station" />
+          Station
+        </span>
+        <span className="legend">
+          <i className="legend-track" />
+          Track
+        </span>
+        <span className="legend">
+          <i className="legend-route" />
+          Selected route
+        </span>
+      </div>
+    </LiveNetworkSummary>
   );
 }
