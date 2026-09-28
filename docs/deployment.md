@@ -45,7 +45,6 @@ NTA_VEHICLES_URL=https://api.nationaltransport.ie/gtfsr/v2/Vehicles?format=json
 # NTA_GTFSR_URL is a deprecated fallback for NTA_TRIP_UPDATES_URL.
 BUS_STATIC_REFRESH_SECONDS=86400
 BUS_REALTIME_INTERVAL_SECONDS=60
-BUS_REALTIME_RETENTION_DAYS=7
 
 # auth
 CLERK_PUBLISHABLE_KEY=pk_live_...
@@ -151,25 +150,25 @@ The private operator runbook holds emergency procedures. The production layout b
 
 ### Backup schedule
 
-- `/etc/cron.d/server-stacks-backups` starts the production job hourly at minute `00` and daily at `02:00`.
-- It writes custom-format PostgreSQL archives and matching cluster-globals SQL files under `/mnt/media/backups/irish-rail/postgres/`.
-- Retention is 24 hourly, 14 daily, 8 weekly, 12 monthly, and yearly indefinitely. Weekly snapshots are copied on Sunday, monthly on day 1, and yearly on January 1.
+- `/etc/cron.d/server-stacks-backups` runs the Irish Rail backup at `02:00` daily.
+- It writes a custom-format PostgreSQL archive and matching cluster-globals SQL file under `/mnt/media/backups/irish-rail/postgres/daily/`, checks the archive catalog, then imports both into the encrypted NAS restic repository.
+- The repository keeps its snapshots indefinitely; there is no automatic hourly backup or expiration policy.
 - The repository's `backup-db.sh` uses a different legacy gzip/plain-SQL layout. It is not the production backup job or a recovery source of truth.
 
 ### Targets
 
 | Metric | Target | Current |
 |--------|--------|---------|
-| RPO (max data loss) | < 1 h | Hourly archives observed; alerting still needs proof |
-| RTO (recovery time) | < 15 min | Unknown until a timed disposable restore passes |
+| RPO (max data loss) | < 1 h | Daily backups currently exceed this target; alerting still needs proof |
+| RTO (recovery time) | < 15 min | Fresh full restore took about 2 h 20 min on the NAS on 2026-09-24; target unmet |
 
 ### Restore rehearsal
 
-Do not rehearse against `ireland_public`. Restore into a disposable PostgreSQL 18 and TimescaleDB instance with the same extension version, using the PostgreSQL 18 client in that container. Timescale requires its pre/post-restore functions and does not support parallel `pg_restore` for this workflow.
+Do not rehearse against `ireland_public`. Restore into a disposable PostgreSQL 18 and TimescaleDB instance with the same extension version, using the PostgreSQL 18 client in that container. Timescale requires its pre/post-restore functions and does not support parallel `pg_restore` for this workflow. The production backup job removes the raw dump after verifying its encrypted restic snapshot; retrieve the verified daily archive with `restic dump` before using the example below, or pipe that output directly to `pg_restore`.
 
 ```bash
 ssh semyon@server
-BACKUP=/mnt/media/backups/irish-rail/postgres/hourly/<verified-archive>.dump
+BACKUP=/path/to/retrieved/verified-daily-archive.dump
 
 # Run these against a disposable target, never irish_rail_db.
 docker exec restore_test createdb -U irish_data ireland_public_restore_test
@@ -187,7 +186,16 @@ Then run the verification queries from [testing.md](testing.md), record elapsed 
 
 ### Monthly test
 
-There is no automated restore-rehearsal command yet. Until a disposable restore is completed and recorded, catalog readability is verified but recoverability and the RTO are not.
+There is no automated restore-rehearsal command yet. On 2026-09-24, restic
+snapshot `0e81dc1c9c5648042491b40061f0d103de96dc7093e86a786ce35441246f5412`
+restored in full to an isolated NAS PostgreSQL 18 / TimescaleDB 2.25.2 instance.
+`pg_restore --exit-on-error` and TimescaleDB pre/post-restore passed. The
+restored legacy bus table reached ID `77,477,251`, train history was present,
+and all public constraints were valid. The bus-table retirement migration was
+also rehearsed on that copy. The matching cluster-globals file replayed in a
+separate disposable instance; the only error was the expected attempt to
+recreate its bootstrap `irish_data` role. The full database restore took about
+2 h 20 min, so the 15-minute recovery target is not met.
 
 ## Logs
 

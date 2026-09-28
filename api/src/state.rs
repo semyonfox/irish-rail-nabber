@@ -3,6 +3,7 @@ use std::{sync::Arc, time::Duration};
 use moka::future::Cache;
 use sqlx::PgPool;
 
+use crate::schema::bus_history::BusHistoryPoint;
 use crate::schema::types::{
     BusDeparture, BusRealtimeStatus, BusRouteDelay, BusRouteShape, BusStop, BusVehicle,
     DelayHistoryPoint, NetworkSummary, RouteReliability, StationDelayStats,
@@ -11,6 +12,7 @@ use crate::schema::AppSchema;
 
 #[derive(Clone)]
 pub struct QueryCache {
+    pub bus_delay_history: Cache<String, Arc<Vec<BusHistoryPoint>>>,
     pub delay_history: Cache<String, Arc<Vec<DelayHistoryPoint>>>,
     pub station_delay_stats: Cache<String, Arc<Vec<StationDelayStats>>>,
     pub network_summary: Cache<(), Arc<NetworkSummary>>,
@@ -27,6 +29,7 @@ pub struct QueryCache {
 impl QueryCache {
     pub fn new() -> Self {
         Self {
+            bus_delay_history: cache(Duration::from_secs(60), 256),
             delay_history: cache(Duration::from_secs(300), 256),
             station_delay_stats: cache(Duration::from_secs(60), 32),
             network_summary: cache(Duration::from_secs(10), 1),

@@ -5,13 +5,13 @@ import json
 import tempfile
 import unittest
 import zipfile
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from bus_daemon import (
     DEFAULT_AGENCY_ID,
-    DEFAULT_REALTIME_RETENTION_DAYS,
     DEFAULT_TRIP_UPDATES_URL,
     DEFAULT_VEHICLES_URL,
     RATE_LIMIT_SAFETY_SECONDS,
@@ -22,6 +22,7 @@ from bus_daemon import (
     _iter_bus_shape_points,
     _iter_bus_stop_times,
     _parse_trip_updates_feed,
+    bus_poll_delay_histogram,
     _realtime_url_from_environment,
     _vehicles_url_from_environment,
     _select_static_feed,
@@ -79,6 +80,8 @@ class _RecordingConnection:
         self.execute_calls.append((statement, tuple(parameters)))
         if "RETURNING last_fetched" in statement:
             return _ExecuteResult(rows=[(datetime.now(tz=timezone.utc),)])
+        if "INSERT INTO bus_histogram_polls" in statement:
+            return _ExecuteResult(rows=[(parameters[0],)])
         return _ExecuteResult()
 
 
@@ -612,10 +615,39 @@ class StopUpdatePersistenceTests(unittest.IsolatedAsyncioTestCase):
             }
         )
 
+    async def test_cutover_keeps_archiving_without_legacy_writes(self) -> None:
+        daemon = NtaBusDaemon("unused", write_legacy_stop_updates=False)
+        pool = _RecordingPool()
+        daemon.pool = pool
+        feed = self._feed(10)
+
+        changed = await daemon._insert_trip_updates(
+            1,
+            feed.stop_updates,
+            feed.trip_freshness,
+            datetime(2026, 9, 13, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(changed, 1)
+        self.assertFalse(
+            any("INSERT INTO bus_stop_updates" in sql for sql, _ in pool.calls)
+        )
+        for table in (
+            "bus_stop_live",
+            "bus_delay_samples",
+            "bus_stop_observations",
+            "bus_trip_observations",
+            "bus_delay_histogram",
+        ):
+            self.assertTrue(
+                any(f"INSERT INTO {table}" in sql for sql, _ in pool.calls),
+                table,
+            )
+
     async def test_unchanged_polls_only_refresh_trip_and_a_b_a_reactivates_a(
         self,
     ) -> None:
-        daemon = NtaBusDaemon("unused")
+        daemon = NtaBusDaemon("unused", write_legacy_stop_updates=True)
         pool = _RecordingPool()
         daemon.pool = pool
         fetched_at = datetime(2026, 9, 13, tzinfo=timezone.utc)
@@ -626,13 +658,13 @@ class StopUpdatePersistenceTests(unittest.IsolatedAsyncioTestCase):
             1, feed_a.stop_updates, feed_a.trip_freshness, fetched_at
         )
         unchanged_count = await daemon._insert_trip_updates(
-            1, feed_a.stop_updates, feed_a.trip_freshness, fetched_at
+            1, feed_a.stop_updates, feed_a.trip_freshness, fetched_at + timedelta(minutes=1)
         )
         changed_count = await daemon._insert_trip_updates(
-            1, feed_b.stop_updates, feed_b.trip_freshness, fetched_at
+            1, feed_b.stop_updates, feed_b.trip_freshness, fetched_at + timedelta(minutes=2)
         )
         returned_count = await daemon._insert_trip_updates(
-            1, feed_a.stop_updates, feed_a.trip_freshness, fetched_at
+            1, feed_a.stop_updates, feed_a.trip_freshness, fetched_at + timedelta(minutes=3)
         )
 
         self.assertEqual(
@@ -643,12 +675,131 @@ class StopUpdatePersistenceTests(unittest.IsolatedAsyncioTestCase):
         freshness_calls = [
             call for call in pool.calls if "bus_trip_update_freshness" in call[0]
         ]
+        stop_observations = [
+            call for call in pool.calls if "INSERT INTO bus_stop_observations" in call[0]
+        ]
+        live_calls = [
+            call for call in pool.calls if "INSERT INTO bus_stop_live" in call[0]
+        ]
+        delay_calls = [
+            call for call in pool.calls if "INSERT INTO bus_delay_samples" in call[0]
+        ]
+        trip_observations = [
+            call for call in pool.calls if "INSERT INTO bus_trip_observations" in call[0]
+        ]
+        histogram_calls = [
+            call for call in pool.calls if "INSERT INTO bus_delay_histogram" in call[0]
+        ]
         self.assertEqual(len(state_calls), 3)
         self.assertEqual(len(freshness_calls), 4)
+        self.assertEqual(len(stop_observations), 3)
+        self.assertEqual(len(live_calls), 3)
+        self.assertEqual(len(delay_calls), 3)
+        self.assertEqual(len(trip_observations), 4)
+        self.assertEqual(len(histogram_calls), 4)
+        self.assertEqual(len(stop_observations[0][1][0]), 19)
+        self.assertEqual(stop_observations[0][1][0][-1], "SCHEDULED")
+        self.assertEqual(len(trip_observations[0][1][0]), 5)
         self.assertIn("last_seen_at = EXCLUDED.last_seen_at", state_calls[0][0])
         self.assertEqual(len(state_calls[0][1][0]), 18)
+        self.assertEqual(live_calls[0][1][0][-1], "sequence:1")
+        self.assertEqual(delay_calls[0][1][0][-2], 10)
         self.assertEqual(len(freshness_calls[0][1][0]), 5)
         self.assertEqual(len(daemon._previous_update_hashes), 1)
+
+    async def test_restart_uses_persisted_live_hash_to_skip_unchanged_state(self) -> None:
+        daemon = NtaBusDaemon("unused")
+        pool = _RecordingPool()
+        daemon.pool = pool
+        feed = self._feed(10)
+        update = feed.stop_updates[0]
+        original_execute = pool.recording_connection.execute
+
+        async def execute_with_saved_state(statement, parameters=()):
+            if "FROM bus_stop_live live" in statement:
+                return _ExecuteResult(
+                    rows=[
+                        (
+                            update.trip_instance_key,
+                            update.stop_key,
+                            update.update_hash,
+                        )
+                    ]
+                )
+            return await original_execute(statement, parameters)
+
+        pool.recording_connection.execute = execute_with_saved_state
+        changed = await daemon._insert_trip_updates(
+            1,
+            feed.stop_updates,
+            feed.trip_freshness,
+            datetime(2026, 9, 13, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(changed, 0)
+        self.assertFalse(
+            any("INSERT INTO bus_stop_observations" in sql for sql, _ in pool.calls)
+        )
+        self.assertTrue(
+            any("INSERT INTO bus_trip_observations" in sql for sql, _ in pool.calls)
+        )
+
+    async def test_retried_poll_does_not_add_histogram_twice(self) -> None:
+        daemon = NtaBusDaemon("unused")
+        pool = _RecordingPool()
+        daemon.pool = pool
+        feed = self._feed(10)
+        fetched_at = datetime(2026, 9, 13, tzinfo=timezone.utc)
+        original_execute = pool.recording_connection.execute
+        seen_markers: set[tuple[object, ...]] = set()
+
+        async def execute_with_unique_marker(statement, parameters=()):
+            if "INSERT INTO bus_histogram_polls" in statement:
+                marker = tuple(parameters)
+                if marker in seen_markers:
+                    return _ExecuteResult()
+                seen_markers.add(marker)
+            return await original_execute(statement, parameters)
+
+        pool.recording_connection.execute = execute_with_unique_marker
+        for _ in range(2):
+            await daemon._insert_trip_updates(
+                1, feed.stop_updates, feed.trip_freshness, fetched_at
+            )
+
+        histogram_calls = [
+            call for call in pool.calls if "INSERT INTO bus_delay_histogram" in call[0]
+        ]
+        self.assertEqual(len(histogram_calls), 1)
+
+    def test_poll_histogram_counts_repeats_but_excludes_canceled_trips(self) -> None:
+        feed = self._feed(10)
+        first = replace(feed.stop_updates[0], route_id="route", stop_id="stop")
+        repeated = replace(first, trip_instance_key="other-trip")
+        canceled = replace(first, trip_instance_key="canceled-trip")
+        skipped = replace(first, schedule_relationship="SKIPPED")
+        freshness = (
+            *feed.trip_freshness,
+            replace(feed.trip_freshness[0], trip_instance_key="other-trip"),
+            replace(
+                feed.trip_freshness[0],
+                trip_instance_key="canceled-trip",
+                schedule_relationship="CANCELED",
+            ),
+        )
+
+        bins = bus_poll_delay_histogram(
+            (first, repeated, canceled, skipped), freshness
+        )
+
+        self.assertEqual(
+            bins,
+            [
+                ("network", "", 10, 2),
+                ("route", "route", 10, 2),
+                ("stop", "stop", 10, 2),
+            ],
+        )
 
 
 class VehiclePositionPersistenceTests(unittest.IsolatedAsyncioTestCase):
@@ -683,8 +834,18 @@ class VehiclePositionPersistenceTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(counts, (1, 0, 1, 1))
-        self.assertEqual(len(pool.calls), 4)
+        current_calls = [
+            call for call in pool.calls if "INSERT INTO bus_vehicle_positions" in call[0]
+        ]
+        observations = [
+            call for call in pool.calls if "INSERT INTO bus_vehicle_observations" in call[0]
+        ]
+        self.assertEqual(len(current_calls), 4)
+        self.assertEqual(len(observations), 4)
         self.assertTrue(all(len(call[1][0]) == 25 for call in pool.calls))
+        self.assertEqual(
+            [call[1][0][11] for call in observations], [53.0, 53.0, 53.1, 53.0]
+        )
         self.assertIn("last_seen_at = EXCLUDED.last_seen_at", pool.calls[0][0])
         self.assertIn("IS DISTINCT FROM", pool.calls[0][0])
         self.assertEqual(len(daemon._previous_vehicle_hashes), 1)
@@ -799,7 +960,6 @@ class RealtimePollingTests(unittest.IsolatedAsyncioTestCase):
         )
         daemon._insert_trip_updates = AsyncMock(return_value=1)
         daemon._upsert_vehicle_positions = AsyncMock()
-        daemon._prune_realtime_history_if_due = AsyncMock(return_value=(0, 0, 0))
         daemon.record_fetch = AsyncMock()
 
         await daemon.poll_realtime()
@@ -825,7 +985,6 @@ class RealtimePollingTests(unittest.IsolatedAsyncioTestCase):
         )
         daemon._insert_trip_updates = AsyncMock()
         daemon._upsert_vehicle_positions = AsyncMock(return_value=1)
-        daemon._prune_realtime_history_if_due = AsyncMock(return_value=(0, 0, 0))
         daemon.record_fetch = AsyncMock()
 
         await daemon.poll_realtime()
@@ -892,30 +1051,6 @@ class DatabaseRetentionTests(unittest.IsolatedAsyncioTestCase):
                 for statement, _parameters in pool.execute_calls
             )
         )
-
-    async def test_realtime_retention_is_reserved_and_protects_current_trips(
-        self,
-    ) -> None:
-        daemon = NtaBusDaemon("unused")
-        pool = _RecordingPool()
-        daemon.pool = pool
-
-        pruned = await daemon._prune_realtime_history_if_due()
-
-        self.assertEqual(pruned, (1, 1, 1))
-        reservation_statement, reservation_parameters = pool.execute_calls[0]
-        self.assertIn("ON CONFLICT (endpoint)", reservation_statement)
-        self.assertEqual(reservation_parameters[0], "nta_realtime_retention")
-        stop_statement, stop_parameters = pool.execute_calls[1]
-        self.assertIn("NOT EXISTS", stop_statement)
-        self.assertIn("DISTINCT ON", stop_statement)
-        self.assertIn("protected_current_states", stop_statement)
-        self.assertIn("bus_trip_update_freshness", stop_statement)
-        self.assertEqual(
-            stop_parameters,
-            (DEFAULT_REALTIME_RETENTION_DAYS, DEFAULT_REALTIME_RETENTION_DAYS),
-        )
-        self.assertIn("bus_vehicle_positions", pool.execute_calls[3][0])
 
     async def test_active_bus_ids_are_cached_per_feed_version(self) -> None:
         daemon = NtaBusDaemon("unused")
@@ -1086,6 +1221,7 @@ class ShutdownTests(unittest.IsolatedAsyncioTestCase):
         daemon = NtaBusDaemon("unused", api_key="key", realtime_interval_seconds=60)
         daemon.init = AsyncMock()
         daemon.close = AsyncMock()
+        daemon._active_feed_version_id = AsyncMock(return_value=None)
         daemon._install_signal_handlers = lambda: None
         daemon.refresh_static_feed = AsyncMock()
         scheduled: list[tuple[str, int]] = []
@@ -1111,6 +1247,7 @@ class ShutdownTests(unittest.IsolatedAsyncioTestCase):
         daemon = NtaBusDaemon("unused")
         daemon.init = AsyncMock()
         daemon.close = AsyncMock()
+        daemon._active_feed_version_id = AsyncMock(return_value=None)
         daemon._install_signal_handlers = lambda: None
         import_started = asyncio.Event()
         import_cancelled = asyncio.Event()
@@ -1129,6 +1266,46 @@ class ShutdownTests(unittest.IsolatedAsyncioTestCase):
         daemon._shutdown.set()
         await asyncio.wait_for(run_task, timeout=1)
 
+        self.assertTrue(import_cancelled.is_set())
+        daemon.close.assert_awaited_once()
+
+    async def test_existing_feed_polls_while_static_refresh_is_running(self) -> None:
+        daemon = NtaBusDaemon("unused", api_key="key")
+        daemon.init = AsyncMock()
+        daemon.close = AsyncMock()
+        daemon._install_signal_handlers = lambda: None
+        daemon._active_feed_version_id = AsyncMock(return_value=1)
+        daemon._load_active_bus_ids = AsyncMock(
+            return_value=ActiveBusIds(1, frozenset(), {})
+        )
+        daemon._reserve_realtime_request = AsyncMock(return_value=None)
+        import_started = asyncio.Event()
+        import_cancelled = asyncio.Event()
+        realtime_polled = asyncio.Event()
+
+        async def blocked_import() -> None:
+            async with daemon._feed_lock:
+                import_started.set()
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    import_cancelled.set()
+
+        async def run_worker(name, _function, _interval_seconds, **_kwargs) -> None:
+            if name == "GTFS-Realtime":
+                await import_started.wait()
+                await daemon.poll_realtime()
+                realtime_polled.set()
+                daemon._shutdown.set()
+            else:
+                await daemon._shutdown.wait()
+
+        daemon.refresh_static_feed = blocked_import
+        daemon.schedule_task = run_worker
+
+        await asyncio.wait_for(daemon.run(), timeout=1)
+
+        self.assertTrue(realtime_polled.is_set())
         self.assertTrue(import_cancelled.is_set())
         daemon.close.assert_awaited_once()
 
@@ -1306,14 +1483,18 @@ class StaticFeedSelectionTests(unittest.TestCase):
 
 
 class StaticArchiveTests(unittest.IsolatedAsyncioTestCase):
-    async def test_successful_refresh_keeps_exact_zip_and_replaces_previous_copy(self):
+    async def test_successful_refresh_keeps_each_zip_and_replaces_latest_copy(self):
         with tempfile.TemporaryDirectory() as directory:
             daemon = NtaBusDaemon("unused", archive_directory=directory)
             daemon.record_fetch = AsyncMock()
             daemon._import_static_feed = AsyncMock(
                 return_value=StaticImportResult(1, imported=True, row_count=1)
             )
-            for payload in (b"first imported archive", b"replacement archive"):
+            for payload in (
+                b"first imported archive",
+                b"replacement archive",
+                b"replacement archive",
+            ):
                 daemon._download_static_feed = AsyncMock(return_value=(
                     io.BytesIO(payload), hashlib.sha256(payload).hexdigest(),
                     datetime.now(timezone.utc), len(payload),
@@ -1322,12 +1503,19 @@ class StaticArchiveTests(unittest.IsolatedAsyncioTestCase):
                 archives = list(Path(directory).glob("*.zip"))
                 self.assertEqual(len(archives), 1)
                 self.assertEqual(archives[0].read_bytes(), payload)
+                version = Path(directory, "versions", f"{hashlib.sha256(payload).hexdigest()}.zip")
+                self.assertEqual(version.read_bytes(), payload)
+                self.assertEqual(version.stat().st_ino, archives[0].stat().st_ino)
+            self.assertEqual(len(list(Path(directory, "versions").glob("*.zip"))), 2)
             self.assertEqual(list(Path(directory).glob("*.tmp")), [])
 
     async def test_failed_import_keeps_last_successful_archive(self):
         with tempfile.TemporaryDirectory() as directory:
             daemon = NtaBusDaemon("unused", archive_directory=directory)
-            daemon._archive_static_feed(io.BytesIO(b"last good archive"))
+            daemon._archive_static_feed(
+                io.BytesIO(b"last good archive"),
+                hashlib.sha256(b"last good archive").hexdigest(),
+            )
             daemon.record_fetch = AsyncMock()
             daemon._download_static_feed = AsyncMock(return_value=(
                 io.BytesIO(b"invalid"), "hash", datetime.now(timezone.utc), 7,
@@ -1340,10 +1528,16 @@ class StaticArchiveTests(unittest.IsolatedAsyncioTestCase):
     def test_failed_archive_write_is_atomic(self):
         with tempfile.TemporaryDirectory() as directory:
             daemon = NtaBusDaemon("unused", archive_directory=directory)
-            daemon._archive_static_feed(io.BytesIO(b"last good archive"))
+            daemon._archive_static_feed(
+                io.BytesIO(b"last good archive"),
+                hashlib.sha256(b"last good archive").hexdigest(),
+            )
             with patch("bus_daemon.shutil.copyfileobj", side_effect=OSError("disk full")):
                 with self.assertRaises(OSError):
-                    daemon._archive_static_feed(io.BytesIO(b"replacement"))
+                    daemon._archive_static_feed(
+                        io.BytesIO(b"replacement"),
+                        hashlib.sha256(b"replacement").hexdigest(),
+                    )
             self.assertEqual(next(Path(directory).glob("*.zip")).read_bytes(), b"last good archive")
             self.assertEqual(list(Path(directory).glob("*.tmp")), [])
 
@@ -1351,7 +1545,9 @@ class StaticArchiveTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as directory:
             for source in ("https://example.test/a.zip", "https://example.test/b.zip"):
                 daemon = NtaBusDaemon("unused", gtfs_url=source, archive_directory=directory)
-                daemon._archive_static_feed(io.BytesIO(source.encode()))
+                daemon._archive_static_feed(
+                    io.BytesIO(source.encode()), hashlib.sha256(source.encode()).hexdigest()
+                )
             self.assertEqual(len(list(Path(directory).glob("*.zip"))), 2)
 
 

@@ -10,7 +10,7 @@ The bus collector adds NTA GTFS schedules, realtime trip updates and current veh
 | TripUpdates | `https://api.nationaltransport.ie/gtfsr/v2/gtfsr?format=json` | `x-api-key` | alternating, normally about every two minutes |
 | Vehicles | `https://api.nationaltransport.ie/gtfsr/v2/Vehicles?format=json` | `x-api-key` | alternating, normally about every two minutes |
 
-The collector keeps only routes whose GTFS `route_type` is `3` or `11`, or the extended bus/coach types `200–209`, `700–716` and `800`, plus their agencies, trips, stops, stop times, predictions and vehicle positions. The NTA exposes trip updates and vehicle positions through separate operations, but its fair-usage policy permits only one realtime API request per token every 60 seconds. The collector therefore alternates the operations within one shared request budget. With the one-second safety margin, each kind normally refreshes about every 122 seconds. The collector waits after processing each response, so request and database time lengthen this interval. The database reservation remains the authority for the next permitted request.
+The collector keeps only routes whose GTFS `route_type` is `3` or `11`, or the extended bus/coach types `200–209`, `700–716` and `800`, plus their agencies, trips, stops, stop times, predictions and vehicle positions. The NTA exposes trip updates and vehicle positions through separate operations, but its fair-usage policy permits only one realtime API request per token every 60 seconds. The collector therefore alternates the operations within one shared request budget. With the one-second safety margin, each kind normally refreshes about every 122 seconds.
 
 The NTA describes its live feed as covering services provided by Dublin Bus, Bus Éireann and Go-Ahead Ireland. The matching static schedule covers a broader bus network, so a route appearing in the schedule does not by itself mean realtime positions are available for it.
 
@@ -33,15 +33,41 @@ transit_feed_versions
   ├── bus_stop_times
   └── bus_shape_points
 
-bus_stop_updates
-  └── content-deduplicated arrival/departure predictions and delays
+bus_stop_observations
+  └── compressed archive of each changed stop prediction
+
+bus_stop_live
+  └── latest prediction per active trip and stop for departure boards
+
+bus_delay_samples
+  └── latest non-null delay per trip and stop for seven-day route statistics
 
 bus_trip_update_freshness
-  └── current TripUpdate presence, relationship and last-seen time
+  └── recent TripUpdate presence, relationship and last-seen time
+
+bus_trip_observations
+  └── compressed archive of trip presence at each successful poll
 
 bus_vehicle_positions
   └── one current row per vehicle in the latest full-dataset Vehicles response
+
+bus_vehicle_observations
+  └── compressed archive of each full vehicle snapshot
+
+bus_delay_histogram
+  └── hourly counts of each reported prediction delay by network, route and stop
+
+bus_histogram_polls
+  └── poll receipts that prevent duplicate histogram counts after a retry
+
 ```
+
+The backfill copied every surviving legacy stop state and trip-presence row
+before the legacy table was retired. That table deduplicated repeated stop
+states, and an earlier retention job had already removed some older rows, so
+polls and changes missing from it cannot be reconstructed. New observations
+are archived as they arrive. The verified pre-retirement backup retains the
+legacy table for recovery.
 
 GTFS schedule times use integer seconds since the start of the service day. This preserves valid values beyond `24:00:00`, which PostgreSQL `TIME` cannot represent.
 
@@ -50,15 +76,19 @@ GTFS schedule times use integer seconds since the start of the service day. This
 `bus_daemon.py` performs two independent jobs:
 
 1. Download and import the matching static feed when its SHA-256 changes.
-2. Reserve one shared realtime request slot, then alternate TripUpdates and Vehicles. TripUpdates appends changed stop states and refreshes current trip presence. Vehicles replaces the current vehicle snapshot.
+2. Reserve one shared realtime request slot, then alternate TripUpdates and Vehicles. TripUpdates appends changed stop states and records trip presence. Vehicles replaces the current vehicle snapshot and archives every vehicle seen in each poll.
+
+If an active static feed already exists, realtime polling starts during the
+startup static refresh and continues while that feed imports. A first install
+waits for its initial static feed before polling realtime data.
 
 The static import still runs when `NTA_API_KEY` is empty. Realtime collection stays disabled until the key is present. The key is sent only in the `x-api-key` header and must never appear in logs.
 
 The database-backed request reservation adds a one-second safety margin and applies across restarts or concurrent collectors sharing the database. Both operations use the same reservation, so replicas cannot turn the alternating schedule into extra NTA requests. The API reads the resulting database state and serves it to every user without calling NTA again.
 
-Differential feeds are rejected because absence only means removal in a full-dataset feed. TripUpdates changes only stop predictions and trip freshness; Vehicles changes only the vehicle snapshot. One operation never clears the other operation's data. Trip-level freshness lets boards retire removed or canceled trips without rewriting every unchanged stop prediction.
+Differential feeds are rejected because absence only means removal in a full-dataset feed. TripUpdates changes only stop predictions and trip freshness; Vehicles changes only the vehicle snapshot. One operation never clears the other operation's data. Trip-level freshness lets boards retire removed or canceled trips without rewriting every unchanged stop prediction. The board reads `bus_stop_live`; the statistics page reads `bus_delay_samples` joined to recent trip freshness. Predictions and poll presence remain in the compressed observation tables after the live and statistics projections expire.
 
-The current NTA archive contains about 6.6 million bus stop-time rows. Route, trip and stop metadata remains versioned so historical IDs can still be interpreted, but stop times and shape points for inactive versions are removed after the replacement feed activates. A historical feed is rehydrated from its archive before it can become active again. Changed stop predictions are retained for seven days by default and pruned at most once per day; vehicle positions are current state rather than an append-only history.
+The current NTA archive contains about 6.6 million bus stop-time rows. Route, trip and stop metadata remains versioned so historical IDs can still be interpreted, but stop times and shape points for inactive versions are removed after the replacement feed activates. Each successfully imported static ZIP is kept by content hash under `BUS_GTFS_ARCHIVE_DIRECTORY/versions` so the matching schedule can be restored; older versions that predate this archive may lack their ZIP. Stop prediction changes, trip observations and full vehicle snapshots have no retention limit. The observation hypertables compress after three hours; no bus or train history retention policy deletes old observations. Finite disks still need capacity monitoring as the archive grows.
 
 Configuration:
 
@@ -73,7 +103,7 @@ Configuration:
 | `BUS_GTFS_ARCHIVE_DIRECTORY` | optional outside Docker; `/data/gtfs` in Compose |
 | `BUS_STATIC_REFRESH_SECONDS` | `86400` |
 | `BUS_REALTIME_INTERVAL_SECONDS` | `60`, shared by both operations; values below 60 are clamped |
-| `BUS_REALTIME_RETENTION_DAYS` | `7`, must be positive |
+| `BUS_WRITE_LEGACY_STOP_UPDATES` | `0`; `1` is only for rollback to a database that still has the legacy table |
 
 ## GraphQL
 
@@ -85,15 +115,39 @@ busRouteDelays(hours: Int = 24, limit: Int = 30)
 busVehicles(routeId: String, limit: Int = 2000)
 busLiveRouteShapes(limit: Int = 100)
 busScheduledRouteShapes(stopId: String, limit: Int = 24)
+busDelayHistory(routeId: String, stopId: String, feedVersionId: Int, hours: Int = 24)
 ```
 
-The list queries return an empty list before the first feed import. `busRealtimeStatus` reports the newest successful poll and separate `vehiclesLastSuccessAt` and `tripUpdatesLastSuccessAt` timestamps. The legacy `isLive` field means either feed succeeded in the last three minutes. The dashboard uses each feed's own timestamp, so working predictions cannot make stale positions appear live. Stops, boards, current vehicles, scheduled route shapes and up to 72 hours of route-delay history are public. Coffee, Pro and admin accounts may query the full seven-day retained window.
+`busDelayHistory` derives hourly averages, p95 and on-time shares from the
+poll-weighted histogram. It counts unchanged predictions again when they are
+reported in a later poll, and is not a measure of actual arrivals. Choose at
+most one of `routeId` and `stopId`; either requires `feedVersionId` so schedule
+versions remain distinct. Public requests are capped at 72 hours and
+Coffee/Pro/admin requests at 168 hours. Missing polls remain gaps in the series.
+The existing `busRouteDelays` ranking has different semantics: its samples are
+the latest recorded delay per trip and stop, not one sample per poll.
+
+The list queries return an empty list before the first feed import. `busRealtimeStatus`
+reports the newest successful poll plus separate `vehiclesLastSuccessAt` and
+`tripUpdatesLastSuccessAt` timestamps. Its legacy `isLive` field means either
+feed succeeded in the last three minutes; the dashboard uses the source-specific
+times so fresh predictions cannot make stale vehicle positions appear live.
+Stops, boards, current vehicles, scheduled route shapes and up to 72 hours of
+route-delay history are public. Coffee, Pro and admin accounts may query up to
+seven days through the route-delay API.
 
 `busLiveRouteShapes` only considers trips with a vehicle seen in the last five minutes. It returns at most 100 shapes and samples each to at most 500 ordered points. It stays empty until realtime collection succeeds.
 
 `busScheduledRouteShapes` does not depend on realtime. Without `stopId`, it returns representative directions from the most frequently scheduled routes in the active feed. With `stopId`, it returns representative directions for routes serving that stop. The API returns at most 40 shapes, samples each to at most 300 points, and keeps one common shape per route and direction. The dashboard requests 24. This gives the map useful route lines in static-only mode without sending the full national feed to the browser.
 
 Identical stop searches, boards, delay aggregates, vehicle snapshots and route shapes are coalesced and cached in the API. Non-empty scheduled geometry uses a 15-minute cache because it changes only when the static feed changes. Empty scheduled-shape results are evicted immediately, so a request made during the initial shape import cannot hide the completed import for 15 minutes.
+
+The live dashboard polls positions and selected-stop boards every 15 seconds.
+It fetches map geometry separately every 60 seconds, so a slow shape query does
+not delay positions. The network page refreshes route statistics every minute.
+These browser requests read our cached API and consume no additional NTA
+requests. The map transition ends at each reported position; it does not
+predict movement between upstream polls.
 
 ## Checks
 
@@ -121,7 +175,7 @@ WHERE feed_version_id = (
   SELECT id FROM transit_feed_versions WHERE is_active ORDER BY imported_at DESC LIMIT 1
 );
 
-SELECT COUNT(*) FROM bus_stop_updates
+SELECT COUNT(*) FROM bus_stop_observations
 WHERE fetched_at > NOW() - INTERVAL '10 minutes';
 
 SELECT COUNT(*), MAX(last_seen_at) FROM bus_vehicle_positions;
@@ -146,10 +200,10 @@ The last query should show both realtime endpoints alternating, with consecutive
 
 The database already stores the imported national schedule and current realtime
 snapshots. API requests read that state rather than calling NTA for each visitor.
-The bus collector now also keeps the exact last successfully imported ZIP in the
-`bus_gtfs_archives` Docker volume. Filenames are the SHA-256 of the source URL,
-followed by `.zip`. Replacement is atomic, failed imports keep the previous copy,
-and there is one archive per configured source URL. The complete ZIP retains
+The bus collector keeps each successfully imported ZIP under
+`BUS_GTFS_ARCHIVE_DIRECTORY/versions`, named by its content SHA-256. It also
+atomically updates the latest copy for each configured source URL. Failed imports
+leave those files alone. The complete ZIP retains
 calendar files and other source tables even when the importer does not use them.
 An upstream outage leaves the imported database schedule available. The collector
 does not activate an older archive automatically, because its IDs may no longer
@@ -177,101 +231,3 @@ Aircoach, JJ Kavanagh, Wexford Bus and smaller operators as separate schedule
 archives. These are candidates for additional scheduled coverage, not evidence of
 additional realtime positions. They are not automatically imported alongside the
 matching realtime schedule by this collector.
-
-## What the dashboard updates
-
-Positions and selected-stop boards poll our cached GraphQL API every 15 seconds.
-The live map fetches shapes separately every 60 seconds so geometry queries cannot
-hold up position rendering. The network page fetches up to 100 route-delay rows
-every 60 seconds and shows the age of each route's latest update. Stop and network pages do not request vehicle coordinates or
-shape points. These browser requests never consume additional NTA requests.
-The API still caches vehicles for 30 seconds and boards for 20 seconds, so checking
-again does not guarantee a new upstream observation.
-
-The map displays separate ages for the last successful vehicle and prediction
-imports. A selected bus also shows its source timestamp, which may be older than
-the import. A short 1.2-second transition follows the exact trip's `shapeId` between
-two received positions. It never moves past the latest report. Missing geometry,
-changed trips, stale data, backward progress, large offsets and implausible jumps
-skip animation. Reduced-motion preferences disable it. This is a visual transition,
-not a continuous GPS feed or a prediction of travel between polls.
-
-Route performance is calculated from the latest retained prediction for each
-trip/stop, grouped by feed version and route. It is not an archive of verified
-actual arrivals. The map's route count describes loaded paths, not national
-coverage. Live geometry is capped at 100 shapes; scheduled fallback remains a
-representative selection, so not every displayed bus necessarily has a loaded path.
-
-## Bulk queries and backfill
-
-NTA's two realtime operations already provide bulk snapshots. Route geometry,
-stop names and scheduled times come from the matching static ZIP, imported on the
-server. GraphQL clients can request `busVehicles`, `busLiveRouteShapes`,
-`busStopBoard` and `busRouteDelays` in one operation within existing limits.
-The dashboard separates expensive geometry from frequent positions to avoid waiting
-for the slowest resolver before showing an update.
-
-Example combined query, using the existing public limits:
-
-```graphql
-query BusSnapshot {
-  busRealtimeStatus {
-    vehiclesLastSuccessAt
-    tripUpdatesLastSuccessAt
-  }
-  busVehicles(limit: 3000) {
-    vehicleId
-    routeId
-    routeShortName
-    headsign
-    shapeId
-    latitude
-    longitude
-    sourceTimestamp
-    fetchedAt
-  }
-  busLiveRouteShapes(limit: 100) {
-    routeId
-    routeShortName
-    shapeId
-    points { latitude longitude sequence }
-  }
-  busRouteDelays(hours: 24, limit: 100) {
-    routeId
-    routeShortName
-    operatorName
-    avgDelaySeconds
-    onTimePct
-    sampleCount
-    lastUpdated
-  }
-}
-```
-
-These are bounded results, not a full national export. `busStopBoard(stopId: "…")`
-adds expected and scheduled departures plus per-stop delay seconds for a selected
-stop. Route averages must not be presented as a particular bus's current delay.
-Deploy the additive API fields before the updated dashboard.
-
-
-There is no historical vehicle backfill job in this repository. Vehicle rows are
-replaced by each full snapshot. Changed stop predictions are retained for seven
-days by default. The ZIP archive keeps the latest successful schedule per source
-URL, not every historical schedule. It can restore static data but cannot recover
-past live positions or delays. Historical movement playback would require adding
-an observation archive going forward; interpolated positions must not be stored as
-observations. No production retention or schema changes were made for this update.
-
-NTA's [fair-usage policy](https://developer.nationaltransport.ie/usagepolicy), checked
-14 September 2026, limits each token to one realtime request every 60 seconds.
-This implementation retains the shared request budget for both feeds.
-
-## Read-only production check, 14 September 2026
-
-The deployed public API returned positions, live route shapes and route-delay
-statistics. A small combined query took 20.0 seconds. Subsequent individual queries
-for status, three positions, three shapes and three delay rows took 0.21–0.29 seconds.
-Caching affects these measurements; they do not isolate the slow resolver or
-benchmark the changes in this branch. Some 24-hour route averages were based on
-updates from several hours earlier, which is why the network view now shows
-per-route update ages. No collector settings or production data were changed.
