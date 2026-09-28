@@ -24,7 +24,7 @@ UNION ALL
 SELECT 'station events (last min)',          COUNT(*) FROM station_events
        WHERE fetched_at > NOW() - INTERVAL '1 minute'
 UNION ALL
-SELECT 'bus stop updates (last 10 min)',     COUNT(*) FROM bus_stop_updates
+SELECT 'bus stop observations (last 10 min)', COUNT(*) FROM bus_stop_observations
        WHERE fetched_at > NOW() - INTERVAL '10 minutes'
 UNION ALL
 SELECT 'current bus vehicles',               COUNT(*) FROM bus_vehicle_positions
@@ -44,7 +44,7 @@ Expected after several minutes of steady-state collection:
 | stations | 171 |
 | train snapshots (last min) | 5–20 (only when positions change) |
 | station events (last min) | 200–600 |
-| bus stop updates (last 10 min) | non-zero when bus predictions changed in the window |
+| bus stop observations (last 10 min) | non-zero when bus predictions changed in the window |
 | current bus vehicles | non-zero after a successful `nta_vehicles` poll |
 | fetch successes (last 10 min) | 100+ |
 | fetch errors (last 10 min) | 0 |

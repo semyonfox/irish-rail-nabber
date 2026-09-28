@@ -1,4 +1,4 @@
--- Versioned NTA GTFS reference data, stop-update history, and current vehicles.
+-- Versioned NTA GTFS reference data and current vehicles.
 
 CREATE TABLE IF NOT EXISTS transit_feed_versions (
     id BIGSERIAL PRIMARY KEY,
@@ -108,55 +108,6 @@ CREATE TABLE IF NOT EXISTS bus_trip_update_freshness (
     PRIMARY KEY (feed_version_id, trip_instance_key)
 );
 
-CREATE TABLE IF NOT EXISTS bus_stop_updates (
-    id BIGSERIAL PRIMARY KEY,
-    feed_version_id BIGINT NOT NULL REFERENCES transit_feed_versions(id) ON DELETE CASCADE,
-    trip_instance_key TEXT NOT NULL,
-    entity_id TEXT,
-    trip_id TEXT,
-    route_id TEXT,
-    service_date DATE,
-    vehicle_id TEXT,
-    stop_id TEXT,
-    stop_sequence INTEGER,
-    schedule_relationship TEXT,
-    arrival_time TIMESTAMPTZ,
-    departure_time TIMESTAMPTZ,
-    arrival_delay_seconds INTEGER,
-    departure_delay_seconds INTEGER,
-    update_hash TEXT NOT NULL,
-    source_timestamp TIMESTAMPTZ,
-    fetched_at TIMESTAMPTZ NOT NULL,
-    last_seen_at TIMESTAMPTZ NOT NULL,
-    UNIQUE (feed_version_id, update_hash),
-    FOREIGN KEY (feed_version_id, trip_instance_key)
-        REFERENCES bus_trip_update_freshness(feed_version_id, trip_instance_key)
-        DEFERRABLE INITIALLY DEFERRED
-);
-
--- Keep this as a regular PostgreSQL table. A fetched_at hypertable would require
--- fetched_at in every unique key and would break restart-safe update_hash deduplication.
-COMMENT ON TABLE bus_stop_updates IS
-    'Deduplicated GTFS-Realtime stop states, pruned by the daemon after the configured history window';
-
-CREATE INDEX IF NOT EXISTS idx_bus_stop_updates_stop_latest
-    ON bus_stop_updates (feed_version_id, stop_id, last_seen_at DESC, id DESC)
-    WHERE stop_id IS NOT NULL;
-
-CREATE INDEX IF NOT EXISTS idx_bus_stop_updates_recent_delays
-    ON bus_stop_updates (last_seen_at DESC, feed_version_id, route_id)
-    INCLUDE (trip_id, service_date, stop_id, stop_sequence,
-             arrival_delay_seconds, departure_delay_seconds)
-    WHERE arrival_delay_seconds IS NOT NULL OR departure_delay_seconds IS NOT NULL;
-
-CREATE INDEX IF NOT EXISTS idx_bus_stop_updates_trip
-    ON bus_stop_updates (feed_version_id, trip_id)
-    WHERE trip_id IS NOT NULL;
-
-CREATE INDEX IF NOT EXISTS idx_bus_stop_updates_trip_instance_latest
-    ON bus_stop_updates
-       (feed_version_id, trip_instance_key, last_seen_at DESC, id DESC);
-
 -- VehiclePosition is a current-state feed. Keep one row per vehicle identity and
 -- refresh last_seen_at even when its state hash has not changed.
 CREATE TABLE IF NOT EXISTS bus_vehicle_positions (
@@ -198,11 +149,6 @@ CREATE INDEX IF NOT EXISTS idx_bus_vehicle_positions_route_latest
 
 CREATE INDEX IF NOT EXISTS idx_bus_vehicle_positions_last_seen
     ON bus_vehicle_positions (last_seen_at);
-
--- These indexes make the daemon's bounded seven-day-by-default maintenance
--- proportional to expired data instead of requiring full-table scans.
-CREATE INDEX IF NOT EXISTS idx_bus_stop_updates_retention
-    ON bus_stop_updates (last_seen_at);
 
 CREATE INDEX IF NOT EXISTS idx_bus_trip_update_freshness_retention
     ON bus_trip_update_freshness (last_seen_at);

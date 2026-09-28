@@ -28,7 +28,7 @@ const BUS_SCHEDULED_SHAPE_POINTS_PER_SHAPE: i64 = 300;
 #[derive(Default)]
 pub struct BusQuery;
 
-fn validate_identifier(value: String, name: &str) -> Result<String> {
+pub(super) fn validate_identifier(value: String, name: &str) -> Result<String> {
     let value = value.trim();
     if value.is_empty() {
         return Err(Error::new(format!("{name} must not be empty")));
@@ -235,20 +235,10 @@ impl BusQuery {
         let result = cache.bus_stop_boards.try_get_with(cache_key, async move {
             let rows = sqlx::query_as::<_, BusDepartureRow>(
             "WITH latest AS (
-                SELECT DISTINCT ON (
-                    update.feed_version_id,
-                    update.trip_instance_key,
-                    CASE
-                        WHEN update.stop_sequence IS NOT NULL
-                        THEN 'sequence:' || update.stop_sequence::text
-                        WHEN update.stop_id IS NOT NULL
-                        THEN 'stop_id:' || update.stop_id
-                        ELSE 'unknown'
-                    END
-                )
+                SELECT
                     update.*,
                     freshness.last_seen_at AS trip_last_seen_at
-                FROM bus_stop_updates update
+                FROM bus_stop_live update
                 JOIN transit_feed_versions feed ON feed.id = update.feed_version_id
                 JOIN bus_trip_update_freshness freshness
                     ON freshness.feed_version_id = update.feed_version_id
@@ -270,18 +260,6 @@ impl BusQuery {
                             180
                         )
                   )
-                ORDER BY
-                    update.feed_version_id,
-                    update.trip_instance_key,
-                    CASE
-                        WHEN update.stop_sequence IS NOT NULL
-                        THEN 'sequence:' || update.stop_sequence::text
-                        WHEN update.stop_id IS NOT NULL
-                        THEN 'stop_id:' || update.stop_id
-                        ELSE 'unknown'
-                    END,
-                    update.last_seen_at DESC,
-                    update.id DESC
              ), enriched AS (
                 SELECT
                     latest.entity_id,
@@ -804,69 +782,20 @@ impl BusQuery {
                     .execute(&mut *transaction)
                     .await?;
                 let rows = sqlx::query_as::<_, BusRouteDelayRow>(
-                    "WITH candidates AS (
+                    "WITH latest AS (
                 SELECT
-                    update.id,
-                    update.feed_version_id,
-                    update.trip_instance_key,
-                    update.entity_id,
-                    update.trip_id,
-                    update.service_date,
-                    update.stop_id,
-                    update.stop_sequence,
-                    COALESCE(update.route_id, trip.route_id) AS route_id,
-                    COALESCE(
-                        update.departure_delay_seconds,
-                        update.arrival_delay_seconds
-                    ) AS delay_seconds,
-                    update.last_seen_at AS state_changed_at,
+                    sample.feed_version_id,
+                    sample.route_id,
+                    sample.delay_seconds,
                     freshness.last_seen_at AS fetched_at
-                FROM bus_stop_updates update
+                FROM bus_delay_samples sample
                 JOIN bus_trip_update_freshness freshness
-                    ON freshness.feed_version_id = update.feed_version_id
-                   AND freshness.trip_instance_key = update.trip_instance_key
-                LEFT JOIN bus_trips trip
-                    ON trip.feed_version_id = update.feed_version_id
-                   AND trip.trip_id = update.trip_id
+                    ON freshness.feed_version_id = sample.feed_version_id
+                   AND freshness.trip_instance_key = sample.trip_instance_key
                 WHERE freshness.last_seen_at > NOW() - make_interval(hours => $1)
                   AND UPPER(freshness.schedule_relationship) NOT IN (
                         'CANCELED', 'CANCELLED', 'DELETED'
                   )
-                  AND COALESCE(
-                        update.departure_delay_seconds,
-                        update.arrival_delay_seconds
-                      ) IS NOT NULL
-             ), latest AS (
-                SELECT DISTINCT ON (
-                    feed_version_id,
-                    trip_instance_key,
-                    CASE
-                        WHEN stop_sequence IS NOT NULL
-                        THEN 'sequence:' || stop_sequence::text
-                        WHEN stop_id IS NOT NULL
-                        THEN 'stop_id:' || stop_id
-                        ELSE 'unknown'
-                    END
-                )
-                    feed_version_id,
-                    route_id,
-                    delay_seconds,
-                    fetched_at,
-                    state_changed_at
-                FROM candidates
-                WHERE route_id IS NOT NULL
-                ORDER BY
-                    feed_version_id,
-                    trip_instance_key,
-                    CASE
-                        WHEN stop_sequence IS NOT NULL
-                        THEN 'sequence:' || stop_sequence::text
-                        WHEN stop_id IS NOT NULL
-                        THEN 'stop_id:' || stop_id
-                        ELSE 'unknown'
-                    END,
-                    state_changed_at DESC,
-                    id DESC
              ), aggregated AS (
                 SELECT
                     feed_version_id,
