@@ -95,6 +95,7 @@ export function createIrelandMap(container: HTMLElement, theme: Theme, customAtt
           type: "raster",
           tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
           tileSize: 256,
+          maxzoom: 19,
           attribution: "&copy; OpenStreetMap contributors",
         },
       },

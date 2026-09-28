@@ -145,23 +145,23 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
     variables: { stopId: selectedStopId, limit: 24 },
   });
 
-  const [{ data: liveData, fetching: liveFetching, error: liveError }, retryLive] =
-    usePollingQuery<BusLiveOverviewData>({
-      query: BUS_LIVE_OVERVIEW,
-      variables: {
-        stopId: selectedStopId ?? "",
-        includeBoard: view === "stops" && selectedStopId != null,
-        includeVehicles: view === "live",
-        includeShapes: false,
-        includeDelays: view === "network",
-        boardLimit: 30,
-        vehicleLimit: 2_000,
-        shapeLimit: 100,
-        hours: view === "network" ? hours : 24,
-        routeLimit: 100,
-      },
-      pollInterval: view === "network" ? 60_000 : 15_000,
-    });
+  const [liveResult, retryLive] = usePollingQuery<BusLiveOverviewData>({
+    query: BUS_LIVE_OVERVIEW,
+    variables: {
+      stopId: selectedStopId ?? "",
+      includeBoard: view === "stops" && selectedStopId != null,
+      includeVehicles: view === "live",
+      includeShapes: false,
+      includeDelays: view === "network",
+      boardLimit: 30,
+      vehicleLimit: 2_000,
+      shapeLimit: 100,
+      hours: view === "network" ? hours : 24,
+      routeLimit: 100,
+    },
+    pollInterval: view === "network" ? 60_000 : 15_000,
+  });
+  const { data: liveData, fetching: liveFetching, error: liveError } = liveResult;
 
   // Geometry can be large and slow. It must not hold up positions or stop boards.
   const [{ data: shapesData, fetching: liveShapesFetching, error: liveShapesError }, retryShapes] =
@@ -179,7 +179,12 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
       pollInterval: 60_000,
     });
 
-  const departures = liveData?.busStopBoard ?? [];
+  const boardResultIsCurrent =
+    selectedStopId != null && liveResult.operation?.variables?.stopId === selectedStopId;
+  const boardHasCurrentData = boardResultIsCurrent && liveData?.busStopBoard != null;
+  const boardLoading =
+    selectedStopId != null && !boardHasCurrentData && !(boardResultIsCurrent && liveError);
+  const departures = boardHasCurrentData ? (liveData.busStopBoard ?? []) : [];
   const realtimeStatus = liveData?.busRealtimeStatus ?? null;
   const sourceStatus = busSourceStatus(
     realtimeStatus,
@@ -348,7 +353,9 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
               className="bus-board-card"
               actions={
                 <>
-                  {liveFetching ? <span className="code">Updating…</span> : null}
+                  {selectedStopId && (boardLoading || liveFetching) ? (
+                    <span className="code">Updating…</span>
+                  ) : null}
                   {selectedStop && (
                     <button
                       type="button"
@@ -369,7 +376,27 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
                 </div>
               ) : null}
 
-              {selectedStopId && !liveFetching && departures.length === 0 && !liveError ? (
+              {boardLoading ? (
+                <div className="bus-board-placeholder" role="status">
+                  <Icon name="bus" />
+                  <p>Loading departures…</p>
+                </div>
+              ) : null}
+
+              {boardResultIsCurrent && !boardHasCurrentData && liveError ? (
+                <RequestError
+                  bare
+                  error={liveError}
+                  onRetry={() => retryLive({ requestPolicy: "network-only" })}
+                  title="Stop departures unavailable"
+                />
+              ) : null}
+
+              {selectedStopId &&
+              !boardLoading &&
+              boardHasCurrentData &&
+              departures.length === 0 &&
+              !liveError ? (
                 <Empty>
                   {feedState.isLive
                     ? "No live departures were reported for this stop."
