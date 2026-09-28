@@ -28,7 +28,7 @@ const BUS_SCHEDULED_SHAPE_POINTS_PER_SHAPE: i64 = 300;
 #[derive(Default)]
 pub struct BusQuery;
 
-fn validate_identifier(value: String, name: &str) -> Result<String> {
+pub(super) fn validate_identifier(value: String, name: &str) -> Result<String> {
     let value = value.trim();
     if value.is_empty() {
         return Err(Error::new(format!("{name} must not be empty")));

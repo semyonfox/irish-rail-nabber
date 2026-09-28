@@ -5,7 +5,8 @@ import json
 import tempfile
 import unittest
 import zipfile
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -21,6 +22,7 @@ from bus_daemon import (
     _iter_bus_shape_points,
     _iter_bus_stop_times,
     _parse_trip_updates_feed,
+    bus_poll_delay_histogram,
     _realtime_url_from_environment,
     _vehicles_url_from_environment,
     _select_static_feed,
@@ -78,6 +80,8 @@ class _RecordingConnection:
         self.execute_calls.append((statement, tuple(parameters)))
         if "RETURNING last_fetched" in statement:
             return _ExecuteResult(rows=[(datetime.now(tz=timezone.utc),)])
+        if "INSERT INTO bus_histogram_polls" in statement:
+            return _ExecuteResult(rows=[(parameters[0],)])
         return _ExecuteResult()
 
 
@@ -633,6 +637,7 @@ class StopUpdatePersistenceTests(unittest.IsolatedAsyncioTestCase):
             "bus_delay_samples",
             "bus_stop_observations",
             "bus_trip_observations",
+            "bus_delay_histogram",
         ):
             self.assertTrue(
                 any(f"INSERT INTO {table}" in sql for sql, _ in pool.calls),
@@ -653,13 +658,13 @@ class StopUpdatePersistenceTests(unittest.IsolatedAsyncioTestCase):
             1, feed_a.stop_updates, feed_a.trip_freshness, fetched_at
         )
         unchanged_count = await daemon._insert_trip_updates(
-            1, feed_a.stop_updates, feed_a.trip_freshness, fetched_at
+            1, feed_a.stop_updates, feed_a.trip_freshness, fetched_at + timedelta(minutes=1)
         )
         changed_count = await daemon._insert_trip_updates(
-            1, feed_b.stop_updates, feed_b.trip_freshness, fetched_at
+            1, feed_b.stop_updates, feed_b.trip_freshness, fetched_at + timedelta(minutes=2)
         )
         returned_count = await daemon._insert_trip_updates(
-            1, feed_a.stop_updates, feed_a.trip_freshness, fetched_at
+            1, feed_a.stop_updates, feed_a.trip_freshness, fetched_at + timedelta(minutes=3)
         )
 
         self.assertEqual(
@@ -682,12 +687,16 @@ class StopUpdatePersistenceTests(unittest.IsolatedAsyncioTestCase):
         trip_observations = [
             call for call in pool.calls if "INSERT INTO bus_trip_observations" in call[0]
         ]
+        histogram_calls = [
+            call for call in pool.calls if "INSERT INTO bus_delay_histogram" in call[0]
+        ]
         self.assertEqual(len(state_calls), 3)
         self.assertEqual(len(freshness_calls), 4)
         self.assertEqual(len(stop_observations), 3)
         self.assertEqual(len(live_calls), 3)
         self.assertEqual(len(delay_calls), 3)
         self.assertEqual(len(trip_observations), 4)
+        self.assertEqual(len(histogram_calls), 4)
         self.assertEqual(len(stop_observations[0][1][0]), 19)
         self.assertEqual(stop_observations[0][1][0][-1], "SCHEDULED")
         self.assertEqual(len(trip_observations[0][1][0]), 5)
@@ -733,6 +742,63 @@ class StopUpdatePersistenceTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(
             any("INSERT INTO bus_trip_observations" in sql for sql, _ in pool.calls)
+        )
+
+    async def test_retried_poll_does_not_add_histogram_twice(self) -> None:
+        daemon = NtaBusDaemon("unused")
+        pool = _RecordingPool()
+        daemon.pool = pool
+        feed = self._feed(10)
+        fetched_at = datetime(2026, 9, 13, tzinfo=timezone.utc)
+        original_execute = pool.recording_connection.execute
+        seen_markers: set[tuple[object, ...]] = set()
+
+        async def execute_with_unique_marker(statement, parameters=()):
+            if "INSERT INTO bus_histogram_polls" in statement:
+                marker = tuple(parameters)
+                if marker in seen_markers:
+                    return _ExecuteResult()
+                seen_markers.add(marker)
+            return await original_execute(statement, parameters)
+
+        pool.recording_connection.execute = execute_with_unique_marker
+        for _ in range(2):
+            await daemon._insert_trip_updates(
+                1, feed.stop_updates, feed.trip_freshness, fetched_at
+            )
+
+        histogram_calls = [
+            call for call in pool.calls if "INSERT INTO bus_delay_histogram" in call[0]
+        ]
+        self.assertEqual(len(histogram_calls), 1)
+
+    def test_poll_histogram_counts_repeats_but_excludes_canceled_trips(self) -> None:
+        feed = self._feed(10)
+        first = replace(feed.stop_updates[0], route_id="route", stop_id="stop")
+        repeated = replace(first, trip_instance_key="other-trip")
+        canceled = replace(first, trip_instance_key="canceled-trip")
+        skipped = replace(first, schedule_relationship="SKIPPED")
+        freshness = (
+            *feed.trip_freshness,
+            replace(feed.trip_freshness[0], trip_instance_key="other-trip"),
+            replace(
+                feed.trip_freshness[0],
+                trip_instance_key="canceled-trip",
+                schedule_relationship="CANCELED",
+            ),
+        )
+
+        bins = bus_poll_delay_histogram(
+            (first, repeated, canceled, skipped), freshness
+        )
+
+        self.assertEqual(
+            bins,
+            [
+                ("network", "", 10, 2),
+                ("route", "route", 10, 2),
+                ("stop", "stop", 10, 2),
+            ],
         )
 
 

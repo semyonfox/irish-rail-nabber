@@ -54,6 +54,12 @@ bus_vehicle_positions
 bus_vehicle_observations
   └── compressed archive of each full vehicle snapshot
 
+bus_delay_histogram
+  └── hourly counts of each reported prediction delay by network, route and stop
+
+bus_histogram_polls
+  └── poll receipts that prevent duplicate histogram counts after a retry
+
 ```
 
 The backfill copied every surviving legacy stop state and trip-presence row
@@ -109,7 +115,17 @@ busRouteDelays(hours: Int = 24, limit: Int = 30)
 busVehicles(routeId: String, limit: Int = 2000)
 busLiveRouteShapes(limit: Int = 100)
 busScheduledRouteShapes(stopId: String, limit: Int = 24)
+busDelayHistory(routeId: String, stopId: String, feedVersionId: Int, hours: Int = 24)
 ```
+
+`busDelayHistory` derives hourly averages, p95 and on-time shares from the
+poll-weighted histogram. It counts unchanged predictions again when they are
+reported in a later poll, and is not a measure of actual arrivals. Choose at
+most one of `routeId` and `stopId`; either requires `feedVersionId` so schedule
+versions remain distinct. Public requests are capped at 72 hours and
+Coffee/Pro/admin requests at 168 hours. Missing polls remain gaps in the series.
+The existing `busRouteDelays` ranking has different semantics: its samples are
+the latest recorded delay per trip and stop, not one sample per poll.
 
 The list queries return an empty list before the first feed import. `busRealtimeStatus` reports the newest successful TripUpdates or Vehicles poll and only marks the feed live for three minutes after that poll. Stops, boards, current vehicles, scheduled route shapes and up to 72 hours of route-delay history are public. Coffee, Pro and admin accounts may query up to seven days through the route-delay API.
 

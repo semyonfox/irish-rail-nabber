@@ -35,6 +35,7 @@ import shutil
 import tempfile
 import time
 import zipfile
+from collections import Counter
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
@@ -863,6 +864,35 @@ def filter_bus_realtime_feed(
         trip_freshness=tuple(freshness),
         vehicle_positions=tuple(vehicle_positions),
     )
+
+
+def bus_poll_delay_histogram(
+    updates: Sequence[ParsedStopUpdate],
+    trip_freshness: Sequence[ParsedTripFreshness],
+) -> list[tuple[str, str, int, int]]:
+    """Count each reported prediction once per poll without archiving repeats."""
+
+    trip_relationships = {
+        trip.trip_instance_key: trip.schedule_relationship.upper()
+        for trip in trip_freshness
+    }
+    excluded = {"CANCELED", "CANCELLED", "DELETED"}
+    skipped = {"SKIPPED", "NO_DATA", *excluded}
+    counts: Counter[tuple[str, str, int]] = Counter()
+    for update in updates:
+        delay = update.delay_seconds
+        if delay is None:
+            continue
+        if trip_relationships.get(update.trip_instance_key, "SCHEDULED") in excluded:
+            continue
+        if (update.schedule_relationship or "SCHEDULED").upper() in skipped:
+            continue
+        counts[("network", "", delay)] += 1
+        if update.route_id is not None:
+            counts[("route", update.route_id, delay)] += 1
+        if update.stop_id is not None:
+            counts[("stop", update.stop_id, delay)] += 1
+    return [(*scope, count) for scope, count in sorted(counts.items())]
 
 
 def _clean_csv_row(row: Mapping[str | None, str | None]) -> dict[str, str]:
@@ -2207,7 +2237,7 @@ class NtaBusDaemon:
             ON CONFLICT (last_seen_at, feed_version_id, trip_instance_key)
             DO NOTHING"""
 
-        if changed or trip_freshness:
+        if current or trip_freshness:
             async with self.pool.connection() as connection:
                 async with connection.transaction():
                     async with connection.cursor() as cursor:
@@ -2261,6 +2291,46 @@ class NtaBusDaemon:
                             await cursor.executemany(observation_statement, batch)
                         for batch in _chunks(freshness_rows, INSERT_BATCH_ROWS):
                             await cursor.executemany(trip_observation_statement, batch)
+
+                    histogram = bus_poll_delay_histogram(
+                        tuple(current.values()), trip_freshness
+                    )
+                    if histogram:
+                        marker = await connection.execute(
+                            """INSERT INTO bus_histogram_polls
+                               (fetched_at, feed_version_id) VALUES (%s, %s)
+                               ON CONFLICT DO NOTHING RETURNING fetched_at""",
+                            (fetched_at, feed_version_id),
+                        )
+                        if await marker.fetchone() is not None:
+                            histogram_statement = """INSERT INTO bus_delay_histogram
+                                (bucket, scope_kind, feed_version_id, scope_id,
+                                 delay_seconds, sample_count, last_updated)
+                                VALUES (time_bucket(INTERVAL '1 hour', %s::timestamptz),
+                                        %s, %s, %s, %s, %s, %s)
+                                ON CONFLICT (bucket, scope_kind, feed_version_id,
+                                             scope_id, delay_seconds)
+                                DO UPDATE SET
+                                    sample_count = bus_delay_histogram.sample_count
+                                        + EXCLUDED.sample_count,
+                                    last_updated = GREATEST(
+                                        bus_delay_histogram.last_updated,
+                                        EXCLUDED.last_updated)"""
+                            histogram_rows = [
+                                (
+                                    fetched_at,
+                                    kind,
+                                    feed_version_id,
+                                    scope_id,
+                                    delay,
+                                    count,
+                                    fetched_at,
+                                )
+                                for kind, scope_id, delay, count in histogram
+                            ]
+                            async with connection.cursor() as cursor:
+                                for batch in _chunks(histogram_rows, INSERT_BATCH_ROWS):
+                                    await cursor.executemany(histogram_statement, batch)
 
         self._previous_update_hashes = {
             key: update.update_hash for key, update in current.items()
