@@ -9,13 +9,63 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   repository-hygiene:
     name: Repository hygiene
     runs-on: ubuntu-latest
+    outputs:
+      api: ${{ steps.changes.outputs.api }}
+      dashboard: ${{ steps.changes.outputs.dashboard }}
+      python: ${{ steps.changes.outputs.python }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Select affected checks
+        id: changes
+        shell: bash
+        run: |
+          api=true
+          dashboard=true
+          python=true
+          changed_files=$(mktemp)
+          trap 'rm -f "$changed_files"' EXIT
+
+          # only narrow checks against a verified pull request merge
+          if [[ "$GITHUB_EVENT_NAME" == pull_request && "$GITHUB_REF" =~ ^refs/pull/[0-9]+/merge$ ]] &&
+             [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]] &&
+             git rev-parse --verify HEAD^2 >/dev/null 2>&1 &&
+             git diff --no-renames --name-only -z HEAD^1 HEAD > "$changed_files"; then
+            api=false
+            dashboard=false
+            python=false
+            while IFS= read -r -d '' path; do
+              if [[ "$path" == docs/*.md || ( "$path" != */* && "$path" == *.md ) ]]; then
+                continue
+              fi
+              # compileall checks Python sources throughout the repository
+              if [[ "$path" == *.py ]]; then
+                python=true
+              fi
+              case "$path" in
+                api/*) api=true ;;
+                dashboard/*) dashboard=true ;;
+                *.py|requirements.txt) python=true ;;
+                *) api=true; dashboard=true; python=true ;;
+              esac
+            done < "$changed_files"
+          fi
+
+          {
+            echo "api=$api"
+            echo "dashboard=$dashboard"
+            echo "python=$python"
+          } >> "$GITHUB_OUTPUT"
       - name: Reject tracked production env files
         run: |
           if git ls-files --error-unmatch .env.production >/dev/null 2>&1; then
@@ -27,6 +77,8 @@ jobs:
 
   api:
     name: Rust API
+    needs: repository-hygiene
+    if: needs.repository-hygiene.outputs.api == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -49,6 +101,8 @@ jobs:
 
   dashboard:
     name: Dashboard
+    needs: repository-hygiene
+    if: needs.repository-hygiene.outputs.dashboard == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -73,6 +127,8 @@ jobs:
 
   python:
     name: Python scripts
+    needs: repository-hygiene
+    if: needs.repository-hygiene.outputs.python == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
