@@ -3,6 +3,7 @@ import { STATION_BOARD } from "../graphql/queries";
 import { usePollingQuery } from "../utils/usePollingQuery";
 import { formatTime, shortDelay } from "../utils/format";
 import { DelayPill, Empty, MiniStat, Sheet } from "./ui";
+import RequestError from "./RequestError";
 
 interface Props {
   route: MapRouteSelection;
@@ -51,16 +52,18 @@ function dueLabel(dueIn: number | null) {
 }
 
 export default function RouteDetail({ route, onClose }: Props) {
-  const [{ data: fromData, fetching: fetchingFrom }] = usePollingQuery<StationBoardData>({
-    query: STATION_BOARD,
-    variables: { stationCode: route.fromStationCode, limit: 8 },
-    pollInterval: 10000,
-  });
-  const [{ data: toData, fetching: fetchingTo }] = usePollingQuery<StationBoardData>({
-    query: STATION_BOARD,
-    variables: { stationCode: route.toStationCode, limit: 8 },
-    pollInterval: 10000,
-  });
+  const [{ data: fromData, fetching: fetchingFrom, error: fromError }, retryFrom] =
+    usePollingQuery<StationBoardData>({
+      query: STATION_BOARD,
+      variables: { stationCode: route.fromStationCode, limit: 8 },
+      pollInterval: 10000,
+    });
+  const [{ data: toData, fetching: fetchingTo, error: toError }, retryTo] =
+    usePollingQuery<StationBoardData>({
+      query: STATION_BOARD,
+      variables: { stationCode: route.toStationCode, limit: 8 },
+      pollInterval: 10000,
+    });
 
   const endpointRows = [
     ...(fromData?.stationBoard ?? []).map((event) => ({
@@ -96,11 +99,35 @@ export default function RouteDetail({ route, onClose }: Props) {
         </span>
       }
     >
+      {fromError ? (
+        <RequestError
+          bare
+          error={fromError}
+          title={`${route.fromStationName} board unavailable. Any retained rows are last loaded data.`}
+          onRetry={() => retryFrom({ requestPolicy: "network-only" })}
+        />
+      ) : null}
+      {toError ? (
+        <RequestError
+          bare
+          error={toError}
+          title={`${route.toStationName} board unavailable. Any retained rows are last loaded data.`}
+          onRetry={() => retryTo({ requestPolicy: "network-only" })}
+        />
+      ) : null}
+      {loading && !fromData && !toData ? <Empty>Loading endpoint boards…</Empty> : null}
       <div className="grid grid-cols-2 gap-2">
         <MiniStat label="Recent trains" value={route.trainCount} />
         <MiniStat label="Last seen" value={formatLastSeen(route.lastSeen)} />
-        <MiniStat label="Endpoint delays" value={delayed} tone={delayed > 0 ? "warn" : undefined} />
-        <MiniStat label="Worst endpoint" value={shortDelay(worstDelay)} />
+        <MiniStat
+          label="Endpoint delays"
+          value={fromError || toError || !fromData || !toData ? "Unknown" : delayed}
+          tone={delayed > 0 ? "warn" : undefined}
+        />
+        <MiniStat
+          label="Worst endpoint"
+          value={fromError || toError || !fromData || !toData ? "Unknown" : shortDelay(worstDelay)}
+        />
       </div>
 
       {severe > 0 ? (
@@ -114,7 +141,7 @@ export default function RouteDetail({ route, onClose }: Props) {
           <span>Endpoint boards</span>
           {loading ? <span className="code">Updating…</span> : null}
         </div>
-        {endpointRows.length === 0 && !loading ? (
+        {endpointRows.length === 0 && !loading && !fromError && !toError ? (
           <Empty className="!min-h-24">
             No live endpoint board rows in the latest poll window.
           </Empty>

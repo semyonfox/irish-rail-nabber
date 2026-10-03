@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import LiveMapShell from "../components/LiveMapShell";
 import LiveNetworkSummary from "../components/LiveNetworkSummary";
 import BusVehicleMap from "../components/BusVehicleMap";
@@ -123,6 +124,8 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
     const timer = setInterval(() => setNow(Date.now()), 1_000);
     return () => clearInterval(timer);
   }, []);
+  const [routeSearch, setRouteSearch] = useState("");
+  const expectedHours = view === "network" ? hours : 24;
 
   useEffect(() => {
     const id = setTimeout(() => setSettledSearch(search.trim()), 250);
@@ -156,7 +159,7 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
       boardLimit: 30,
       vehicleLimit: 2_000,
       shapeLimit: 100,
-      hours: view === "network" ? hours : 24,
+      hours: expectedHours,
       routeLimit: 100,
     },
     pollInterval: view === "network" ? 60_000 : 15_000,
@@ -197,11 +200,21 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
   const scheduledRouteShapes = scheduledShapesData?.busScheduledRouteShapes ?? [];
   const useLiveRouteShapes = feedState.isLive && liveRouteShapes.length > 0;
   const routeShapes = useLiveRouteShapes ? liveRouteShapes : scheduledRouteShapes;
-  const routes = liveData?.busRouteDelays ?? [];
+  const routes =
+    liveResult.operation?.variables?.hours === expectedHours
+      ? (liveData?.busRouteDelays ?? [])
+      : [];
+  const routeNeedle = routeSearch.trim().toLowerCase();
+  const shownRoutes = routes.filter((route) =>
+    `${routeLabel(route.routeShortName, route.routeId)} ${route.routeId} ${route.routeLongName ?? ""} ${route.operatorName ?? ""}`
+      .toLowerCase()
+      .includes(routeNeedle),
+  );
 
   if (view === "live") {
     return (
       <LiveMapShell
+        title="Live bus services"
         map={
           <BusVehicleMap
             vehicles={feedState.isLive ? vehicles : []}
@@ -215,8 +228,8 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
         }
         summary={
           <LiveNetworkSummary
-            status={feedState.isLive ? "Live now" : feedState.badge}
-            live={feedState.isLive}
+            status={liveError ? "Updates unavailable" : feedState.badge}
+            live={feedState.isLive && !liveError}
             count={feedState.isLive ? vehicles.length : "--"}
             caption="services in live feed"
             detail={`${feedState.isLive ? vehicles.length : 0} on map`}
@@ -236,6 +249,14 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
                 title="Live route paths unavailable"
               />
             )}
+            <p className="mt-3 text-sm">
+              <Link to="/buses/stops">Find a stop and open departures</Link>
+            </p>
+            <p className="mt-3 text-xs text-muted">
+              {useLiveRouteShapes
+                ? "Live vehicles and their routes."
+                : "Scheduled routes. Live positions appear when the feed is available."}
+            </p>
             {liveError && (
               <RequestError
                 bare
@@ -274,13 +295,23 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
               ? "Search for a stop to see its next services."
               : "Delay statistics for bus routes across the network."
           }
+          actions={
+            <span className="bus-feed-badge">
+              {feedState.isLive ? <span className="live-dot" /> : null}
+              {liveError ? "Updates unavailable" : feedState.badge}
+            </span>
+          }
         />
 
-        {liveError && !liveData ? (
+        {liveError ? (
           <RequestError
             error={liveError}
             onRetry={() => retryLive({ requestPolicy: "network-only" })}
-            title="Live bus data unavailable"
+            title={
+              liveData
+                ? "Bus updates unavailable. Showing last loaded data."
+                : "Live bus data unavailable"
+            }
           />
         ) : null}
 
@@ -300,15 +331,25 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
                   label="Search bus stops"
                   className="w-full"
                 />
-                <span>{stopsData?.busStops.length ?? 0} shown</span>
+                <span role="status">
+                  {stopsFetching || search.trim() !== settledSearch
+                    ? "Searching… Previous results may remain until the search completes."
+                    : stopsError
+                      ? "Search unavailable"
+                      : `${stopsData?.busStops.length ?? 0} shown`}
+                </span>
               </div>
 
-              {stopsError && !stopsData ? (
+              {stopsError ? (
                 <RequestError
                   bare
                   error={stopsError}
                   onRetry={() => retryStops({ requestPolicy: "network-only" })}
-                  title="Bus stops unavailable"
+                  title={
+                    stopsData
+                      ? "Stop search updates unavailable. Showing last loaded results."
+                      : "Bus stops unavailable"
+                  }
                 />
               ) : null}
 
@@ -332,7 +373,7 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
                     <Icon name="arrow" />
                   </button>
                 ))}
-                {!stopsFetching && (stopsData?.busStops.length ?? 0) === 0 ? (
+                {!stopsFetching && !stopsError && (stopsData?.busStops.length ?? 0) === 0 ? (
                   <Empty className="!min-h-40">
                     {settledSearch
                       ? `No bus stops match "${settledSearch}".`
@@ -404,7 +445,12 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
                 </Empty>
               ) : null}
 
-              <div className="bus-board" aria-live="polite">
+              <p className="px-5 text-sm text-muted" role="status">
+                {selectedStop && boardHasCurrentData && !liveError
+                  ? `${departures.length} departures for ${stopName(selectedStop)}`
+                  : ""}
+              </p>
+              <div className="bus-board" aria-busy={liveFetching}>
                 {departures.map((departure) => {
                   const delayMinutes =
                     departure.delaySeconds == null ? null : departure.delaySeconds / 60;
@@ -457,8 +503,30 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
               />
             }
           >
-            <div className="overflow-auto">
+            <div className="flex flex-wrap items-center gap-3 px-5 py-3">
+              <SearchInput
+                value={routeSearch}
+                onChange={setRouteSearch}
+                label="Filter sampled bus routes"
+                placeholder="Route, destination or operator"
+              />
+              <span role="status" className="text-sm text-muted">
+                {liveFetching
+                  ? "Updating route history…"
+                  : `${shownRoutes.length} of ${routes.length} sampled routes shown`}
+              </span>
+            </div>
+            <div
+              className="overflow-auto"
+              tabIndex={0}
+              role="region"
+              aria-label="Bus route performance table. Scroll horizontally for more columns."
+              aria-busy={liveFetching}
+            >
               <table className="data-table responsive-table min-w-[700px]">
+                <caption className="sr-only">
+                  Up to 100 sampled bus routes over {hours} hours
+                </caption>
                 <thead>
                   <tr>
                     <th>Route</th>
@@ -470,7 +538,7 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
                   </tr>
                 </thead>
                 <tbody>
-                  {routes.map((route) => (
+                  {shownRoutes.map((route) => (
                     <tr
                       key={route.routeId}
                       data-tone={
@@ -512,10 +580,12 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
                       </td>
                     </tr>
                   ))}
-                  {!liveFetching && routes.length === 0 && !liveError ? (
+                  {!liveFetching && shownRoutes.length === 0 && !liveError ? (
                     <tr>
                       <td colSpan={6} className="py-12 text-center text-muted">
-                        Route history starts building after the first realtime poll.
+                        {routeNeedle
+                          ? "No sampled routes match. Try a different search."
+                          : "Route history starts building after the first realtime poll."}
                       </td>
                     </tr>
                   ) : null}

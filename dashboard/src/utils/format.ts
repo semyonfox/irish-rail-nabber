@@ -23,14 +23,17 @@ export function delayColor(minutes: number | null | undefined): string {
 }
 
 export function delayLabel(minutes: number | null | undefined): string {
-  if (minutes == null) return "N/A";
-  if (minutes <= 0) return "On time";
+  if (minutes == null || !Number.isFinite(minutes)) return "Delay unknown";
+  if (minutes < 0) return `${Math.abs(minutes)} min early`;
+  if (minutes === 0) return "On time";
   return `${minutes} min late`;
 }
 
 export function shortDelay(minutes: number | null | undefined, precise = false): string {
-  if (minutes == null) return "—";
-  if (minutes <= 0) return "On time";
+  if (minutes == null || !Number.isFinite(minutes)) return "Unknown";
+  if (minutes < 0)
+    return `${precise ? Math.abs(minutes).toFixed(1) : Math.round(Math.abs(minutes))}m early`;
+  if (minutes === 0) return "On time";
   return `+${precise ? minutes.toFixed(1) : Math.round(minutes)}m`;
 }
 

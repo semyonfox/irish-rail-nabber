@@ -14,14 +14,18 @@ export default function ProtectedRoute({
   const location = useLocation();
 
   if (loading) {
-    return <div className="empty h-full">Checking your session…</div>;
+    return (
+      <div className="empty h-full" role="status">
+        Checking your session…
+      </div>
+    );
   }
 
   if (error) {
     return (
       <div className="page">
         <div className="page-inner min-h-full justify-center">
-          <div className="card mx-auto w-full max-w-lg p-8 text-center">
+          <div className="card mx-auto w-full max-w-lg p-8 text-center" role="alert">
             <h1 className="font-display text-[40px] leading-none">Account unavailable</h1>
             <p className="mt-4 text-ink-2">{error}</p>
             <div className="mt-6 flex flex-wrap justify-center gap-2">

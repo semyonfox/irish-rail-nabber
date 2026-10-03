@@ -1,5 +1,12 @@
-import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
-import { delayTone, shortDelay } from "../utils/format";
+import {
+  useEffect,
+  useLayoutEffect,
+  useId,
+  useRef,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
+import { delayLabel, delayTone, shortDelay } from "../utils/format";
 
 const icons = {
   map: (
@@ -237,7 +244,7 @@ export function DelayPill({
   precise?: boolean;
 }) {
   return (
-    <span className="pill" data-tone={delayTone(minutes)}>
+    <span className="pill" data-tone={delayTone(minutes)} aria-label={delayLabel(minutes)}>
       {shortDelay(minutes, precise)}
     </span>
   );
@@ -312,7 +319,11 @@ export function ChartLegend({ items }: { items: { label: string; color: string }
 }
 
 export function Empty({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <div className={`empty ${className}`}>{children}</div>;
+  return (
+    <div className={`empty ${className}`} role="status">
+      {children}
+    </div>
+  );
 }
 
 export function Sheet({
@@ -330,40 +341,50 @@ export function Sheet({
   onClose: () => void;
   children: ReactNode;
 }) {
-  const closeRef = useRef<HTMLButtonElement>(null);
+  const titleId = useId();
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
+  const closeRef = useRef(onClose);
   useEffect(() => {
-    const previousFocus = document.activeElement;
-    closeRef.current?.focus({ preventScroll: true });
+    closeRef.current = onClose;
+  }, [onClose]);
+
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    headingRef.current?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (
+        event.key === "Escape" &&
+        !event.defaultPrevented &&
+        !document.querySelector("dialog:modal") &&
+        panel?.contains(document.activeElement)
+      ) {
+        event.preventDefault();
+        closeRef.current();
+      }
+    };
+    window.addEventListener("keydown", onKey);
     return () => {
-      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
-        previousFocus.focus({ preventScroll: true });
+      window.removeEventListener("keydown", onKey);
+      if (panel?.contains(document.activeElement)) {
+        if (opener?.isConnected) opener.focus();
+        else document.getElementById("main-content")?.focus();
       }
     };
   }, []);
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   return (
-    <aside className="sheet" aria-label={label}>
+    <aside className="sheet" aria-labelledby={titleId} ref={panelRef}>
       <div className="sheet-head">
         <div className="min-w-0">
           <p className="eyebrow">{eyebrow}</p>
-          <h2 className="sheet-title">{title}</h2>
+          <h2 className="sheet-title" id={titleId} tabIndex={-1} ref={headingRef}>
+            {title}
+          </h2>
           {subtitle ? <div className="sheet-sub">{subtitle}</div> : null}
         </div>
-        <button
-          ref={closeRef}
-          type="button"
-          className="icon-btn"
-          onClick={onClose}
-          aria-label={`Close ${label}`}
-        >
+        <button type="button" className="icon-btn" onClick={onClose} aria-label={`Close ${label}`}>
           <Icon name="x" />
         </button>
       </div>
