@@ -2116,10 +2116,11 @@
   cursor: pointer;
 }
 .map-summary {
+  bottom: 16px;
   max-height: calc(100% - 24px);
 }
 .map-summary > .float-card {
-  max-height: inherit;
+  max-height: 100%;
   overflow-y: auto;
 }
 .rail-selector {
