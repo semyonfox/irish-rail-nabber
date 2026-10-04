@@ -1387,6 +1387,9 @@
   .bus-stop-option:hover {
     background: var(--bus-row-hover-bg);
   }
+  .bus-stop-option:focus-visible {
+    outline-offset: -4px;
+  }
   .bus-stop-option[aria-pressed="true"] {
     background: var(--color-bus-soft);
     box-shadow: inset 3px 0 0 var(--color-bus);
