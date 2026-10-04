@@ -15,12 +15,15 @@ export function usePollingQuery<
   const [result, reexecute] = useQuery<Data, Variables>({
     query: opts.query,
     variables: opts.variables as Variables,
-    requestPolicy: "cache-first",
+    requestPolicy: "cache-and-network",
     pause: opts.pause,
   });
 
   const fetchingRef = useRef(result.fetching);
-  fetchingRef.current = result.fetching;
+
+  useEffect(() => {
+    fetchingRef.current = result.fetching;
+  }, [result.fetching]);
 
   useEffect(() => {
     if (!opts.pollInterval || opts.pause) return;

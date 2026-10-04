@@ -1,0 +1,104 @@
+agency_id,agency_name,official_url,homepage_status,api_host_dns,api_host_status,api_path_status,public_tracker_links
+663,Aircoach,https://www.aircoach.ie/,302,no DNS answer,,404,
+969,Allen's Bus Hire,https://allensbushire.ie/,200,no DNS answer,,404,
+214,Ardcavan Coach Tours,https://ardcavan.com/,200,no DNS answer,,404,
+1049,Ashbourne Connect,https://www.ashbourneconnect.ie,200,resolves,URLError,404,https://ashbourneconnect.ie/tracker/
+707,BIFE Bus,http://www.goreycoachandbus.com/,URLError,no DNS answer,,URLError,
+842,Bailieboro Car & Coach Hire,https://www.transportforireland.ie,200,resolves,404,404,https://www.transportforireland.ie/wp-content/uploads/2019/10/tfi-real-time-information.svg
+Carolan,Balbriggan Express,http://www.carolancoachhire.ie/,200,no DNS answer,,TimeoutError,
+BRW,Barrow Bus,https://barrowbus.palisis.com/,403,resolves,URLError,403,
+026,Bernard Kavanagh & Sons,http://www.bernardkavanaghcoaches.com,200,resolves,URLError,404,
+200,Burkesbus,https://burkesbus.ie/,200,no DNS answer,,404,https://bustracker.tmpanel.co.uk/BurkesBus
+BCE,Burren and Cliffs Explorer,https://www.cliffsofmoher.ie/burren-and-cliffs-of-moher-explorer/,200,no DNS answer,,200,https://www.cliffsofmoher.ie/wp-includes/js/dist/api-fetch.min.js
+967,Bus Feda,https://busfeda.ie/,200,no DNS answer,,404,https://challenges.cloudflare.com/turnstile/v0/api.js
+1,Bus Átha Cliath – Dublin Bus,https://www.dublinbus.ie/,403,no DNS answer,,403,
+2,Bus Éireann,https://buseireann.ie,200,resolves,403,200,
+WFRD,Bus Éireann Waterford,https://www.buseireann.ie,200,resolves,403,200,
+1256,Bus4u,https://roscommoncoaches.ie/,200,no DNS answer,,404,
+292,City Direct,https://www.citydirect.ie/,200,no DNS answer,,404,
+526,Citylink,https://www.citylink.ie/,200,no DNS answer,,404,https://www.citylink.ie/track-my-bus/ | https://www.citylink.ie/tutorial-bus-tracker/
+866,Collins Coaches,https://collinscoaches.ie/,200,resolves,200,404,https://leap.futurefleet.com/track-journey/
+391,Corduff Travel,https://cordufftravel.ie/,200,no DNS answer,,404,
+218,Cork Cobh Connect,http://www.barryscoaches.com/,200,no DNS answer,,404,
+132,Doherty's Travel,https://www.dohertyscoaches.com/,200,no DNS answer,,500,
+870,Dublin Coach,https://www.dublincoach.ie/,200,no DNS answer,,404,https://coachtracker.tmpanel.co.uk/DublinCoach
+1178,Dublin Express,https://www.dublinexpress.ie/,200,no DNS answer,,404,https://coachtracker.dublinexpress.ie | https://coachtracker.dublinexpress.ie/
+317,Dunnes Coaches,https://dunnescoaches.com/,200,resolves,URLError,404,
+1009,EMC Coaches Limited,https://mcenteecoachhire.ie/,URLError,no DNS answer,,URLError,
+1184,Eugene Deffely,https://www.transportforireland.ie,200,resolves,404,404,https://www.transportforireland.ie/wp-content/uploads/2019/10/tfi-real-time-information.svg
+999,Express Bus,https://expressbus.ie/,200,no DNS answer,,404,
+351,Farragher Travel,https://www.transportforireland.ie,200,resolves,404,404,https://www.transportforireland.ie/wp-content/uploads/2019/10/tfi-real-time-information.svg
+483,Farrelly's Coaches,https://www.farrellyscoaches.com/,404,no DNS answer,,404,
+3376,Flagline Coaches,https://www.transportforireland.ie,200,resolves,404,404,https://www.transportforireland.ie/wp-content/uploads/2019/10/tfi-real-time-information.svg
+1131,Flight Link Limited,https://www.flightlink.ie,200,no DNS answer,,404,https://coachtracker.tmpanel.co.uk/Flightlink
+1016,Gleneagle Hotel,https://www.gleneaglehotel.com/,200,no DNS answer,,404,
+GLV,Glenveagh National Park,https://www.nationalparks.ie/glenveagh/things-to-do/#bus,200,no DNS answer,,404,
+03C,Go-Ahead Ireland,https://www.goaheadireland.ie/,200,no DNS answer,,404,https://api.reciteme.com/asset/js
+3,Go-Ahead Ireland,https://www.goaheadireland.ie/,200,no DNS answer,,404,https://api.reciteme.com/asset/js
+1014,Gorey Bus Links,http://www.goreybuslinks.ie/,URLError,no DNS answer,,URLError,
+291,Halpenny Travel,https://www.halpennytravel.com/,200,no DNS answer,,404,https://www.halpennytravel.com/wp-content/plugins/mailchimp-for-woocommerce/blocks/build/pixel-tracking.js | https://www.halpennytravel.com/wp-content/plugins/mailchimp-for-woocommerce/public/js/mailchimp-woocommerce-pixel-tracking.js
+610,Harrington's Ardgroom,https://www.harringtonsardgroom.com/bus-service,200,no DNS answer,,404,
+1059,Healy Bus,http://www.healybus.com/,200,no DNS answer,,404,
+275,Island Ferries Teoranta,https://www.aranislandferries.com/,200,resolves,200,403,
+293,JJ Kavanagh,https://jjkavanagh.ie/#,200,no DNS answer,,404,https://tickets.jjkavanagh.ie/trackTrip
+JJBK,JJ/Bernard Kavanagh,https://jjkavanagh.ie/#,200,no DNS answer,,404,https://tickets.jjkavanagh.ie/trackTrip
+1135,Joe Moroney Coach Hire Ltd,https://www.transportforireland.ie,200,resolves,404,404,https://www.transportforireland.ie/wp-content/uploads/2019/10/tfi-real-time-information.svg
+609,John McGinley Coach Travel,http://www.johnmcginley.com/,200,no DNS answer,,404,
+593,Joseph Foley,https://www.transportforireland.ie,200,resolves,404,404,https://www.transportforireland.ie/wp-content/uploads/2019/10/tfi-real-time-information.svg
+754,K Buggy Coaches,https://www.kbuggycoaches.com/,200,no DNS answer,,404,
+240,Kearns Transport,https://kearnstransport.com/,200,resolves,200,404,https://coachtracker.tmpanel.co.uk/kearns
+1212,Kelly Travel,http://www.kellytravel.ie/,200,no DNS answer,,404,
+875,Kennedy Coaches,https://kennedycoaches.com/,200,no DNS answer,,404,
+1011,Leydons Coaches,https://leydonscoaches.com/,200,no DNS answer,,404,
+1206,MCD Minibus Hire,https://www.transportforireland.ie,200,resolves,404,404,https://www.transportforireland.ie/wp-content/uploads/2019/10/tfi-real-time-information.svg
+619,Madigan's Bus Hire,http://www.transportforireland.ie,200,resolves,404,404,https://www.transportforireland.ie/wp-content/uploads/2019/10/tfi-real-time-information.svg
+514,Mangan Tours,https://www.mangantours.ie/,200,no DNS answer,,404,
+940,Martley's,https://martleys.com/,200,no DNS answer,,404,https://martleys.com/wp-content/plugins/user-activity-tracking-and-log/assets/js/moove_activity_frontend.js
+708,Matt Whelan Mini Bus Hire,https://www.transportforireland.ie,200,resolves,404,404,https://www.transportforireland.ie/wp-content/uploads/2019/10/tfi-real-time-information.svg
+573,Matthews Coach Hire,https://www.matthews.ie/,200,resolves,URLError,404,https://www.matthews.ie/wp-content/plugins/wp-consent-api/assets/js/wp-consent-api.min.js
+1211,McCaffrey Coaches,http://www.mccaffreycoaches.com/,200,no DNS answer,,404,
+690,McConnon Travel,http://www.mcconnonsbuses.com/,200,resolves,URLError,404,
+219,McGeehan Coaches,http://www.mcgeehancoaches.com/,200,no DNS answer,,404,
+1223,McGill Coach Travel,https://www.mcgilltravel.wordpress.com,URLError,resolves,URLError,URLError,
+1030,McGonagle Bus and Coach Hire,https://www.mcgonaglebushire.com/,200,no DNS answer,,404,
+1147,McGonagle Bus and Coach Ltd.,https://mcgonaglebus.ie/,200,no DNS answer,,404,
+363,McGrath Coaches,https://mcgrathcoaches.com/,200,resolves,URLError,500,
+620,Michael Gray Coach Hire,https://www.michaelgraycoaches.ie/,200,no DNS answer,,404,
+616,Michael Moran,https://www.transportforireland.ie,200,resolves,404,404,https://www.transportforireland.ie/wp-content/uploads/2019/10/tfi-real-time-information.svg
+NTLK,"Nitelink, Dublin Bus",https://www.dublinbus.ie/,403,no DNS answer,,403,
+1179,Nolan Coaches,https://www.nolancoaches.ie/,200,no DNS answer,,404,https://siteassets.parastorage.com/pages/pages/thunderbolt | https://www.nolancoaches.ie/real-time-tracking
+1111,O'Callaghan Coaches,http://www.jocgroup.com,200,no DNS answer,,404,https://tracker.metricool.com/resources/be.js
+1148,Pat Keenan Coach Hire,https://www.transportforireland.ie,200,resolves,404,404,https://www.transportforireland.ie/wp-content/uploads/2019/10/tfi-real-time-information.svg
+312,Patrick Gallagher Travel,https://www.patrickgallaghertravel.com/patrick-gallagher-bus-timetables/,200,no DNS answer,,404,
+972,Piltown Coaches,http://piltowncoaches.com/,200,resolves,URLError,404,
+1134,Reilly Bus Hire,https://www.transportforireland.ie,200,resolves,404,404,https://www.transportforireland.ie/wp-content/uploads/2019/10/tfi-real-time-information.svg
+646,Robbie Finegan Coaches,https://www.transportforireland.ie,200,resolves,404,404,https://www.transportforireland.ie/wp-content/uploads/2019/10/tfi-real-time-information.svg
+640,Roscommon Coaches,https://roscommoncoaches.ie/,200,no DNS answer,,404,
+1092,Royal Breffni Tours,https://www.royalbreffnitours.com/,200,no DNS answer,,404,https://siteassets.parastorage.com/pages/pages/thunderbolt
+060,Sillan Tours,https://www.transportforireland.ie,200,resolves,404,404,https://www.transportforireland.ie/wp-content/uploads/2019/10/tfi-real-time-information.svg
+429,Slevins Coaches,http://slevinscoaches.com/,200,no DNS answer,,404,
+700,Slieve Bloom Coach Tours,http://www.slievebloomcoaches.ie/,200,no DNS answer,,200,https://leap.futurefleet.com/track-journey/ | https://slievebloomcoaches.com/wp-content/uploads/2024/08/Real-Time-Tracking-1.png
+290,St. Kevin's Bus Service,http://www.glendaloughbus.com/,200,no DNS answer,,404,https://leap.futurefleet.com/track-journey/
+685,Streamline Coaches,https://www.streamlinecoaches.ie/,200,resolves,URLError,404,
+135,Swords Express,https://www.swordsexpress.com/,200,no DNS answer,,403,https://www.swordsexpress.com/api/gps-script.js
+LLCWKK,TFI Local Link Carlow Kilkenny Wicklow,https://www.locallinkckw.ie/,200,no DNS answer,,404,
+LLCN,TFI Local Link Cavan Monaghan,https://www.locallinkcm.ie/,200,no DNS answer,,404,
+LLCK,TFI Local Link Cork,https://locallinkcork.ie/,200,no DNS answer,,404,
+LLDSL,TFI Local Link Donegal Sligo Leitrim,https://locallinkdsl.ie/,200,no DNS answer,,404,
+LLGY,TFI Local Link Galway,https://www.locallinkgalway.ie/,200,no DNS answer,,404,https://siteassets.parastorage.com/pages/pages/thunderbolt
+LLKY,TFI Local Link Kerry,https://www.locallinkkerry.ie/,200,no DNS answer,,404,
+LLKE,TFI Local Link Kildare South Dublin,https://locallinkkildaresouthdublin.ie/,200,no DNS answer,,404,
+LLLO,TFI Local Link Laois Offaly,https://locallinklaoisoffaly.ie/,200,no DNS answer,,404,
+LLLC,TFI Local Link Limerick Clare,https://www.locallinklc.ie/,200,no DNS answer,,404,
+LLLW,TFI Local Link Longford Westmeath Roscommon,https://locallinklwr.ie/,200,no DNS answer,,404,
+LLLMF,TFI Local Link Louth Meath Fingal,https://www.locallinklmf.ie/,200,no DNS answer,,TimeoutError,
+LLMO,TFI Local Link Mayo,https://www.locallinkmayo.ie/,200,no DNS answer,,404,
+LLTY,TFI Local Link Tipperary,https://locallinktipperary.ie/,200,no DNS answer,,404,
+LLWD,TFI Local Link Waterford,https://www.locallinkwaterford.ie/,200,no DNS answer,,404,
+LLWX,TFI Local Link Wexford,https://locallinkwexford.ie/,200,no DNS answer,,404,
+1181,TU Dublin Blanchardstown,https://www.tudublin.ie/explore/our-campuses/blanchardstown/transportparking/,200,no DNS answer,,404,
+1024,Tralee People's Bus Service,http://www.transportforireland.ie,200,resolves,404,404,https://www.transportforireland.ie/wp-content/uploads/2019/10/tfi-real-time-information.svg
+355,Treacy Coaches,https://www.transportforireland.ie,200,resolves,404,404,https://www.transportforireland.ie/wp-content/uploads/2019/10/tfi-real-time-information.svg
+849,West Cork Connect,https://westcorkconnect.ie/,200,no DNS answer,,404,https://coachtracker.tmpanel.co.uk/WestCork
+314,Westlink Coaches,http://www.westlinkcoaches.ie/,200,no DNS answer,,404,
+587,Wexford Bus,https://www.wexfordbus.com/,200,no DNS answer,,404,https://tracking.wexfordbus.com/ | https://tracking.wexfordbus.com/Standard | https://www.wexfordbus.com/content/uploads/2021/10/live-bus-tracker@2x.png
