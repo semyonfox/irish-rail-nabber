@@ -8,7 +8,7 @@ Phase status reflects the current state of the codebase, not the original plan.
 
 - Irish Rail polling daemon, TimescaleDB hypertables ([docs/scraper.md](docs/scraper.md))
 - Dedup at four granularities, content-hash based ([docs/scraper.md#deduplication](docs/scraper.md#deduplication))
-- 90-day rolling window with 7-day compression
+- Retained time-series history with 7-day compression; no automatic 90-day retention policy is defined in the checked-in schema
 - Ordered Docker Compose deployment with schema-first migrations ([docs/deployment.md](docs/deployment.md))
 
 ## Phase 2 — API, auth, billing (in progress)

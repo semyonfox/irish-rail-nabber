@@ -21,6 +21,7 @@ NTA data uses CC BY 4.0. Public views must name the NTA, link to the source and 
 NTA route, trip and stop IDs are internal join keys. They can change when the schedule is regenerated. Realtime rows are therefore tied to the exact static feed SHA-256 and `feed_version_id` that was active when the collector received them.
 
 Old feed versions remain in the database so historical departures still resolve to the right stop, route and operator. A new static feed becomes active only after its related rows load successfully in one transaction.
+The importer rejects a ZIP with non-finite or out-of-range stop coordinates and leaves the current feed active.
 
 ## Tables
 

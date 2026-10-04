@@ -1101,6 +1101,16 @@ def _select_static_feed(archive: zipfile.ZipFile) -> StaticFeedSelection:
             raise FeedFormatError(
                 f"stops.txt:{line_number} has invalid coordinates"
             ) from error
+        if (
+            stop_lat is not None
+            and (not math.isfinite(stop_lat) or not -90 <= stop_lat <= 90)
+        ) or (
+            stop_lon is not None
+            and (not math.isfinite(stop_lon) or not -180 <= stop_lon <= 180)
+        ):
+            raise FeedFormatError(
+                f"stops.txt:{line_number} has invalid stop coordinates"
+            )
         all_stops[stop_id] = (
             stop_id,
             row.get("stop_code") or None,

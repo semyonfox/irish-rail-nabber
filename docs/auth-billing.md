@@ -14,7 +14,7 @@ Sign-in, sign-up and sessions are handled by [Clerk](https://clerk.com). [Polar.
 Tier checks live in three places:
 
 - Per-resolver in the Rust API for paywalled GraphQL fields ([api.md](api.md#auth-in-resolvers)).
-- In the Rust `/chat` handler, which rejects `free` before making a model request ([chatbot.md](chatbot.md#rate-limiting-and-cost-control)).
+- In the Rust `/chat` handler, which rejects `free` before making a model request ([chatbot.md](chatbot.md#infra-and-limits)).
 - In the dashboard's `ProtectedRoute` for paid pages ([dashboard.md](dashboard.md#auth-flow)).
 
 The `/auth/*` routes (`config`, `session`, `me`) are outside the daily GraphQL usage quota. The default quota is sized for the polling dashboard:

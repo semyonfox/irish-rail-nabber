@@ -16,7 +16,7 @@ dashboard     irish-rail-nabber-dashboard:latest     nginx + static SPA
 cloudflared   cloudflare/cloudflared:latest          edge tunnel
 ```
 
-`db` is the only stateful service. Fresh PG18 stacks mount the named `postgres_data` volume at `/var/lib/postgresql`, which contains PG18's actual `PGDATA` directory. The one-shot `migrate` service must complete before either collector or the API starts, so bus startup does not depend on the unrelated Irish Rail healthcheck. The current production container predates the volume correction and must not be recreated until its anonymous volume is safely migrated. Everything else is stateless and can be rebuilt at will.
+The checked-in Compose stack persists both the database and the bus collector's GTFS ZIP archive. Fresh PG18 stacks mount the named `postgres_data` volume at `/var/lib/postgresql`, which contains PG18's actual `PGDATA` directory. The `bus_gtfs_archives` volume holds the imported ZIP versions needed to restore older matching schedules. Preserve both volumes when recreating services. The one-shot `migrate` service must complete before either collector or the API starts, so bus startup does not depend on the unrelated Irish Rail healthcheck. The current production database container predates the volume correction and must not be recreated until its anonymous volume is safely migrated.
 
 Service responsibilities are described in [architecture.md](architecture.md#service-responsibilities).
 

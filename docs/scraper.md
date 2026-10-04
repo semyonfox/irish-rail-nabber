@@ -146,11 +146,10 @@ fetch_history (
 )
 ```
 
-### Retention
+### Storage policy
 
-- Auto-compress after **7 days** (~90% space savings)
-- Auto-drop after **90 days**
-- Steady-state size: ~2–5 GB
+- The checked-in schema schedules compression after **7 days**.
+- No automatic row-retention policy is defined in the checked-in schema or migrations. Plan storage and backups accordingly; verify runtime policy settings separately.
 
 ## Daily volume (steady state)
 

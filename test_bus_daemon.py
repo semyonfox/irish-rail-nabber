@@ -1245,6 +1245,38 @@ class ShutdownTests(unittest.IsolatedAsyncioTestCase):
 
 
 class StaticFeedSelectionTests(unittest.TestCase):
+    def test_invalid_stop_coordinates_reject_the_feed(self) -> None:
+        files = {
+            "agency.txt": "agency_id,agency_name\na,Agency\n",
+            "routes.txt": "route_id,agency_id,route_type\nr,a,3\n",
+            "trips.txt": "route_id,service_id,trip_id\nr,s,t\n",
+            "stop_times.txt": (
+                "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n"
+                "t,12:00:00,12:01:00,stop,1\n"
+            ),
+        }
+        invalid_coordinates = (
+            ("nan", "-9"),
+            ("53", "inf"),
+            ("91", "-9"),
+            ("53", "-181"),
+        )
+        for latitude, longitude in invalid_coordinates:
+            with self.subTest(latitude=latitude, longitude=longitude):
+                zip_bytes = io.BytesIO()
+                with zipfile.ZipFile(zip_bytes, "w") as archive:
+                    for filename, contents in files.items():
+                        archive.writestr(filename, contents)
+                    archive.writestr(
+                        "stops.txt",
+                        "stop_id,stop_name,stop_lat,stop_lon\n"
+                        f"stop,Stop,{latitude},{longitude}\n",
+                    )
+                zip_bytes.seek(0)
+                with zipfile.ZipFile(zip_bytes) as archive:
+                    with self.assertRaisesRegex(FeedFormatError, "invalid stop coordinates"):
+                        _select_static_feed(archive)
+
     def test_only_bus_rows_and_their_parent_stops_are_selected(self) -> None:
         for route_type in (3, 11, 200, 204, 209, 700, 701, 715, 716, 800):
             with self.subTest(route_type=route_type):

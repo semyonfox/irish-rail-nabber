@@ -2,7 +2,7 @@
 # Irish Rail Database Backup Script
 # Hourly backups (keep 6) + Daily backups (keep indefinitely)
 
-set -e
+set -euo pipefail
 
 # Configuration
 # Note: Database is in Docker container, use docker exec to connect
@@ -39,20 +39,27 @@ backup_database() {
         max_files=999  # keep all daily backups
     fi
     
-    backup_file="$backup_dir/$filename"
+    local backup_file="$backup_dir/$filename"
+    local temp_file
+    temp_file=$(mktemp "$backup_dir/.backup-XXXXXX")
     
     log "Starting $backup_type backup: $filename"
     
     # Perform the dump via Docker exec
     log "Connecting via docker exec to $DB_CONTAINER..."
-    docker exec "$DB_CONTAINER" pg_dump \
+    if ! docker exec "$DB_CONTAINER" pg_dump \
         -h "$DB_HOST" \
         -p "$DB_PORT" \
         -U "$DB_USER" \
         -d "$DB_NAME" \
         --no-password \
         --format=plain \
-        2>&1 | gzip -9 > "$backup_file"
+        | gzip -9 > "$temp_file"; then
+        rm -f "$temp_file"
+        log "${RED}✗ $backup_type backup FAILED: $filename${NC}"
+        return 1
+    fi
+    mv "$temp_file" "$backup_file"
     
     log "Backup file created, verifying..."
     
@@ -90,21 +97,22 @@ cleanup_old_backups() {
 
 # Main execution
 main() {
-    if [ "$1" = "hourly" ] || [ -z "$1" ]; then
-        backup_database "hourly" "$HOURLY_DIR"
-    fi
-    
-    if [ "$1" = "daily" ]; then
-        backup_database "daily" "$DAILY_DIR"
-    fi
-    
-    if [ "$1" = "all" ]; then
-        backup_database "hourly" "$HOURLY_DIR"
-        backup_database "daily" "$DAILY_DIR"
-    fi
+    mkdir -p "$HOURLY_DIR" "$DAILY_DIR"
+    case "${1:-hourly}" in
+        hourly) backup_database "hourly" "$HOURLY_DIR" ;;
+        daily) backup_database "daily" "$DAILY_DIR" ;;
+        all)
+            backup_database "hourly" "$HOURLY_DIR"
+            backup_database "daily" "$DAILY_DIR"
+            ;;
+        *)
+            echo "Usage: $0 [hourly|daily|all]" >&2
+            return 2
+            ;;
+    esac
     
     log "${GREEN}Backup process complete${NC}"
 }
 
 # Run main function
-main "$1"
+main "${1:-}"
