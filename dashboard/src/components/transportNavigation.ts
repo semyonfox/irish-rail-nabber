@@ -6,6 +6,7 @@ export interface TransportLink {
   to: string;
   label: string;
   icon: IconName;
+  paid?: boolean;
 }
 
 const railPaths = ["/stations", "/analytics", "/history", "/chat"];
@@ -13,10 +14,10 @@ const railPaths = ["/stations", "/analytics", "/history", "/chat"];
 export const transportLinks: Record<TransportMode, TransportLink[]> = {
   rail: [
     { to: "/", label: "Live", icon: "map" },
-    { to: "/stations", label: "Stops", icon: "pin" },
-    { to: "/analytics", label: "Network", icon: "activity" },
-    { to: "/history", label: "History", icon: "clock" },
-    { to: "/chat", label: "Assistant", icon: "chat" },
+    { to: "/stations", label: "Stations", icon: "pin" },
+    { to: "/analytics", label: "Network", icon: "activity", paid: true },
+    { to: "/history", label: "History", icon: "clock", paid: true },
+    { to: "/chat", label: "Assistant", icon: "chat", paid: true },
   ],
   bus: [
     { to: "/buses", label: "Live", icon: "map" },

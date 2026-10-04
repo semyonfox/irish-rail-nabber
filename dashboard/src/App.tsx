@@ -17,7 +17,11 @@ const Analytics = lazy(() => import("./pages/Analytics"));
 const History = lazy(() => import("./pages/History"));
 
 function RouteFallback() {
-  return <div className="empty h-full">Loading…</div>;
+  return (
+    <div className="empty h-full" role="status">
+      Loading…
+    </div>
+  );
 }
 export default function App() {
   return (
@@ -36,6 +40,17 @@ export default function App() {
                 <Route path="login/*" element={<LoginPage />} />
                 <Route path="register/*" element={<RegisterPage />} />
                 <Route path="pricing" element={<PricingPage />} />
+                <Route
+                  path="*"
+                  element={
+                    <div className="page">
+                      <div className="page-inner">
+                        <h1 className="page-title">Page not found</h1>
+                        <p>Use Rail or Bus above to return to live transport.</p>
+                      </div>
+                    </div>
+                  }
+                />
                 <Route
                   path="analytics"
                   element={

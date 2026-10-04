@@ -658,7 +658,7 @@ export default function TrainMap({
     const wide = mapRef.current.getContainer().clientWidth > 900;
     fittedTrainRef.current = selectedTrainCode;
     mapRef.current.fitBounds(bounds, {
-      duration: 700,
+      duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 700,
       maxZoom: 10,
       padding: wide
         ? { top: 72, right: 460, bottom: 56, left: 340 }
