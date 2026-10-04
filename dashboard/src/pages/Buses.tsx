@@ -112,9 +112,9 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
 
   useEffect(() => {
     if (window.matchMedia("(max-width: 639px)").matches) {
-      (selectedStopId ? changeStopRef.current : lastStopRef.current)?.focus({
-        preventScroll: true,
-      });
+      const target = selectedStopId ? changeStopRef.current : lastStopRef.current;
+      target?.focus({ preventScroll: true });
+      target?.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
   }, [selectedStopId]);
   const [hours, setHours] = useState(24);
