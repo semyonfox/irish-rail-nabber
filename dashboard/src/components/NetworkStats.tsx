@@ -1,5 +1,6 @@
 import type { LiveTrain, RailStation } from "./TrainMap";
 import LiveNetworkSummary from "./LiveNetworkSummary";
+import type { ReactNode } from "react";
 
 export interface RailBoardEvent {
   lateMinutes: number | null;
@@ -9,9 +10,23 @@ interface Props {
   trains: LiveTrain[];
   stations: RailStation[];
   board: RailBoardEvent[];
+  status?: string;
+  live?: boolean;
+  known?: boolean;
+  stationsKnown?: boolean;
+  children?: ReactNode;
 }
 
-export default function NetworkStats({ trains, stations, board }: Props) {
+export default function NetworkStats({
+  trains,
+  stations,
+  board,
+  status = "Live now",
+  live = true,
+  known = true,
+  stationsKnown = true,
+  children,
+}: Props) {
   const mapped = trains.filter((train) => train.latitude != null && train.longitude != null);
   const unavailable = trains.filter((train) => train.latitude == null || train.longitude == null);
   const delayed = board.filter((row) => (row.lateMinutes ?? 0) >= 5).length;
@@ -19,27 +34,28 @@ export default function NetworkStats({ trains, stations, board }: Props) {
 
   return (
     <LiveNetworkSummary
-      status="Live now"
-      live
-      count={trains.length}
+      status={status}
+      live={live}
+      count={known ? trains.length : "--"}
       caption="services in live feed"
-      detail={`${mapped.length}/${trains.length} on map`}
+      detail={known ? `${mapped.length}/${trains.length} on map` : "Map positions unavailable"}
       stats={[
         {
           label: "Late",
-          value: delayed,
+          value: known ? delayed : "--",
           tone: delayed > 0 ? "warn" : undefined,
           title: "Services 5+ minutes late on boards over the next 45 minutes",
         },
         {
           label: "Severe",
-          value: severe,
+          value: known ? severe : "--",
           tone: severe > 0 ? "bad" : undefined,
           title: "Services 15+ minutes late on boards over the next 45 minutes",
         },
-        { label: "Stations", value: stations.length },
+        { label: "Stations", value: stationsKnown ? stations.length : "--" },
       ]}
     >
+      {children}
       {unavailable.length > 0 ? (
         <details className="mt-3 border-t border-line pt-3 text-[12.5px]">
           <summary className="cursor-pointer text-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand">

@@ -38,12 +38,12 @@ export default function StationTable({
   onStationSelect,
 }: {
   onStationSelect?: (station: Pick<StationStats, "stationCode" | "stationDesc">) => void;
-}) {
+} = {}) {
   const [sorting, setSorting] = useState<SortingState>([{ id: "avgLateMinutes", desc: true }]);
   const [search, setSearch] = useState("");
   const [hours, setHours] = useState(24);
 
-  const [{ data, fetching, error }, retry] = usePollingQuery<StationDelayStatsData>({
+  const [{ data, fetching, error, operation }, retry] = usePollingQuery<StationDelayStatsData>({
     query: STATION_DELAY_STATS,
     variables: { hours, limit: 171 },
     pollInterval: 30000,
@@ -60,6 +60,7 @@ export default function StationTable({
                 <button
                   type="button"
                   className="station-board-link"
+                  aria-label={`Open ${info.getValue()} departures`}
                   onClick={() => onStationSelect(info.row.original)}
                 >
                   {info.getValue()}
@@ -92,6 +93,10 @@ export default function StationTable({
   );
 
   const needle = search.trim().toLowerCase();
+  const loadedHours =
+    typeof operation?.variables?.hours === "number" ? operation.variables.hours : hours;
+  const pendingWindow = fetching && loadedHours !== hours;
+
   const rows = useMemo(() => {
     const all = data?.stationDelayStats ?? [];
     if (!needle) return all;
@@ -128,6 +133,14 @@ export default function StationTable({
 
   return (
     <div>
+      {error ? (
+        <RequestError
+          bare
+          error={error}
+          title="Station updates unavailable. Showing last loaded data."
+          onRetry={() => retry({ requestPolicy: "network-only" })}
+        />
+      ) : null}
       <div className="flex flex-wrap items-center gap-2 px-5 py-4">
         <SearchInput
           value={search}
@@ -142,7 +155,11 @@ export default function StationTable({
           value={hours}
           onChange={setHours}
         />
-        <span className="ml-auto text-[13px] text-muted">{rows.length} stations</span>
+        <span className="ml-auto text-[13px] text-muted" role="status">
+          {pendingWindow
+            ? `Loading ${hours}-hour statistics. Showing ${loadedHours}-hour results.`
+            : `${rows.length} stations in the ${loadedHours}-hour results`}
+        </span>
       </div>
       <div className="px-4 pb-4 sm:hidden">
         <label className="field-label" htmlFor="station-sort">
@@ -171,8 +188,17 @@ export default function StationTable({
           <option value="totalEvents:asc">Stops observed, fewest first</option>
         </select>
       </div>
-      <div className="overflow-auto">
+      <div
+        className="overflow-auto"
+        tabIndex={0}
+        role="region"
+        aria-label="Station performance table. Scroll horizontally for more columns."
+        aria-busy={fetching}
+      >
         <table className="data-table responsive-table min-w-[720px]">
+          <caption className="sr-only">
+            Station performance over {loadedHours} hours. Select a station to open departures.
+          </caption>
           <thead>
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id}>
@@ -222,12 +248,12 @@ export default function StationTable({
                 ))}
               </tr>
             ))}
-            {!fetching && table.getRowModel().rows.length === 0 ? (
+            {table.getRowModel().rows.length === 0 ? (
               <tr>
                 <td colSpan={columns.length} className="py-12 text-center text-muted">
                   {needle
-                    ? `No stations match “${search.trim()}”`
-                    : `No station performance records were returned for the selected window.`}
+                    ? `No stations match “${search.trim()}” in the loaded results.`
+                    : `No station performance records were returned for the ${loadedHours}-hour results.`}
                 </td>
               </tr>
             ) : null}

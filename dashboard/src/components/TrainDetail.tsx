@@ -2,6 +2,7 @@ import { TRAIN_JOURNEY } from "../graphql/queries";
 import { usePollingQuery } from "../utils/usePollingQuery";
 import { formatTime, shortDelay } from "../utils/format";
 import { DelayPill, Empty, MiniStat, Sheet } from "./ui";
+import RequestError from "./RequestError";
 
 interface Movement {
   trainCode: string;
@@ -68,7 +69,7 @@ function stopKind(stop: Movement) {
 }
 
 export default function TrainDetail({ trainCode, trainDate, onClose }: Props) {
-  const [{ data, fetching }] = usePollingQuery<TrainJourneyData>({
+  const [{ data, fetching, error }, retry] = usePollingQuery<TrainJourneyData>({
     query: TRAIN_JOURNEY,
     variables: { trainCode, trainDate },
     pollInterval: 15000,
@@ -106,7 +107,17 @@ export default function TrainDetail({ trainCode, trainDate, onClose }: Props) {
       }
     >
       {fetching && !data ? <Empty>Loading journey…</Empty> : null}
-      {!fetching && stops.length === 0 ? (
+      {error ? (
+        <RequestError
+          bare
+          error={error}
+          title={
+            data ? "Journey updates unavailable. Showing last loaded data." : "Journey unavailable"
+          }
+          onRetry={() => retry({ requestPolicy: "network-only" })}
+        />
+      ) : null}
+      {!fetching && !error && stops.length === 0 ? (
         <Empty>No station-by-station journey has been captured for this train yet.</Empty>
       ) : null}
 

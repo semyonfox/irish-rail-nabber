@@ -1,10 +1,21 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 
 import { useAuth } from "../auth/useAuth";
 import { useTheme } from "../theme";
 import { transportLinks, transportModeForPath, transportModePath } from "./transportNavigation";
 import { BrandMark, Icon } from "./ui";
+import HelpDialog from "./HelpDialog";
+import { telemetry, telemetryRoute } from "../utils/telemetry";
+
+function subscribeConnection(onChange: () => void) {
+  window.addEventListener("online", onChange);
+  window.addEventListener("offline", onChange);
+  return () => {
+    window.removeEventListener("online", onChange);
+    window.removeEventListener("offline", onChange);
+  };
+}
 
 function initials(name: string) {
   const parts = name.split(/[\s@.]+/).filter(Boolean);
@@ -13,6 +24,11 @@ function initials(name: string) {
 
 export default function Layout() {
   const { pathname } = useLocation();
+  const online = useSyncExternalStore(
+    subscribeConnection,
+    () => navigator.onLine,
+    () => true,
+  );
   const { user, signedIn, loading, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const name = user ? user.display_name || user.email : "";
@@ -30,6 +46,13 @@ export default function Layout() {
         active.offsetLeft - nav.offsetLeft - (nav.clientWidth - active.clientWidth) / 2;
     }
   }, [pathname, transportMode]);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const previousPath = useRef(pathname);
+  useEffect(() => {
+    telemetry.count("screen_view", telemetryRoute(pathname));
+    if (previousPath.current !== pathname) document.getElementById("main-content")?.focus();
+    previousPath.current = pathname;
+  }, [pathname]);
 
   if (pathMode && pathMode !== lastTransportMode) {
     setLastTransportMode(pathMode);
@@ -37,6 +60,13 @@ export default function Layout() {
 
   return (
     <div className="flex h-dvh flex-col">
+      <a
+        href="#main-content"
+        className="skip-link"
+        onClick={() => document.getElementById("main-content")?.focus()}
+      >
+        Skip to main content
+      </a>
       <header className="app-header" data-mode={transportMode}>
         <Link
           to={transportMode === "bus" ? "/buses" : "/"}
@@ -79,6 +109,7 @@ export default function Layout() {
             >
               <Icon name={link.icon} />
               {link.label}
+              {link.paid ? <span className="paid-label">Paid</span> : null}
             </NavLink>
           ))}
         </nav>
@@ -92,10 +123,9 @@ export default function Layout() {
             <Icon name="tag" />
             <span>Pricing</span>
           </NavLink>
-          <span className="live-pill hidden sm:inline-flex" title="Feeds updating">
-            <span className="live-dot" />
-            Live
-          </span>
+          <button type="button" className="btn btn-quiet btn-sm" onClick={() => setHelpOpen(true)}>
+            Help
+          </button>
           <button
             type="button"
             className="icon-btn header-theme-toggle"
@@ -107,8 +137,15 @@ export default function Layout() {
             <Icon name={theme === "dark" ? "sun" : "moon"} />
           </button>
           {loading ? null : user ? (
-            <Link to="/account" className="account-link" title={name}>
-              <span className="avatar">{initials(name)}</span>
+            <Link
+              to="/account"
+              className="account-link"
+              title={name}
+              aria-label={`Account for ${name}`}
+            >
+              <span className="avatar" aria-hidden="true">
+                {initials(name)}
+              </span>
               <span className="hidden max-w-40 truncate pr-2 lg:inline">{name}</span>
             </Link>
           ) : signedIn ? (
@@ -117,21 +154,26 @@ export default function Layout() {
             </button>
           ) : (
             <>
-              <Link to="/login" className="btn btn-quiet btn-sm hidden sm:inline-flex">
+              <Link to="/login" className="btn btn-quiet btn-sm">
                 Log in
               </Link>
               <Link to="/register" className="btn btn-primary btn-sm">
-                <span className="sm:hidden">Join</span>
-                <span className="hidden sm:inline">Get access</span>
+                Create free account
               </Link>
             </>
           )}
         </div>
       </header>
 
-      <main className="min-h-0 flex-1">
+      {!online ? (
+        <p role="status" className="connection-notice">
+          You’re offline. Displayed transport data is last loaded. Reconnect to refresh.
+        </p>
+      ) : null}
+      <main id="main-content" tabIndex={-1} className="min-h-0 flex-1">
         <Outlet />
       </main>
+      {helpOpen ? <HelpDialog onClose={() => setHelpOpen(false)} /> : null}
     </div>
   );
 }

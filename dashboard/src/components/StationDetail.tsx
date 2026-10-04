@@ -3,6 +3,7 @@ import { usePollingQuery } from "../utils/usePollingQuery";
 import { formatTime, shortDelay } from "../utils/format";
 import type { RailStation } from "./TrainMap";
 import { DelayPill, Empty, MiniStat, Sheet } from "./ui";
+import RequestError from "./RequestError";
 
 interface StationEvent {
   trainCode: string;
@@ -25,11 +26,12 @@ interface StationBoardData {
 }
 
 interface Props {
-  station: RailStation;
+  station: Pick<RailStation, "stationCode" | "stationDesc"> &
+    Partial<Pick<RailStation, "stationType" | "isDart" | "latitude" | "longitude">>;
   onClose: () => void;
 }
 
-function stationTypeLabel(station: RailStation) {
+function stationTypeLabel(station: Props["station"]) {
   if (station.isDart) return "DART";
   if (station.stationType === "M") return "Mainline";
   if (station.stationType === "S") return "Suburban";
@@ -71,7 +73,7 @@ function routeText(event: StationEvent) {
 }
 
 export default function StationDetail({ station, onClose }: Props) {
-  const [{ data, fetching }] = usePollingQuery<StationBoardData>({
+  const [{ data, fetching, error }, retry] = usePollingQuery<StationBoardData>({
     query: STATION_BOARD,
     variables: { stationCode: station.stationCode, limit: 18 },
     pollInterval: 10000,
@@ -104,22 +106,45 @@ export default function StationDetail({ station, onClose }: Props) {
         </>
       }
       title={station.stationDesc}
-      subtitle={`${board.length} services on the live board`}
+      subtitle={
+        <span role="status">
+          {!data
+            ? fetching
+              ? "Loading departures…"
+              : "Departures unavailable"
+            : `${board.length} services on the ${error ? "last loaded" : "latest"} board`}
+        </span>
+      }
     >
-      <div className="grid grid-cols-2 gap-2">
-        <MiniStat label="Due in 10 min" value={dueSoon.length} />
-        <MiniStat label="Worst delay" value={shortDelay(worstDelay)} />
-        <MiniStat
-          label="Delayed"
-          value={delayed.length}
-          tone={delayed.length > 0 ? "warn" : undefined}
+      {error ? (
+        <RequestError
+          bare
+          error={error}
+          title={
+            data
+              ? "Board updates unavailable. Showing last loaded data."
+              : "Station board unavailable"
+          }
+          onRetry={() => retry({ requestPolicy: "network-only" })}
         />
-        <MiniStat
-          label="Severe"
-          value={severe.length}
-          tone={severe.length > 0 ? "bad" : undefined}
-        />
-      </div>
+      ) : null}
+      {fetching && !data ? <Empty>Loading departures…</Empty> : null}
+      {data ? (
+        <div className="grid grid-cols-2 gap-2">
+          <MiniStat label="Due in 10 min" value={dueSoon.length} />
+          <MiniStat label="Worst delay" value={shortDelay(worstDelay)} />
+          <MiniStat
+            label="Delayed"
+            value={delayed.length}
+            tone={delayed.length > 0 ? "warn" : undefined}
+          />
+          <MiniStat
+            label="Severe"
+            value={severe.length}
+            tone={severe.length > 0 ? "bad" : undefined}
+          />
+        </div>
+      ) : null}
 
       {nextEvent ? (
         <div className="rounded-2xl bg-brand-soft p-4">
@@ -154,7 +179,7 @@ export default function StationDetail({ station, onClose }: Props) {
           <span>Live board · most delayed first</span>
           {fetching ? <span className="code">Updating…</span> : null}
         </div>
-        {board.length === 0 && !fetching ? (
+        {board.length === 0 && !fetching && !error ? (
           <Empty className="!min-h-24">No live board rows in the latest poll window.</Empty>
         ) : null}
         {sortedBoard.map((event) => {
@@ -176,11 +201,11 @@ export default function StationDetail({ station, onClose }: Props) {
         })}
       </div>
 
-      {station.latitude != null && station.longitude != null && (
+      {station.latitude != null && station.longitude != null ? (
         <div className="code">
           {station.latitude.toFixed(4)}, {station.longitude.toFixed(4)}
         </div>
-      )}
+      ) : null}
     </Sheet>
   );
 }

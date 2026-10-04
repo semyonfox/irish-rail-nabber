@@ -2,6 +2,9 @@ import { Link } from "react-router-dom";
 import type { CombinedError } from "urql";
 import { isAuthError } from "../utils/errors";
 import { Icon } from "./ui";
+import { useEffect } from "react";
+import { useLocation } from "react-router-dom";
+import { telemetry, telemetryRoute } from "../utils/telemetry";
 
 interface Props {
   error: CombinedError;
@@ -20,6 +23,10 @@ export default function RequestError({
   title = "Data unavailable",
   bare = false,
 }: Props) {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    telemetry.error("request_failed", telemetryRoute(pathname));
+  }, [pathname]);
   const auth = isAuthError(error);
   const rateLimited = statusOf(error) === 429 || /rate limit/i.test(error.message);
   const offline = error.networkError != null && !rateLimited;
@@ -40,7 +47,7 @@ export default function RequestError({
   return (
     <div
       className={`notice ${bare ? "" : "card rise"}`}
-      role={auth ? undefined : "alert"}
+      role="alert"
       data-kind={auth ? "auth" : "error"}
     >
       <div className="flex min-w-0 items-start gap-4">
