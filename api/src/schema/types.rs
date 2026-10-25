@@ -116,6 +116,7 @@ impl From<BusDepartureRow> for BusDeparture {
 
 #[derive(Clone, SimpleObject)]
 pub struct BusRouteDelay {
+    pub feed_version_id: i64,
     pub route_id: String,
     pub route_short_name: Option<String>,
     pub route_long_name: Option<String>,
@@ -215,6 +216,7 @@ impl From<BusRealtimeStatusRow> for BusRealtimeStatus {
 impl From<BusRouteDelayRow> for BusRouteDelay {
     fn from(row: BusRouteDelayRow) -> Self {
         Self {
+            feed_version_id: row.feed_version_id,
             route_id: row.route_id,
             route_short_name: row.route_short_name,
             route_long_name: row.route_long_name,

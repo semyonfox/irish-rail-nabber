@@ -148,6 +148,7 @@ pub struct BusDepartureRow {
 
 #[derive(sqlx::FromRow, Debug)]
 pub struct BusRouteDelayRow {
+    pub feed_version_id: i64,
     pub route_id: String,
     pub route_short_name: Option<String>,
     pub route_long_name: Option<String>,

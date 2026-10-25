@@ -3,7 +3,9 @@ use std::{sync::Arc, time::Duration};
 use moka::future::Cache;
 use sqlx::PgPool;
 
-use crate::schema::bus_history::BusHistoryPoint;
+use crate::schema::bus_history::{
+    BusHistoryPoint, BusJourney, BusRoute, BusRouteStopDelay, BusStopStats,
+};
 use crate::schema::types::{
     BusDeparture, BusRealtimeStatus, BusRouteDelay, BusRouteShape, BusStop, BusVehicle,
     DelayHistoryPoint, NetworkSummary, RouteReliability, StationDelayStats,
@@ -13,6 +15,11 @@ use crate::schema::AppSchema;
 #[derive(Clone)]
 pub struct QueryCache {
     pub bus_delay_history: Cache<String, Arc<Vec<BusHistoryPoint>>>,
+    pub bus_routes: Cache<String, Arc<Vec<BusRoute>>>,
+    pub bus_stop_stats: Cache<String, Arc<Vec<BusStopStats>>>,
+    pub bus_journeys: Cache<String, Arc<Vec<BusJourney>>>,
+    pub bus_journey_stops: Cache<String, Arc<Vec<BusRouteStopDelay>>>,
+    pub bus_route_stop_delays: Cache<String, Arc<Vec<BusRouteStopDelay>>>,
     pub delay_history: Cache<String, Arc<Vec<DelayHistoryPoint>>>,
     pub station_delay_stats: Cache<String, Arc<Vec<StationDelayStats>>>,
     pub network_summary: Cache<(), Arc<NetworkSummary>>,
@@ -30,6 +37,11 @@ impl QueryCache {
     pub fn new() -> Self {
         Self {
             bus_delay_history: cache(Duration::from_secs(60), 256),
+            bus_routes: cache(Duration::from_secs(900), 256),
+            bus_stop_stats: cache(Duration::from_secs(60), 128),
+            bus_journeys: cache(Duration::from_secs(60), 128),
+            bus_journey_stops: cache(Duration::from_secs(60), 256),
+            bus_route_stop_delays: cache(Duration::from_secs(20), 256),
             delay_history: cache(Duration::from_secs(300), 256),
             station_delay_stats: cache(Duration::from_secs(60), 32),
             network_summary: cache(Duration::from_secs(10), 1),

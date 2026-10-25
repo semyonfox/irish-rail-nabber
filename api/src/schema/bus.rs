@@ -41,7 +41,7 @@ pub(super) fn validate_identifier(value: String, name: &str) -> Result<String> {
     Ok(value.to_owned())
 }
 
-fn search_pattern(search: Option<String>) -> Result<Option<String>> {
+pub(super) fn search_pattern(search: Option<String>) -> Result<Option<String>> {
     let Some(search) = search else {
         return Ok(None);
     };
@@ -812,6 +812,7 @@ impl BusQuery {
                 GROUP BY feed_version_id, route_id
              )
              SELECT
+                aggregated.feed_version_id,
                 aggregated.route_id,
                 metadata.route_short_name,
                 metadata.route_long_name,
