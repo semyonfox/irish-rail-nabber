@@ -14,7 +14,7 @@ import { Card, Empty, SearchInput, Segmented } from "./ui";
 
 export default function BusStopRankings() {
   const { user } = useAuth();
-  const maxHours = busHistoryMaxHours(user?.role);
+  const maxHours = busHistoryMaxHours(user?.role, "stopRankings");
   const [input, setInput] = useState("");
   const [search, setSearch] = useState("");
   const [selection, setSelection] = useState(24);

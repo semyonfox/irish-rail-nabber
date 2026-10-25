@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vite-plus/test";
 import {
+  busHistoryMaxHours,
   busHistoryRanges,
+  busHistoryResolution,
   busJourneyPath,
   busStopPath,
   summarizeBusHistory,
@@ -40,9 +42,19 @@ describe("bus history summary", () => {
   });
 });
 
-test("offers the week only to plans the API allows it for", () => {
-  expect(busHistoryRanges(72).map((range) => range.value)).toEqual([6, 24, 72]);
-  expect(busHistoryRanges(168).at(-1)?.value).toBe(168);
+test("offers longer windows only where the API allows them", () => {
+  expect(busHistoryRanges(busHistoryMaxHours(undefined, "delays")).map((r) => r.value)).toEqual([
+    6, 24, 72,
+  ]);
+  expect(busHistoryRanges(busHistoryMaxHours("pro", "delays")).at(-1)?.value).toBe(2160);
+  expect(busHistoryRanges(busHistoryMaxHours("pro", "stopRankings")).at(-1)?.value).toBe(72);
+  expect(busHistoryRanges(busHistoryMaxHours("pro", "journeys")).at(-1)?.value).toBe(168);
+  expect(busHistoryMaxHours("free", "journeys")).toBe(72);
+});
+
+test("switches to daily buckets beyond a week", () => {
+  expect(busHistoryResolution(168)).toBe("HOUR");
+  expect(busHistoryResolution(720)).toBe("DAY");
 });
 
 test("encodes NTA identifiers in links", () => {

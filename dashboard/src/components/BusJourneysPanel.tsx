@@ -29,7 +29,7 @@ export default function BusJourneysPanel({
   feedVersionId: number;
 }) {
   const { user } = useAuth();
-  const maxHours = busHistoryMaxHours(user?.role);
+  const maxHours = busHistoryMaxHours(user?.role, "journeys");
   const [selection, setSelection] = useState(24);
   const [search, setSearch] = useState("");
   const hours = Math.min(selection, maxHours);

@@ -54,9 +54,22 @@ export interface BusJourney {
   stopCount: number;
 }
 
-// matches the API's history window, paid plans get a week
-export function busHistoryMaxHours(role: string | undefined) {
-  return role === "coffee" || role === "pro" || role === "admin" ? 168 : 72;
+export type BusHistoryKind = "delays" | "stopRankings" | "journeys";
+
+// mirrors HistoryKind::paid_max_hours in api/src/schema/bus_history.rs, the API
+// clamps anything longer so a mismatch only offers a window it will shorten
+const PAID_MAX_HOURS: Record<BusHistoryKind, number> = {
+  delays: 2160,
+  stopRankings: 72,
+  journeys: 168,
+};
+const PUBLIC_MAX_HOURS = 72;
+const HOURLY_RESOLUTION_MAX_HOURS = 168;
+
+export function busHistoryMaxHours(role: string | undefined, kind: BusHistoryKind) {
+  return role === "coffee" || role === "pro" || role === "admin"
+    ? PAID_MAX_HOURS[kind]
+    : PUBLIC_MAX_HOURS;
 }
 
 export function busHistoryRanges(maxHours: number) {
@@ -65,7 +78,14 @@ export function busHistoryRanges(maxHours: number) {
     { value: 24, label: "24 hours" },
     { value: 72, label: "3 days" },
     { value: 168, label: "7 days" },
+    { value: 720, label: "30 days" },
+    { value: 2160, label: "90 days" },
   ].filter((range) => range.value <= maxHours);
+}
+
+// the API only returns hourly buckets for up to a week
+export function busHistoryResolution(hours: number) {
+  return hours > HOURLY_RESOLUTION_MAX_HOURS ? "DAY" : "HOUR";
 }
 
 // weights each bucket by its observations so quiet hours don't skew the totals
