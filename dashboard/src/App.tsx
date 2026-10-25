@@ -18,6 +18,7 @@ const BusRouteDetail = lazy(() => import("./pages/BusRouteDetail"));
 const BusJourneyDetail = lazy(() => import("./pages/BusJourneyDetail"));
 const BusStopDetail = lazy(() => import("./pages/BusStopDetail"));
 const BusHistory = lazy(() => import("./pages/BusHistory"));
+const BusPublished = lazy(() => import("./pages/BusPublished"));
 const Analytics = lazy(() => import("./pages/Analytics"));
 const History = lazy(() => import("./pages/History"));
 
@@ -49,6 +50,7 @@ export default function App() {
                 />
                 <Route path="buses/stops/:feedVersionId/:stopId" element={<BusStopDetail />} />
                 <Route path="buses/history" element={<BusHistory />} />
+                <Route path="buses/published" element={<BusPublished />} />
                 {/* clerk walks multi-step flows under these paths */}
                 <Route path="login/*" element={<LoginPage />} />
                 <Route path="register/*" element={<RegisterPage />} />

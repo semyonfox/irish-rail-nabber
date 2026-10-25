@@ -7,6 +7,7 @@ import RequestError from "../components/RequestError";
 import { Card, Empty, PageHeader } from "../components/ui";
 import { BUS_ROUTE_STOP_DELAYS, BUS_ROUTES } from "../graphql/queries";
 import type { BusRoute, BusStopDelay } from "../utils/busHistory";
+import { publishedRouteSearchPath } from "../utils/busPublished";
 import { usePollingQuery } from "../utils/usePollingQuery";
 
 function RouteDetail({ routeId, feedVersionId }: { routeId: string; feedVersionId: number }) {
@@ -60,6 +61,11 @@ function RouteDetail({ routeId, feedVersionId }: { routeId: string; feedVersionI
               Find it in the current schedule
             </Link>
           </p>
+        ) : null}
+        {route?.routeShortName ? (
+          <Link className="text-sm underline" to={publishedRouteSearchPath(route.routeShortName)}>
+            NTA published performance for route {route.routeShortName}
+          </Link>
         ) : null}
         <BusHistoryPanel routeId={routeId} feedVersionId={feedVersionId} />
         {route?.isActive !== false && (
