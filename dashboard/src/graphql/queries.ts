@@ -283,6 +283,7 @@ export const BUS_LIVE_OVERVIEW = gql`
       }
     }
     busRouteDelays(hours: $hours, limit: $routeLimit) @include(if: $includeDelays) {
+      feedVersionId
       routeId
       routeShortName
       routeLongName
@@ -290,6 +291,126 @@ export const BUS_LIVE_OVERVIEW = gql`
       avgDelaySeconds
       onTimePct
       sampleCount
+      lastUpdated
+    }
+  }
+`;
+
+export const BUS_ROUTES = gql`
+  query BusRoutes($search: String, $routeId: String, $feedVersionId: Int, $limit: Int) {
+    busRoutes(search: $search, routeId: $routeId, feedVersionId: $feedVersionId, limit: $limit) {
+      feedVersionId
+      routeId
+      routeShortName
+      routeLongName
+      operatorName
+      isActive
+    }
+  }
+`;
+
+export const BUS_DELAY_HISTORY = gql`
+  query BusDelayHistory($routeId: String, $stopId: String, $feedVersionId: Int, $hours: Int) {
+    busDelayHistory(
+      routeId: $routeId
+      stopId: $stopId
+      feedVersionId: $feedVersionId
+      hours: $hours
+    ) {
+      bucket
+      avgDelaySeconds
+      maxDelaySeconds
+      p95DelaySeconds
+      onTimePct
+      earlyCount
+      lateCount
+      sampleCount
+      lastUpdated
+    }
+  }
+`;
+
+export const BUS_STOP_STATS = gql`
+  query BusStopStats(
+    $hours: Int
+    $search: String
+    $feedVersionId: Int
+    $stopId: String
+    $limit: Int
+  ) {
+    busStopStats(
+      hours: $hours
+      search: $search
+      feedVersionId: $feedVersionId
+      stopId: $stopId
+      limit: $limit
+    ) {
+      feedVersionId
+      stopId
+      stopName
+      avgDelaySeconds
+      p95DelaySeconds
+      maxDelaySeconds
+      onTimePct
+      sampleCount
+    }
+  }
+`;
+
+export const BUS_ROUTE_STOP_DELAYS = gql`
+  query BusRouteStopDelays($routeId: String!, $feedVersionId: Int!, $limit: Int) {
+    busRouteStopDelays(routeId: $routeId, feedVersionId: $feedVersionId, limit: $limit) {
+      tripId
+      tripInstanceKey
+      stopId
+      stopName
+      stopSequence
+      headsign
+      delaySeconds
+      expectedTime
+      scheduleRelationship
+      lastUpdated
+    }
+  }
+`;
+
+export const BUS_JOURNEYS = gql`
+  query BusJourneys($feedVersionId: Int!, $routeId: String!, $hours: Int) {
+    busJourneys(feedVersionId: $feedVersionId, routeId: $routeId, hours: $hours, limit: 200) {
+      feedVersionId
+      tripInstanceKey
+      tripId
+      routeId
+      headsign
+      firstObserved
+      lastObserved
+      stopCount
+    }
+  }
+`;
+
+export const BUS_JOURNEY = gql`
+  query BusJourney(
+    $feedVersionId: Int!
+    $routeId: String!
+    $tripInstanceKey: String!
+    $hours: Int
+  ) {
+    busJourneyStops(
+      feedVersionId: $feedVersionId
+      routeId: $routeId
+      tripInstanceKey: $tripInstanceKey
+      hours: $hours
+    ) {
+      tripId
+      tripInstanceKey
+      stopId
+      stopName
+      stopSequence
+      headsign
+      delaySeconds
+      expectedTime
+      scheduleRelationship
       lastUpdated
     }
   }

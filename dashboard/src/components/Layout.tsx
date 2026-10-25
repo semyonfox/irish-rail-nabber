@@ -104,7 +104,8 @@ export default function Layout() {
             <NavLink
               key={link.to}
               to={link.to}
-              end
+              // detail pages keep their section highlighted, the mode roots match exactly
+              end={link.to === "/" || link.to === "/buses"}
               className={({ isActive }) => `nav-link${isActive ? " is-active" : ""}`}
             >
               <Icon name={link.icon} />

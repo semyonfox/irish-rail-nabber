@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import LiveMapShell from "../components/LiveMapShell";
 import LiveNetworkSummary from "../components/LiveNetworkSummary";
+import BusAttribution from "../components/BusAttribution";
 import BusVehicleMap from "../components/BusVehicleMap";
 import RequestError from "../components/RequestError";
 import { Card, DelayPill, Empty, Icon, PageHeader, SearchInput, Segmented } from "../components/ui";
@@ -12,6 +13,7 @@ import {
   busUpdateAge,
   type BusRealtimeStatus,
 } from "../utils/busRealtime";
+import { busRoutePath } from "../utils/busHistory";
 import type { BusRouteShape } from "../utils/busShapes";
 import type { BusVehicle } from "../utils/busVehicles";
 import { usePollingQuery } from "../utils/usePollingQuery";
@@ -41,6 +43,7 @@ interface BusDeparture {
 }
 
 interface BusRouteDelay {
+  feedVersionId: number;
   routeId: string;
   routeShortName: string | null;
   routeLongName: string | null;
@@ -540,7 +543,7 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
                 <tbody>
                   {shownRoutes.map((route) => (
                     <tr
-                      key={route.routeId}
+                      key={`${route.feedVersionId}:${route.routeId}`}
                       data-tone={
                         route.avgDelaySeconds >= 900
                           ? "bad"
@@ -554,9 +557,12 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
                           <span className="bus-route-chip">
                             {routeLabel(route.routeShortName, route.routeId)}
                           </span>
-                          <span className="cell-main">
+                          <Link
+                            className="cell-main underline"
+                            to={busRoutePath(route.feedVersionId, route.routeId)}
+                          >
                             {route.routeLongName || "Unnamed route"}
-                          </span>
+                          </Link>
                         </span>
                       </td>
                       <td data-label="Operator" className="text-muted">
@@ -595,17 +601,7 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
           </Card>
         )}
 
-        <p className="bus-attribution">
-          Bus schedule and realtime data provided by the{" "}
-          <a href="https://data.gov.ie/dataset/nta-gtfs" target="_blank" rel="noreferrer">
-            National Transport Authority
-          </a>{" "}
-          under{" "}
-          <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">
-            CC BY 4.0
-          </a>
-          . Data is supplied as is and may contain errors.
-        </p>
+        <BusAttribution />
       </div>
     </div>
   );

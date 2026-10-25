@@ -12,7 +12,13 @@ describe("transport navigation", () => {
 
   test("keeps the bus deep link in Bus mode", () => {
     expect(transportModeForPath("/buses")).toBe("bus");
-    expect(transportLinks.bus.map((link) => link.label)).toEqual(["Live", "Stops", "Network"]);
+    expect(transportLinks.bus.map((link) => link.label)).toEqual([
+      "Live",
+      "Stops",
+      "Routes",
+      "Network",
+      "History",
+    ]);
   });
 
   test.each(["/pricing", "/account", "/login"])(
@@ -30,7 +36,10 @@ test.each([
   ["/buses/stops", "rail", "/stations"],
   ["/analytics", "bus", "/buses/network"],
   ["/buses/network", "rail", "/analytics"],
-  ["/history", "bus", "/buses"],
+  ["/history", "bus", "/buses/history"],
+  ["/buses/history", "rail", "/history"],
+  ["/chat", "bus", "/buses"],
+  ["/buses/routes", "rail", "/"],
 ] as const)("switches %s to %s at %s", (path, mode, expected) => {
   expect(transportModePath(path, mode)).toBe(expected);
   expect(transportModeForPath(expected)).toBe(mode);
