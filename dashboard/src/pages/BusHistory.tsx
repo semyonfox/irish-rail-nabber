@@ -22,6 +22,13 @@ export default function BusHistory() {
             </Link>
           }
         />
+        <p className="text-sm text-muted">
+          Looking further back?{" "}
+          <Link to="/buses/published" className="underline">
+            See the NTA's published route performance
+          </Link>
+          , reported by contract and four-week period.
+        </p>
         <BusHistoryPanel />
         <BusStopRankings />
         <BusAttribution />

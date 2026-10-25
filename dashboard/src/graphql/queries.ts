@@ -415,3 +415,58 @@ export const BUS_JOURNEY = gql`
     }
   }
 `;
+
+export const BUS_PUBLISHED_DATASET = gql`
+  query BusPublishedDataset {
+    busPublishedDataset {
+      importId
+      importedAt
+      sourceUpdatedAt
+      recordCount
+      firstYear
+      lastYear
+      routeCount
+      operators
+      years
+    }
+  }
+`;
+
+export const BUS_PUBLISHED_PERFORMANCE = gql`
+  query BusPublishedPerformance(
+    $importId: String!
+    $search: String
+    $operatorName: String
+    $routeShortName: String
+    $year: Int
+    $limit: Int
+    $offset: Int
+  ) {
+    busPublishedPerformance(
+      importId: $importId
+      search: $search
+      operatorName: $operatorName
+      routeShortName: $routeShortName
+      year: $year
+      limit: $limit
+      offset: $offset
+    ) {
+      totalCount
+      rows {
+        operatorName
+        routeShortName
+        reportYear
+        reportPeriod
+        onTimePct
+        earlyPct
+        latePct
+        actualDepartures
+        excessWaitMinutes
+        plannedKm
+        actualKm
+        lostKm
+        contractualLostKm
+      }
+    }
+  }
+`;

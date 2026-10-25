@@ -6,6 +6,7 @@ use sqlx::PgPool;
 use crate::schema::bus_history::{
     BusHistoryPoint, BusJourney, BusRoute, BusRouteStopDelay, BusStopStats,
 };
+use crate::schema::bus_published::{BusPublishedDataset, BusPublishedPage};
 use crate::schema::types::{
     BusDeparture, BusRealtimeStatus, BusRouteDelay, BusRouteShape, BusStop, BusVehicle,
     DelayHistoryPoint, NetworkSummary, RouteReliability, StationDelayStats,
@@ -20,6 +21,8 @@ pub struct QueryCache {
     pub bus_journeys: Cache<String, Arc<Vec<BusJourney>>>,
     pub bus_journey_stops: Cache<String, Arc<Vec<BusRouteStopDelay>>>,
     pub bus_route_stop_delays: Cache<String, Arc<Vec<BusRouteStopDelay>>>,
+    pub bus_published_dataset: Cache<(), Arc<Option<BusPublishedDataset>>>,
+    pub bus_published_performance: Cache<String, Arc<BusPublishedPage>>,
     pub delay_history: Cache<String, Arc<Vec<DelayHistoryPoint>>>,
     pub station_delay_stats: Cache<String, Arc<Vec<StationDelayStats>>>,
     pub network_summary: Cache<(), Arc<NetworkSummary>>,
@@ -42,6 +45,9 @@ impl QueryCache {
             bus_journeys: cache(Duration::from_secs(60), 128),
             bus_journey_stops: cache(Duration::from_secs(60), 256),
             bus_route_stop_delays: cache(Duration::from_secs(20), 256),
+            // snapshots only change when the import is rerun by hand
+            bus_published_dataset: cache(Duration::from_secs(300), 1),
+            bus_published_performance: cache(Duration::from_secs(300), 256),
             delay_history: cache(Duration::from_secs(300), 256),
             station_delay_stats: cache(Duration::from_secs(60), 32),
             network_summary: cache(Duration::from_secs(10), 1),

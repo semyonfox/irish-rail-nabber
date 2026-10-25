@@ -142,5 +142,5 @@ jobs:
         run: pip install -r requirements.txt
       - name: Compile Python sources
         run: python -m compileall -q .
-      - name: Test transit ingestion
-        run: python -m unittest test_bus_daemon.py test_rail_movements.py
+      - name: Test transit ingestion and published import
+        run: python -m unittest test_bus_daemon.py test_rail_movements.py test_bus_performance_import.py
