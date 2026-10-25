@@ -60,6 +60,12 @@ bus_delay_histogram
 bus_histogram_polls
   └── poll receipts that prevent duplicate histogram counts after a retry
 
+bus_published_imports
+  └── each imported NTA published-performance snapshot, with its raw source responses
+
+bus_published_performance
+  └── published route-period statistics for each snapshot
+
 ```
 
 The backfill copied every surviving legacy stop state and trip-presence row
@@ -116,6 +122,8 @@ busVehicles(routeId: String, limit: Int = 2000)
 busLiveRouteShapes(limit: Int = 100)
 busScheduledRouteShapes(stopId: String, limit: Int = 24)
 busDelayHistory(routeId: String, stopId: String, feedVersionId: Int, hours: Int = 24)
+busPublishedDataset
+busPublishedPerformance(importId: String!, search: String, operatorName: String, routeShortName: String, year: Int, limit: Int = 200, offset: Int = 0)
 ```
 
 `busDelayHistory` derives hourly averages, p95 and on-time shares from the
@@ -188,6 +196,90 @@ LIMIT 10;
 ```
 
 The last query should show both realtime endpoints alternating, with consecutive requests at least 60 seconds apart.
+
+## Published NTA performance
+
+The NTA publishes route statistics for its PSO bus contracts on a
+[public dashboard](https://www.nationaltransport.ie/public-transport-services/public-transport-contracts/operator-performance/pso-bus-performance-dashboard/pso-bus-performance-dashboard/).
+`import_bus_performance.py` copies them into `bus_published_performance`, and
+`/buses/published` shows them with search, contract and year filters and a
+per-route trend. The bus history and route pages link to it.
+
+These are reporting-period aggregates, not observations. Each record covers one
+route in one contract for one of the NTA's 13 four-week periods. Low-frequency
+routes report punctuality and departure counts, high-frequency routes report
+excess passenger waiting time, and both report planned, operated and lost
+kilometres. The NTA's punctuality window runs from one minute early to five
+minutes 59 seconds late, so it is not comparable with the five-minute target
+used for collected predictions. Nothing is written to the realtime tables or
+`bus_delay_histogram`.
+
+The importer reads three bulk tables from the dashboard's public
+publish-to-web endpoint. It does not use the NTA realtime key or its request
+budget. That endpoint is undocumented, so the importer refuses any response
+whose columns, row layout, periods or metric ranges differ from what it
+expects, and any truncated page. A failed run changes nothing. Missing metrics
+stay null, and a period with no departures is not reported as 0% on time. The
+EWT table labels the Bus Éireann DAC contract "Bus Éireann", which is mapped
+back to "Bus Éireann DAC". The raw responses keep the original labels.
+
+Each snapshot is identified by a hash of its normalised records. Replaying the
+same snapshot inserts nothing. A changed snapshot is stored beside the earlier
+ones and becomes the active one in the same transaction, so the page never
+shows a partial import. Earlier snapshots stay in the database for comparison.
+
+### Running an import
+
+The import is manual. It reads no database credentials. It writes a SQL file
+that you review and then apply.
+
+1. Prepare the SQL on any machine with `requirements.txt` installed. Source
+   responses are cached in the directory you give, and `--refresh` downloads a
+   new snapshot instead of reusing them.
+
+   ```bash
+   python3 import_bus_performance.py \
+     --directory ~/nta-published-cache \
+     --refresh \
+     --output /tmp/nta-published.sql
+   ```
+
+   It prints the record count, contracts and first and last periods. The first
+   import in September 2026 had about 11,500 records for 443 route contracts,
+   from 2024 P1. Stop if the numbers look wrong.
+
+2. Apply it to production. Migration 018 creates the tables during deploy, so
+   they already exist.
+
+   ```bash
+   docker exec -i irish_rail_db \
+     psql -X -v ON_ERROR_STOP=1 -U irish_data -d ireland_public \
+     < /tmp/nta-published.sql
+   ```
+
+   The file runs in one transaction with a 120-second timeout and checks its
+   own record count before committing.
+
+3. The page updates within five minutes, when the API cache expires.
+
+To return to an earlier snapshot, change which row in `bus_published_imports`
+has `is_active` set. At most one may be active.
+
+### Tests
+
+```bash
+python3 -m unittest test_bus_performance_import
+```
+
+The database replay test runs only against a disposable Postgres container
+that you name. It never reads `DATABASE_URL`.
+
+```bash
+docker run -d --name nta-published-test -e POSTGRES_PASSWORD=test postgres:18
+BUS_PUBLISHED_TEST_CONTAINER=nta-published-test \
+  python3 -m unittest test_bus_performance_import
+docker rm -f nta-published-test
+```
 
 ## Official references
 
