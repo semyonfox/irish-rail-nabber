@@ -121,7 +121,12 @@ busRouteDelays(hours: Int = 24, limit: Int = 30)
 busVehicles(routeId: String, limit: Int = 2000)
 busLiveRouteShapes(limit: Int = 100)
 busScheduledRouteShapes(stopId: String, limit: Int = 24)
-busDelayHistory(routeId: String, stopId: String, feedVersionId: Int, hours: Int = 24)
+busDelayHistory(routeId: String, stopId: String, feedVersionId: Int, hours: Int = 24, resolution: BusHistoryResolution = HOUR)
+busRoutes(search: String, routeId: String, feedVersionId: Int, limit: Int = 60)
+busStopStats(hours: Int = 24, search: String, feedVersionId: Int, stopId: String, limit: Int = 100)
+busRouteStopDelays(routeId: String!, feedVersionId: Int!, limit: Int = 100)
+busJourneys(feedVersionId: Int!, routeId: String!, hours: Int = 24, limit: Int = 100)
+busJourneyStops(feedVersionId: Int!, routeId: String!, tripInstanceKey: String!, hours: Int = 72)
 busPublishedDataset
 busPublishedPerformance(importId: String!, search: String, operatorName: String, routeShortName: String, year: Int, limit: Int = 200, offset: Int = 0)
 ```
@@ -130,8 +135,9 @@ busPublishedPerformance(importId: String!, search: String, operatorName: String,
 poll-weighted histogram. It counts unchanged predictions again when they are
 reported in a later poll, and is not a measure of actual arrivals. Choose at
 most one of `routeId` and `stopId`; either requires `feedVersionId` so schedule
-versions remain distinct. Public requests are capped at 72 hours and
-Coffee/Pro/admin requests at 168 hours. Missing polls remain gaps in the series.
+versions remain distinct. Missing polls remain gaps in the series. `HOUR`
+resolution covers up to 168 hours, longer windows must ask for `DAY`, whose
+buckets start at midnight UTC. History windows are described below.
 The existing `busRouteDelays` ranking has different semantics: its samples are
 the latest recorded delay per trip and stop, not one sample per poll.
 
@@ -196,6 +202,58 @@ LIMIT 10;
 ```
 
 The last query should show both realtime endpoints alternating, with consecutive requests at least 60 seconds apart.
+
+## History windows
+
+Every history query is capped at 72 hours for public requests. Coffee, Pro and
+admin accounts get longer windows only where the query stays cheap:
+
+| Query | Public | Paid |
+|---|---|---|
+| `busDelayHistory` | 72 hours | 90 days, daily beyond 7 days |
+| `busStopStats` | 72 hours | 72 hours |
+| `busJourneys`, `busJourneyStops` | 72 hours | 7 days |
+
+The limits come from `EXPLAIN (ANALYZE, BUFFERS)` on a local TimescaleDB built
+to production's volume, in October 2026. The public API reported a median of
+about 293,000 counted predictions an hour, and a simulation of the collector's
+histogram rule put that at roughly 200,000 histogram rows an hour across about
+6,400 network, route and stop scopes. The dataset used 181,000 rows an hour
+for 31 days
+and a further 334 days for the measured scopes, with every other scope kept in
+each chunk so segment counts matched. The archive held 58 days for the busiest
+route at about 4,400 changed predictions an hour. Chunks older than the
+production compression windows were compressed.
+
+The local stop rankings took about four times as long as the same uncached
+requests to production (6.3 s against 1.5 s for 24 hours, 18.8 s against
+4.7 s for 72 hours), so the estimates below divide local times by four. The
+busiest scope sets each limit, since anyone can open it.
+
+| Query and scope | Window | Local | Production estimate |
+|---|---|---|---|
+| Delay history, network or busiest route | 7 days hourly | 1.8 s | 0.5 s |
+| | 30 days daily | 2.7 s | 0.7 s |
+| | 90 days daily | 8.6 s | 2 s |
+| | 1 year daily | 34 s | 8 s |
+| Delay history, median route or stop | 1 year daily | 2 to 4 s | under 1 s |
+| Stop rankings, every stop | 72 hours | 18.8 s | 4.7 s measured |
+| | 7 days | 39 s | 10 s |
+| Journeys, busiest route | 7 days | 3.9 s | 1 s |
+| | 30 days | 17 s | 4 s |
+
+A year of delay history would exceed the 15-second statement timeout on the
+local data, and stop rankings already cost seconds at 72 hours, so neither is
+offered. Daily delay history refreshes every 15 minutes in the dashboard
+rather than every minute. A daily continuous aggregate per scope would make a
+year cheap if it is ever needed.
+
+The archive keeps one chunk per hour indefinitely. A cutoff written as
+`NOW() - interval` can't exclude chunks while planning, so a 24-hour journeys
+query spent 9.7 s planning across 1,392 chunks, and a prepared statement's
+sixth execution spent 9 s building a generic plan. History queries therefore
+bind an absolute cutoff and run with `plan_cache_mode = force_custom_plan`,
+which brought that planning down to about 50 ms.
 
 ## Published NTA performance
 

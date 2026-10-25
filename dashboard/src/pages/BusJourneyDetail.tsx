@@ -18,7 +18,7 @@ function JourneyDetail({
   tripInstanceKey: string;
 }) {
   const { user } = useAuth();
-  const hours = busHistoryMaxHours(user?.role);
+  const hours = busHistoryMaxHours(user?.role, "journeys");
   const [{ data, fetching, error }, retry] = usePollingQuery<{
     busJourneyStops: BusStopDelay[];
   }>({

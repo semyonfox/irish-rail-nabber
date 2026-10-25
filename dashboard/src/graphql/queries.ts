@@ -310,12 +310,19 @@ export const BUS_ROUTES = gql`
 `;
 
 export const BUS_DELAY_HISTORY = gql`
-  query BusDelayHistory($routeId: String, $stopId: String, $feedVersionId: Int, $hours: Int) {
+  query BusDelayHistory(
+    $routeId: String
+    $stopId: String
+    $feedVersionId: Int
+    $hours: Int
+    $resolution: BusHistoryResolution
+  ) {
     busDelayHistory(
       routeId: $routeId
       stopId: $stopId
       feedVersionId: $feedVersionId
       hours: $hours
+      resolution: $resolution
     ) {
       bucket
       avgDelaySeconds

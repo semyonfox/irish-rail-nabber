@@ -13,6 +13,7 @@ import { BUS_DELAY_HISTORY } from "../graphql/queries";
 import {
   busHistoryMaxHours,
   busHistoryRanges,
+  busHistoryResolution,
   summarizeBusHistory,
   type BusHistoryPoint,
 } from "../utils/busHistory";
@@ -22,6 +23,7 @@ import RequestError from "./RequestError";
 import { Card, ChartLegend, Empty, Kpi, Segmented } from "./ui";
 
 const HOUR_MS = 3_600_000;
+const DAY_MS = 24 * HOUR_MS;
 
 const dateFormat = new Intl.DateTimeFormat("en-IE", {
   timeZone: "Europe/Dublin",
@@ -30,6 +32,14 @@ const dateFormat = new Intl.DateTimeFormat("en-IE", {
   hour: "2-digit",
   minute: "2-digit",
   hour12: false,
+});
+
+// daily buckets start at midnight UTC, so label them in UTC to keep the date right
+const dayFormat = new Intl.DateTimeFormat("en-IE", {
+  timeZone: "UTC",
+  month: "short",
+  day: "numeric",
+  year: "numeric",
 });
 
 function minutes(seconds: number | null) {
@@ -46,26 +56,37 @@ export default function BusHistoryPanel({
   feedVersionId?: number;
 }) {
   const { user } = useAuth();
-  const maxHours = busHistoryMaxHours(user?.role);
+  const maxHours = busHistoryMaxHours(user?.role, "delays");
   const [selectedHours, setHours] = useState(24);
   const hours = Math.min(selectedHours, maxHours);
-  const [{ data, fetching, error }, retry] = usePollingQuery<{
+  const resolution = busHistoryResolution(hours);
+  const daily = resolution === "DAY";
+  const bucketMs = daily ? DAY_MS : HOUR_MS;
+  const format = daily ? dayFormat : dateFormat;
+  const [result, retry] = usePollingQuery<{
     busDelayHistory: BusHistoryPoint[];
   }>({
     query: BUS_DELAY_HISTORY,
-    variables: { routeId, stopId, feedVersionId, hours },
-    pollInterval: 60_000,
+    variables: { routeId, stopId, feedVersionId, hours, resolution },
+    // daily buckets barely move, so refresh them far less often
+    pollInterval: daily ? 900_000 : 60_000,
   });
-  const points = data?.busDelayHistory ?? [];
+  const { data, fetching, error } = result;
+  // urql keeps the previous result while another window loads, and hourly points
+  // drawn as days would be wrong, so only show data fetched for this selection
+  const current =
+    result.operation?.variables?.hours === hours &&
+    result.operation?.variables?.resolution === resolution;
+  const points = current ? (data?.busDelayHistory ?? []) : [];
   const summary = summarizeBusHistory(points);
 
-  // a gap marker keeps the line from bridging hours with no reported data
+  // a gap marker keeps the line from bridging periods with no reported data
   const chartData: { time: number; average: number | null; p95: number | null }[] = [];
   for (const point of points) {
     const time = Date.parse(point.bucket);
     const previous = chartData.at(-1);
-    if (previous && time - previous.time > HOUR_MS) {
-      chartData.push({ time: previous.time + HOUR_MS, average: null, p95: null });
+    if (previous && time - previous.time > bucketMs) {
+      chartData.push({ time: previous.time + bucketMs, average: null, p95: null });
     }
     chartData.push({
       time,
@@ -92,7 +113,9 @@ export default function BusHistoryPanel({
           error={error}
           onRetry={() => retry({ requestPolicy: "network-only" })}
           title={
-            data ? "History refresh failed. Showing last loaded data." : "Bus history unavailable"
+            current && data
+              ? "History refresh failed. Showing last loaded data."
+              : "Bus history unavailable"
           }
         />
       )}
@@ -116,7 +139,7 @@ export default function BusHistoryPanel({
         title="Delay history"
         description="Reported predictions weighted by observations. These are not confirmed arrival times. Gaps mean no data was reported."
       >
-        {!data && fetching ? (
+        {!current || (!data && fetching) ? (
           <Empty>Loading bus history…</Empty>
         ) : points.length === 0 ? (
           <Empty>No predictions were recorded for this selection.</Empty>
@@ -137,13 +160,13 @@ export default function BusHistoryPanel({
                   domain={["dataMin", "dataMax"]}
                   stroke={CHART.axis}
                   fontSize={11}
-                  tickFormatter={(value: number) => dateFormat.format(value)}
+                  tickFormatter={(value: number) => format.format(value)}
                   minTickGap={70}
                 />
                 <YAxis unit="m" stroke={CHART.axis} fontSize={12} />
                 <Tooltip
                   contentStyle={CHART_TOOLTIP_STYLE}
-                  labelFormatter={(value) => dateFormat.format(Number(value))}
+                  labelFormatter={(value) => format.format(Number(value))}
                   formatter={(value) => `${Number(value).toFixed(1)} min`}
                 />
                 <Line
@@ -166,12 +189,12 @@ export default function BusHistoryPanel({
         )}
       </Card>
       {points.length > 0 && (
-        <Card title="History by hour" description="Newest first">
+        <Card title={daily ? "History by day" : "History by hour"} description="Newest first">
           <div className="max-h-96 overflow-auto">
             <table className="data-table min-w-[660px]">
               <thead>
                 <tr>
-                  <th>Hour</th>
+                  <th>{daily ? "Day" : "Hour"}</th>
                   <th className="num">Average</th>
                   <th className="num">P95</th>
                   <th className="num">Maximum</th>
@@ -184,9 +207,7 @@ export default function BusHistoryPanel({
               <tbody>
                 {points.toReversed().map((point) => (
                   <tr key={point.bucket}>
-                    <td className="whitespace-nowrap">
-                      {dateFormat.format(Date.parse(point.bucket))}
-                    </td>
+                    <td className="whitespace-nowrap">{format.format(Date.parse(point.bucket))}</td>
                     <td className="num">{minutes(point.avgDelaySeconds)}</td>
                     <td className="num">{minutes(point.p95DelaySeconds)}</td>
                     <td className="num">{minutes(point.maxDelaySeconds)}</td>
