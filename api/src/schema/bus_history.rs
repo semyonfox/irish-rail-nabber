@@ -1,5 +1,6 @@
-use async_graphql::{Context, Error, Object, Result, SimpleObject};
-use sqlx::{FromRow, PgPool};
+use async_graphql::{Context, Enum, Error, Object, Result, SimpleObject};
+use chrono::{DateTime, Duration, Utc};
+use sqlx::{FromRow, PgPool, Postgres, Transaction};
 use std::sync::Arc;
 
 use super::bus::{search_pattern, validate_identifier};
@@ -66,20 +67,84 @@ pub struct BusRouteStopDelay {
     pub last_updated: String,
 }
 
-fn max_history_hours(role: Option<&str>) -> i32 {
-    if matches!(role, Some("coffee" | "pro" | "admin")) {
-        168
-    } else {
-        72
+const PUBLIC_HISTORY_MAX_HOURS: i32 = 72;
+const HOURLY_RESOLUTION_MAX_HOURS: i32 = 168;
+
+/// which history query a window applies to. Each has its own paid limit because
+/// they read very different amounts of data (docs/buses.md has the measurements)
+#[derive(Clone, Copy)]
+enum HistoryKind {
+    /// one scope's delay bins, a single compressed segment per daily chunk
+    Delays,
+    /// every stop's delay bins, so cost grows with the whole network
+    StopRankings,
+    /// the raw archive, in one-hour chunks
+    Journeys,
+}
+
+impl HistoryKind {
+    fn paid_max_hours(self) -> i32 {
+        match self {
+            // the busiest scope took ~2s at 90 days and ~8s for a year in production terms
+            Self::Delays => 2_160,
+            // already ~5s at 72 hours in production, so no longer window for anyone
+            Self::StopRankings => PUBLIC_HISTORY_MAX_HOURS,
+            // the busiest route took ~1s at 7 days and ~4s at 30 days
+            Self::Journeys => 168,
+        }
     }
 }
 
-fn history_hours(ctx: &Context<'_>, hours: i32) -> i32 {
+fn max_history_hours(role: Option<&str>, kind: HistoryKind) -> i32 {
+    if matches!(role, Some("coffee" | "pro" | "admin")) {
+        kind.paid_max_hours()
+    } else {
+        PUBLIC_HISTORY_MAX_HOURS
+    }
+}
+
+fn history_hours(ctx: &Context<'_>, hours: i32, kind: HistoryKind) -> i32 {
     let role = ctx
         .data_opt::<Option<AuthUser>>()
         .and_then(|user| user.as_ref())
         .map(|user| user.role.as_str());
-    hours.clamp(1, max_history_hours(role))
+    hours.clamp(1, max_history_hours(role, kind))
+}
+
+/// the archive has one chunk per hour and keeps everything, so a cutoff written
+/// as NOW() - interval can't exclude chunks while planning and planning alone took
+/// seconds. Binding an absolute cutoff and forcing custom plans lets TimescaleDB
+/// skip old chunks up front, including after the pool reuses a prepared statement
+async fn history_transaction(pool: &PgPool) -> Result<Transaction<'static, Postgres>, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("SET LOCAL statement_timeout = '15s'")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("SET LOCAL plan_cache_mode = force_custom_plan")
+        .execute(&mut *tx)
+        .await?;
+    Ok(tx)
+}
+
+fn history_cutoff(hours: i32) -> DateTime<Utc> {
+    Utc::now() - Duration::hours(i64::from(hours))
+}
+
+/// bucket width for delay history, so long windows don't return thousands of points
+#[derive(Enum, Clone, Copy, Default, PartialEq, Eq)]
+pub enum BusHistoryResolution {
+    #[default]
+    Hour,
+    Day,
+}
+
+impl BusHistoryResolution {
+    fn interval(self) -> &'static str {
+        match self {
+            Self::Hour => "1 hour",
+            Self::Day => "1 day",
+        }
+    }
 }
 
 fn validate_feed_version(feed_version_id: i64) -> Result<i64> {
@@ -103,6 +168,7 @@ impl BusHistoryQuery {
         feed_version_id: Option<i64>,
         stop_id: Option<String>,
         #[graphql(default = 24)] hours: i32,
+        #[graphql(default)] resolution: BusHistoryResolution,
     ) -> Result<Vec<BusHistoryPoint>> {
         let route_id = route_id
             .map(|id| validate_identifier(id, "routeId"))
@@ -120,7 +186,12 @@ impl BusHistoryQuery {
         }
         let feed_version_id = feed_version_id.map(validate_feed_version).transpose()?;
 
-        let hours = history_hours(ctx, hours);
+        let hours = history_hours(ctx, hours, HistoryKind::Delays);
+        if resolution == BusHistoryResolution::Hour && hours > HOURLY_RESOLUTION_MAX_HOURS {
+            return Err(Error::new(format!(
+                "Hourly history covers at most {HOURLY_RESOLUTION_MAX_HOURS} hours, use DAY resolution"
+            )));
+        }
         let (scope_kind, scope_id) = if let Some(id) = stop_id {
             ("stop", id)
         } else if let Some(id) = route_id {
@@ -128,18 +199,16 @@ impl BusHistoryQuery {
         } else {
             ("network", String::new())
         };
-        let key = format!("{scope_kind}:{scope_id}:{feed_version_id:?}:{hours}");
+        let interval = resolution.interval();
+        let key = format!("{scope_kind}:{scope_id}:{feed_version_id:?}:{hours}:{interval}");
         let pool = ctx.data::<PgPool>()?.clone();
         let result = ctx
             .data::<QueryCache>()?
             .bus_delay_history
             .try_get_with(key, async move {
-                let mut tx = pool.begin().await?;
-                sqlx::query("SET LOCAL statement_timeout = '15s'")
-                    .execute(&mut *tx)
-                    .await?;
+                let mut tx = history_transaction(&pool).await?;
                 let rows = sqlx::query_as::<_, BusHistoryPoint>(
-                    "SELECT to_char(bucket AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS bucket,
+                    "SELECT to_char(time_bucket($5::interval, bucket) AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS bucket,
                             (SUM(delay_seconds::numeric * sample_count) / SUM(sample_count))::float8 AS avg_delay_seconds,
                             MAX(delay_seconds)::int4 AS max_delay_seconds,
                             bus_histogram_percentile(array_agg(delay_seconds), array_agg(sample_count), 0.95) AS p95_delay_seconds,
@@ -149,15 +218,17 @@ impl BusHistoryQuery {
                             SUM(sample_count)::bigint AS sample_count,
                             to_char(MAX(last_updated) AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS last_updated
                      FROM bus_delay_histogram
-                     WHERE bucket >= time_bucket(INTERVAL '1 hour', NOW() - make_interval(hours => $1))
+                     WHERE bucket >= time_bucket($5::interval, $1::timestamptz)
                        AND ($2::bigint IS NULL OR feed_version_id = $2)
                        AND scope_kind = $3 AND scope_id = $4
-                     GROUP BY bucket ORDER BY bucket",
+                     GROUP BY time_bucket($5::interval, bucket)
+                     ORDER BY time_bucket($5::interval, bucket)",
                 )
-                .bind(hours)
+                .bind(history_cutoff(hours))
                 .bind(feed_version_id)
                 .bind(scope_kind)
                 .bind(scope_id)
+                .bind(interval)
                 .fetch_all(&mut *tx)
                 .await?;
                 tx.commit().await?;
@@ -234,7 +305,7 @@ impl BusHistoryQuery {
         stop_id: Option<String>,
         #[graphql(default = 100)] limit: i32,
     ) -> Result<Vec<BusStopStats>> {
-        let hours = history_hours(ctx, hours);
+        let hours = history_hours(ctx, hours, HistoryKind::StopRankings);
         let search = search_pattern(search)?;
         let stop_id = stop_id
             .map(|id| validate_identifier(id, "stopId"))
@@ -250,10 +321,7 @@ impl BusHistoryQuery {
             .data::<QueryCache>()?
             .bus_stop_stats
             .try_get_with(key, async move {
-                let mut tx = pool.begin().await?;
-                sqlx::query("SET LOCAL statement_timeout = '15s'")
-                    .execute(&mut *tx)
-                    .await?;
+                let mut tx = history_transaction(&pool).await?;
                 let rows = sqlx::query_as::<_, BusStopStats>(
                     "SELECT histogram.feed_version_id, histogram.scope_id AS stop_id,
                             COALESCE(stop.stop_name, histogram.scope_id) AS stop_name,
@@ -267,7 +335,7 @@ impl BusHistoryQuery {
                         ON stop.feed_version_id = histogram.feed_version_id
                        AND stop.stop_id = histogram.scope_id
                      WHERE histogram.scope_kind = 'stop'
-                       AND histogram.bucket >= time_bucket(INTERVAL '1 hour', NOW() - make_interval(hours => $1))
+                       AND histogram.bucket >= time_bucket(INTERVAL '1 hour', $1::timestamptz)
                        AND ($2::text IS NULL OR stop.stop_name ILIKE $2 OR histogram.scope_id ILIKE $2)
                        AND ($3::bigint IS NULL OR histogram.feed_version_id = $3)
                        AND ($4::text IS NULL OR histogram.scope_id = $4)
@@ -275,7 +343,7 @@ impl BusHistoryQuery {
                      ORDER BY avg_delay_seconds DESC, histogram.feed_version_id, histogram.scope_id
                      LIMIT $5",
                 )
-                .bind(hours)
+                .bind(history_cutoff(hours))
                 .bind(search)
                 .bind(feed_version_id)
                 .bind(stop_id)
@@ -390,7 +458,7 @@ impl BusHistoryQuery {
     ) -> Result<Vec<BusJourney>> {
         let feed_version_id = validate_feed_version(feed_version_id)?;
         let route_id = validate_identifier(route_id, "routeId")?;
-        let hours = history_hours(ctx, hours);
+        let hours = history_hours(ctx, hours, HistoryKind::Journeys);
         let limit = limit.clamp(1, 200);
         let key = format!("{feed_version_id}:{route_id}:{hours}:{limit}");
         let pool = ctx.data::<PgPool>()?.clone();
@@ -398,10 +466,7 @@ impl BusHistoryQuery {
             .data::<QueryCache>()?
             .bus_journeys
             .try_get_with(key, async move {
-                let mut tx = pool.begin().await?;
-                sqlx::query("SET LOCAL statement_timeout = '15s'")
-                    .execute(&mut *tx)
-                    .await?;
+                let mut tx = history_transaction(&pool).await?;
                 // the archive has no route or trip index on purpose; the route
                 // filter matches its compression segments instead
                 let rows = sqlx::query_as::<_, BusJourney>(
@@ -416,14 +481,14 @@ impl BusHistoryQuery {
                         ON trip.feed_version_id = observation.feed_version_id
                        AND trip.trip_id = observation.trip_id
                      WHERE observation.feed_version_id = $1 AND observation.route_id = $2
-                       AND observation.fetched_at >= NOW() - make_interval(hours => $3)
+                       AND observation.fetched_at >= $3
                      GROUP BY observation.feed_version_id, observation.trip_instance_key
                      ORDER BY MAX(observation.fetched_at) DESC, observation.trip_instance_key
                      LIMIT $4",
                 )
                 .bind(feed_version_id)
                 .bind(route_id)
-                .bind(hours)
+                .bind(history_cutoff(hours))
                 .bind(i64::from(limit))
                 .fetch_all(&mut *tx)
                 .await?;
@@ -448,23 +513,20 @@ impl BusHistoryQuery {
         let feed_version_id = validate_feed_version(feed_version_id)?;
         let route_id = validate_identifier(route_id, "routeId")?;
         let trip_instance_key = validate_identifier(trip_instance_key, "tripInstanceKey")?;
-        let hours = history_hours(ctx, hours);
+        let hours = history_hours(ctx, hours, HistoryKind::Journeys);
         let key = format!("{feed_version_id}:{route_id}:{trip_instance_key}:{hours}");
         let pool = ctx.data::<PgPool>()?.clone();
         let result = ctx
             .data::<QueryCache>()?
             .bus_journey_stops
             .try_get_with(key, async move {
-                let mut tx = pool.begin().await?;
-                sqlx::query("SET LOCAL statement_timeout = '15s'")
-                    .execute(&mut *tx)
-                    .await?;
+                let mut tx = history_transaction(&pool).await?;
                 let rows = sqlx::query_as::<_, BusRouteStopDelay>(
                     "WITH latest AS (
                         SELECT DISTINCT ON (COALESCE('sequence:' || stop_sequence::text, 'stop:' || stop_id, 'unknown')) *
                         FROM bus_stop_observations
                         WHERE feed_version_id = $1 AND route_id = $2 AND trip_instance_key = $3
-                          AND fetched_at >= NOW() - make_interval(hours => $4)
+                          AND fetched_at >= $4
                         ORDER BY COALESCE('sequence:' || stop_sequence::text, 'stop:' || stop_id, 'unknown'),
                                  fetched_at DESC, update_hash
                      )
@@ -492,7 +554,7 @@ impl BusHistoryQuery {
                 .bind(feed_version_id)
                 .bind(route_id)
                 .bind(trip_instance_key)
-                .bind(hours)
+                .bind(history_cutoff(hours))
                 .fetch_all(&mut *tx)
                 .await?;
                 tx.commit().await?;
@@ -509,11 +571,42 @@ mod tests {
     use super::*;
 
     #[test]
-    fn history_window_is_bounded_per_role() {
-        assert_eq!(max_history_hours(None), 72);
-        assert_eq!(max_history_hours(Some("free")), 72);
-        assert_eq!(max_history_hours(Some("pro")), 168);
-        assert_eq!(max_history_hours(Some("admin")), 168);
+    fn history_window_is_bounded_per_role_and_query() {
+        for kind in [
+            HistoryKind::Delays,
+            HistoryKind::StopRankings,
+            HistoryKind::Journeys,
+        ] {
+            assert_eq!(max_history_hours(None, kind), PUBLIC_HISTORY_MAX_HOURS);
+            assert_eq!(
+                max_history_hours(Some("free"), kind),
+                PUBLIC_HISTORY_MAX_HOURS
+            );
+            assert_eq!(max_history_hours(Some("pro"), kind), kind.paid_max_hours());
+            assert!(kind.paid_max_hours() >= PUBLIC_HISTORY_MAX_HOURS);
+        }
+    }
+
+    #[tokio::test]
+    async fn long_windows_must_use_daily_resolution() {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgresql://localhost/bus_schema_validation")
+            .unwrap();
+        let schema = crate::schema::build_schema(pool, QueryCache::new());
+        let paid = Some(AuthUser {
+            id: uuid::Uuid::nil(),
+            email: "paid@example.com".into(),
+            role: "pro".into(),
+        });
+        // rejected before any database access, so the lazy pool is never used
+        let response = schema
+            .execute(
+                async_graphql::Request::new("{ busDelayHistory(hours: 720) { bucket } }")
+                    .data(paid),
+            )
+            .await;
+        let message = &response.errors.first().expect("hourly over a week").message;
+        assert!(message.contains("DAY resolution"), "{message}");
     }
 
     #[tokio::test]
@@ -529,6 +622,7 @@ mod tests {
                     busRoutes(search: "409") @skip(if: true) {
                         feedVersionId routeId routeShortName routeLongName operatorName isActive
                     }
+                    busDelayHistory(hours: 720, resolution: DAY) @skip(if: true) { bucket sampleCount }
                     busStopStats(hours: 24) @skip(if: true) {
                         feedVersionId stopId stopName avgDelaySeconds p95DelaySeconds maxDelaySeconds onTimePct sampleCount
                     }
