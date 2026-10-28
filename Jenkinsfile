@@ -14,8 +14,8 @@ pipeline {
     APP_REPO = 'https://github.com/semyonfox/irish-rail-nabber.git'
     APP_BRANCH = 'main'
     STACK_DIR = '/home/semyon/server-stacks/irish-rail'
-    // builds and candidate smoke stay on server; the stack runs on bbl
-    DEPLOY_DOCKER_HOST = 'ssh://bbl'
+    // the build and the live stack both use server's own daemon
+    DEPLOY_DOCKER_HOST = 'unix:///var/run/docker.sock'
     CACHE_ROOT = '/home/jenkins/cache/buildkit'
     DAEMON_IMAGE_REPO = 'irish-rail-nabber-daemon'
     API_IMAGE_REPO = 'irish-rail-nabber-api'
@@ -245,19 +245,6 @@ pipeline {
             fi
             sleep 1
           done
-        '''
-      }
-    }
-
-    stage('Ship images to bbl') {
-      steps {
-        sh '''
-          set -eu
-          docker save \
-            "${DAEMON_IMAGE_REPO}:latest" \
-            "${API_IMAGE_REPO}:latest" \
-            "${DASHBOARD_IMAGE_REPO}:latest" \
-            | DOCKER_HOST="$DEPLOY_DOCKER_HOST" docker load
         '''
       }
     }
