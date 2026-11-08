@@ -20,7 +20,8 @@ use train::TrainQuery;
 
 /// absolute cutoff for the rail hypertables, whose `fetched_at` is a UTC
 /// `TIMESTAMP`. a bound value lets TimescaleDB exclude chunks before execution,
-/// which `NOW() - interval` can't, and keeps prepared plans cheap
+/// which `NOW() - interval` can't. callers run with `.persistent(false)`
+/// because a cached generic plan doesn't know the value and scans every chunk
 pub(crate) fn rail_cutoff(window: chrono::Duration) -> chrono::NaiveDateTime {
     chrono::Utc::now().naive_utc() - window
 }

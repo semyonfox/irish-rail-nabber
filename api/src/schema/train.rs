@@ -34,6 +34,7 @@ impl TrainQuery {
             )
             .bind(&tt)
             .bind(rail_cutoff(Duration::minutes(2)))
+            .persistent(false)
             .fetch_all(pool)
             .await?
         } else {
@@ -48,6 +49,7 @@ impl TrainQuery {
                  ORDER BY train_code, fetched_at DESC",
             )
             .bind(rail_cutoff(Duration::minutes(2)))
+            .persistent(false)
             .fetch_all(pool)
             .await?
         };
@@ -103,6 +105,7 @@ impl TrainQuery {
         .bind(&train_code)
         .bind(date)
         .bind(rail_cutoff(Duration::minutes(2)))
+        .persistent(false)
         .fetch_all(pool)
         .await?;
 
@@ -129,6 +132,7 @@ impl TrainQuery {
         )
         .bind(&train_code)
         .bind(rail_cutoff(Duration::hours(i64::from(bounded_hours))))
+        .persistent(false)
         .fetch_all(pool)
         .await?;
 
@@ -212,6 +216,7 @@ impl TrainQuery {
         )
         .bind(rail_cutoff(Duration::hours(i64::from(bounded_hours))))
         .bind(bounded_limit as i64)
+        .persistent(false)
         .fetch_all(pool)
         .await?;
 

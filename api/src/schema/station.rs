@@ -133,6 +133,7 @@ impl StationQuery {
         .bind(station_code.trim().to_uppercase())
         .bind(bounded_limit as i64)
         .bind(rail_cutoff(Duration::minutes(10)))
+        .persistent(false)
         .fetch_all(pool)
         .await?;
 
@@ -214,6 +215,7 @@ impl StationQuery {
         )
         .bind(rail_cutoff(Duration::minutes(i64::from(bounded_minutes))))
         .bind(bounded_limit as i64)
+        .persistent(false)
         .fetch_all(pool)
         .await?;
 
