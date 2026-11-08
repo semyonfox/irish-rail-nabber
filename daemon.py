@@ -51,6 +51,11 @@ STATION_FETCH_CONCURRENCY = 30
 # stale movement hash cleanup interval (seconds)
 HASH_CLEANUP_INTERVAL = 3600
 
+# fetch_history only backs the latest-status checks and the 14-day analysis
+# report. it grew by about 50k rows a day with no limit
+FETCH_HISTORY_RETENTION_DAYS = 30
+FETCH_HISTORY_DELETE_BATCH = 50_000
+
 IE_LAT_MIN = 51.0
 IE_LAT_MAX = 56.0
 IE_LON_MIN = -11.0
@@ -1109,6 +1114,28 @@ class IrishRailDaemon:
         except Exception as e:
             logger.debug(f"hash cleanup error: {e}")
 
+    async def prune_fetch_history(self):
+        """drop fetch log rows past the retention window, in batches so no
+        single delete holds its locks for long"""
+        deleted = 0
+        while not self._shutdown.is_set():
+            async with self.pool.connection() as conn:
+                cursor = await conn.execute(
+                    """DELETE FROM fetch_history WHERE id IN (
+                           SELECT id FROM fetch_history
+                           WHERE fetched_at < (NOW() AT TIME ZONE 'UTC') - %s * INTERVAL '1 day'
+                           ORDER BY id
+                           LIMIT %s
+                       )""",
+                    (FETCH_HISTORY_RETENTION_DAYS, FETCH_HISTORY_DELETE_BATCH),
+                )
+                await conn.commit()
+            deleted += cursor.rowcount
+            if cursor.rowcount < FETCH_HISTORY_DELETE_BATCH:
+                break
+        if deleted:
+            logger.info(f"pruned {deleted} fetch_history rows")
+
     # ====================================================================
     # schedulers
     # ====================================================================
@@ -1207,6 +1234,11 @@ class IrishRailDaemon:
                 asyncio.create_task(
                     self.schedule_task(
                         "history-rollups", self.refresh_delay_history_rollups, 300
+                    )
+                ),
+                asyncio.create_task(
+                    self.schedule_task(
+                        "fetch-history-retention", self.prune_fetch_history, 3600
                     )
                 ),
             ]
