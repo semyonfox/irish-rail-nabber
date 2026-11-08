@@ -18,6 +18,13 @@ use bus_published::BusPublishedQuery;
 use station::StationQuery;
 use train::TrainQuery;
 
+/// absolute cutoff for the rail hypertables, whose `fetched_at` is a UTC
+/// `TIMESTAMP`. a bound value lets TimescaleDB exclude chunks before execution,
+/// which `NOW() - interval` can't, and keeps prepared plans cheap
+pub(crate) fn rail_cutoff(window: chrono::Duration) -> chrono::NaiveDateTime {
+    chrono::Utc::now().naive_utc() - window
+}
+
 const MAX_QUERY_COMPLEXITY: usize = 1_000;
 const MAX_QUERY_DEPTH: usize = 12;
 
