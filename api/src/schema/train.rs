@@ -1,8 +1,9 @@
 use async_graphql::{Context, Error, Object, Result};
-use chrono::NaiveDate;
+use chrono::{Duration, NaiveDate};
 use sqlx::PgPool;
 
 use super::bounds::{clamp_i32, TRAIN_HISTORY_HOURS};
+use super::rail_cutoff;
 use super::types::{RouteSegment, TrainMovement, TrainPosition};
 use crate::models::{RouteSegmentRow, TrainMovementRow, TrainPositionRow};
 
@@ -28,10 +29,12 @@ impl TrainQuery {
                     CASE WHEN latitude = 0 AND longitude = 0 THEN NULL ELSE longitude END AS longitude,
                     train_status, direction, train_type, fetched_at
                  FROM train_snapshots
-                 WHERE fetched_at > NOW() - INTERVAL '2 minutes' AND train_type = $1
+                 WHERE fetched_at > $2 AND train_type = $1
                  ORDER BY train_code, fetched_at DESC",
             )
             .bind(&tt)
+            .bind(rail_cutoff(Duration::minutes(2)))
+            .persistent(false)
             .fetch_all(pool)
             .await?
         } else {
@@ -42,9 +45,11 @@ impl TrainQuery {
                     CASE WHEN latitude = 0 AND longitude = 0 THEN NULL ELSE longitude END AS longitude,
                     train_status, direction, train_type, fetched_at
                  FROM train_snapshots
-                 WHERE fetched_at > NOW() - INTERVAL '2 minutes'
+                 WHERE fetched_at > $1
                  ORDER BY train_code, fetched_at DESC",
             )
+            .bind(rail_cutoff(Duration::minutes(2)))
+            .persistent(false)
             .fetch_all(pool)
             .await?
         };
@@ -85,7 +90,7 @@ impl TrainQuery {
                         FROM train_snapshots snapshot
                         WHERE snapshot.train_code = $1
                             AND snapshot.train_date IS NOT NULL
-                            AND snapshot.fetched_at > NOW() - INTERVAL '2 minutes'
+                            AND snapshot.fetched_at > $3
                         ORDER BY snapshot.fetched_at DESC
                         LIMIT 1
                     ),
@@ -99,6 +104,8 @@ impl TrainQuery {
         )
         .bind(&train_code)
         .bind(date)
+        .bind(rail_cutoff(Duration::minutes(2)))
+        .persistent(false)
         .fetch_all(pool)
         .await?;
 
@@ -118,13 +125,14 @@ impl TrainQuery {
         let rows = sqlx::query_as::<_, TrainPositionRow>(
             "SELECT train_code, train_date, latitude, longitude, train_status, direction, train_type, fetched_at
              FROM train_snapshots
-             WHERE train_code = $1 AND fetched_at > NOW() - make_interval(hours => $2)
+             WHERE train_code = $1 AND fetched_at > $2
                 AND NOT (latitude = 0 AND longitude = 0)
              ORDER BY fetched_at DESC
              LIMIT 500",
         )
         .bind(&train_code)
-        .bind(bounded_hours)
+        .bind(rail_cutoff(Duration::hours(i64::from(bounded_hours))))
+        .persistent(false)
         .fetch_all(pool)
         .await?;
 
@@ -147,7 +155,7 @@ impl TrainQuery {
                 SELECT DISTINCT ON (train_code, train_date, location_order)
                     train_code, train_date, location_order, location_code, fetched_at
                 FROM train_movements
-                WHERE fetched_at > NOW() - ($1::int * INTERVAL '1 hour')
+                WHERE fetched_at > $1
                     AND location_type <> 'T'
                     AND location_code IS NOT NULL
                 ORDER BY train_code, train_date, location_order, fetched_at DESC
@@ -206,8 +214,9 @@ impl TrainQuery {
              ORDER BY train_count DESC, last_seen DESC
              LIMIT $2",
         )
-        .bind(bounded_hours)
+        .bind(rail_cutoff(Duration::hours(i64::from(bounded_hours))))
         .bind(bounded_limit as i64)
+        .persistent(false)
         .fetch_all(pool)
         .await?;
 

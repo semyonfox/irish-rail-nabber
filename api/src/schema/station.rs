@@ -1,7 +1,9 @@
 use async_graphql::{Context, Object, Result};
+use chrono::Duration;
 use sqlx::PgPool;
 
 use super::bounds::{clamp_i32, STATION_BOARD_LIMIT};
+use super::rail_cutoff;
 use super::types::{CountryBoardEvent, Station, StationEvent};
 use crate::models::CountryBoardEventRow;
 use crate::models::StationEventRow;
@@ -101,8 +103,15 @@ impl StationQuery {
         let pool = ctx.data::<PgPool>()?;
         let bounded_limit = clamp_i32(limit, STATION_BOARD_LIMIT.0, STATION_BOARD_LIMIT.1);
 
+        // materialising the station's recent rows first keeps the planner on
+        // the (station_code, fetched_at) index. without it a bound cutoff can
+        // send it to a SkipScan over every train's index entries (266 ms)
         let rows = sqlx::query_as::<_, StationEventRow>(
-            "SELECT DISTINCT ON (train_code)
+            "WITH recent AS MATERIALIZED (
+                SELECT * FROM station_events
+                WHERE station_code = $1 AND fetched_at > $3
+             )
+             SELECT DISTINCT ON (train_code)
                 train_code, station_code, train_date, origin, destination, train_type,
                 direction, NULLIF(BTRIM(status), '') AS status, scheduled_arrival, scheduled_departure,
                 expected_arrival, expected_departure,
@@ -117,13 +126,14 @@ impl StationQuery {
                 END AS late_minutes,
                 NULLIF(BTRIM(last_location), '') AS last_location,
                 due_in, fetched_at
-             FROM station_events
-             WHERE station_code = $1 AND fetched_at > NOW() - INTERVAL '10 minutes'
+             FROM recent
              ORDER BY train_code, fetched_at DESC
              LIMIT $2",
         )
         .bind(station_code.trim().to_uppercase())
         .bind(bounded_limit as i64)
+        .bind(rail_cutoff(Duration::minutes(10)))
+        .persistent(false)
         .fetch_all(pool)
         .await?;
 
@@ -166,7 +176,7 @@ impl StationQuery {
                     se.fetched_at
                 FROM station_events se
                 JOIN stations s ON s.station_code = se.station_code
-                WHERE se.fetched_at > NOW() - ($1::int * INTERVAL '1 minute')
+                WHERE se.fetched_at > $1
                     AND (se.due_in IS NULL OR se.due_in >= -5)
                     AND (se.late_minutes IS NULL OR se.late_minutes >= -60)
                     AND COALESCE(se.expected_departure, se.expected_arrival, se.scheduled_departure, se.scheduled_arrival) IS NOT NULL
@@ -203,8 +213,9 @@ impl StationQuery {
                 fetched_at DESC
             LIMIT $2",
         )
-        .bind(bounded_minutes)
+        .bind(rail_cutoff(Duration::minutes(i64::from(bounded_minutes))))
         .bind(bounded_limit as i64)
+        .persistent(false)
         .fetch_all(pool)
         .await?;
 

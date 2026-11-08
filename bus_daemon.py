@@ -78,6 +78,10 @@ MAX_STATIC_DOWNLOAD_BYTES = 1_000_000_000
 MAX_REALTIME_DOWNLOAD_BYTES = 64 * 1024 * 1024
 COPY_BATCH_ROWS = 5_000
 INSERT_BATCH_ROWS = 1_000
+# trips expire in batches, and a run keeps going while it finds full batches
+# so a backlog after downtime clears in hours rather than days
+EXPIRY_BATCH_TRIPS = 5_000
+EXPIRY_RUN_SECONDS = 120
 STATIC_IMPORT_LOCK = "irish-rail-nabber:nta-static-feed"
 
 UTC = timezone.utc
@@ -295,6 +299,28 @@ def _stable_payload_hash(fields: Mapping[str, object]) -> str:
         ),
     )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+# the compacted archives store the first 8 bytes of the hex hash as a bigint.
+# random hex doesn't compress and was 71% of each stop-observation chunk.
+# scripts/compact_bus_archive.py converts old rows with this same expression
+ARCHIVE_HASH_SQL = "('x' || left(%s, 16))::bit(64)::bigint"
+
+
+async def _archive_hash_placeholder(connection: Any, table: str) -> str:
+    """Return the VALUES placeholder for update_hash in an archive table.
+
+    The archive is compacted by an operator script while the daemon runs, so
+    the column can be hex text before the swap and bigint after it.
+    """
+    cursor = await connection.execute(
+        """SELECT format_type(atttypid, atttypmod) FROM pg_attribute
+           WHERE attrelid = to_regclass(%s) AND attname = 'update_hash'
+             AND NOT attisdropped""",
+        (table,),
+    )
+    row = await cursor.fetchone()
+    return ARCHIVE_HASH_SQL if row is not None and row[0] == "bigint" else "%s"
 
 
 def _normalized_start_time(value: object) -> int | str | None:
@@ -2220,7 +2246,7 @@ class NtaBusDaemon:
                     bus_trip_update_freshness.source_timestamp
                 ),
                 schedule_relationship = EXCLUDED.schedule_relationship"""
-        observation_statement = """INSERT INTO bus_stop_observations
+        observation_template = """INSERT INTO bus_stop_observations
             (feed_version_id, entity_id, trip_id, route_id, service_date,
              vehicle_id, trip_instance_key, stop_id, stop_sequence,
              schedule_relationship, arrival_time, departure_time,
@@ -2228,7 +2254,7 @@ class NtaBusDaemon:
              source_timestamp, fetched_at, last_seen_at,
              trip_schedule_relationship)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s)
+                    %s, {update_hash}, %s, %s, %s, %s)
             ON CONFLICT (fetched_at, feed_version_id, update_hash) DO NOTHING"""
         trip_observation_statement = """INSERT INTO bus_trip_observations
             (feed_version_id, trip_instance_key, last_seen_at, source_timestamp,
@@ -2287,6 +2313,11 @@ class NtaBusDaemon:
                             (*row, trip_relationships.get(update.trip_instance_key, "SCHEDULED"))
                             for update, row in zip(changed, rows)
                         ]
+                        observation_statement = observation_template.format(
+                            update_hash=await _archive_hash_placeholder(
+                                connection, "bus_stop_observations"
+                            )
+                        )
                         for batch in _chunks(observation_rows, INSERT_BATCH_ROWS):
                             await cursor.executemany(observation_statement, batch)
                         for batch in _chunks(freshness_rows, INSERT_BATCH_ROWS):
@@ -2394,7 +2425,7 @@ class NtaBusDaemon:
                 END,
                 update_hash = EXCLUDED.update_hash,
                 last_seen_at = EXCLUDED.last_seen_at"""
-        observation_statement = """INSERT INTO bus_vehicle_observations
+        observation_template = """INSERT INTO bus_vehicle_observations
             (feed_version_id, vehicle_instance_key, entity_id, vehicle_id,
              vehicle_label, license_plate, trip_instance_key, trip_id, route_id,
              service_date, schedule_relationship, latitude, longitude, bearing,
@@ -2402,12 +2433,17 @@ class NtaBusDaemon:
              congestion_level, occupancy_status, occupancy_percentage,
              update_hash, source_timestamp, fetched_at, last_seen_at)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    %s, %s, %s, %s, %s, %s, %s, %s, {update_hash}, %s, %s, %s)
             ON CONFLICT (fetched_at, feed_version_id, vehicle_instance_key)
             DO NOTHING"""
 
         async with self.pool.connection() as connection:
             async with connection.transaction():
+                observation_statement = observation_template.format(
+                    update_hash=await _archive_hash_placeholder(
+                        connection, "bus_vehicle_observations"
+                    )
+                )
                 async with connection.cursor() as cursor:
                     rows = [
                         position.database_row(feed_version_id, fetched_at)
@@ -2542,39 +2578,83 @@ class NtaBusDaemon:
                              AND freshness.last_seen_at >= NOW() - INTERVAL '30 minutes'
                        )"""
                 )
-                await connection.execute(
-                    """CREATE TEMP TABLE expired_bus_trips ON COMMIT DROP AS
-                       SELECT freshness.feed_version_id,
-                              freshness.trip_instance_key
-                       FROM bus_trip_update_freshness freshness
-                       WHERE freshness.last_seen_at < NOW() - INTERVAL '168 hours'
-                         AND EXISTS (
-                             SELECT 1 FROM bus_trip_observations archive
-                             WHERE archive.last_seen_at = freshness.last_seen_at
-                               AND archive.feed_version_id = freshness.feed_version_id
-                               AND archive.trip_instance_key = freshness.trip_instance_key
-                         )
-                       ORDER BY freshness.last_seen_at
-                       LIMIT 5000"""
-                )
-                samples = await connection.execute(
-                    """DELETE FROM bus_delay_samples sample
-                       USING expired_bus_trips expired
-                       WHERE sample.feed_version_id = expired.feed_version_id
-                         AND sample.trip_instance_key = expired.trip_instance_key"""
-                )
-                trips = await connection.execute(
-                    """DELETE FROM bus_trip_update_freshness freshness
-                       USING expired_bus_trips expired
-                       WHERE freshness.feed_version_id = expired.feed_version_id
-                         AND freshness.trip_instance_key = expired.trip_instance_key"""
-                )
-            if live.rowcount or samples.rowcount or trips.rowcount:
+
+            samples = trips = 0
+            deadline = time.monotonic() + EXPIRY_RUN_SECONDS
+            # moves past a batch whose trips were never archived, so they
+            # can't hold back everything expiring after them
+            after = datetime(1970, 1, 1, tzinfo=UTC)
+            while True:
+                async with connection.transaction():
+                    # parallel workers need dynamic shared memory, and the
+                    # database container's 64 MB /dev/shm made most runs fail
+                    await connection.execute(
+                        "SET LOCAL max_parallel_workers_per_gather = 0"
+                    )
+                    await connection.execute(
+                        """CREATE TEMP TABLE expired_bus_trips ON COMMIT DROP AS
+                           SELECT feed_version_id, trip_instance_key, last_seen_at
+                           FROM bus_trip_update_freshness
+                           WHERE last_seen_at < NOW() - INTERVAL '168 hours'
+                             AND last_seen_at > %s
+                           ORDER BY last_seen_at
+                           LIMIT %s""",
+                        (after, EXPIRY_BATCH_TRIPS),
+                    )
+                    bounds = await connection.execute(
+                        """SELECT count(*), min(last_seen_at), max(last_seen_at)
+                           FROM expired_bus_trips"""
+                    )
+                    candidates, earliest, latest = await bounds.fetchone()
+                    if not candidates:
+                        break
+                    # a trip expires only once its final state is archived. the
+                    # bound range lets TimescaleDB skip every other archive
+                    # chunk, where a correlated check alone decompressed them all
+                    await connection.execute(
+                        """DELETE FROM expired_bus_trips expired
+                           WHERE NOT EXISTS (
+                               SELECT 1 FROM bus_trip_observations archive
+                               WHERE archive.last_seen_at BETWEEN %s AND %s
+                                 AND archive.last_seen_at = expired.last_seen_at
+                                 AND archive.feed_version_id = expired.feed_version_id
+                                 AND archive.trip_instance_key = expired.trip_instance_key
+                           )""",
+                        (earliest, latest),
+                        prepare=False,
+                    )
+                    await connection.execute("ANALYZE expired_bus_trips")
+                    deleted_samples = await connection.execute(
+                        """DELETE FROM bus_delay_samples sample
+                           USING expired_bus_trips expired
+                           WHERE sample.feed_version_id = expired.feed_version_id
+                             AND sample.trip_instance_key = expired.trip_instance_key"""
+                    )
+                    deleted_trips = await connection.execute(
+                        """DELETE FROM bus_trip_update_freshness freshness
+                           USING expired_bus_trips expired
+                           WHERE freshness.feed_version_id = expired.feed_version_id
+                             AND freshness.trip_instance_key = expired.trip_instance_key"""
+                    )
+                samples += deleted_samples.rowcount
+                trips += deleted_trips.rowcount
+                if deleted_trips.rowcount < candidates:
+                    logger.warning(
+                        "%s expired bus trips have no archived final state, "
+                        "leaving them in place",
+                        candidates - deleted_trips.rowcount,
+                    )
+                if not deleted_trips.rowcount:
+                    after = latest
+                if candidates < EXPIRY_BATCH_TRIPS or time.monotonic() > deadline:
+                    break
+
+            if live.rowcount or samples or trips:
                 logger.info(
                     "expired %s live bus states, %s delay samples, %s trip freshness rows",
                     live.rowcount,
-                    samples.rowcount,
-                    trips.rowcount,
+                    samples,
+                    trips,
                 )
 
     async def schedule_task(

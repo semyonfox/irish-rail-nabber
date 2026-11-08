@@ -11,9 +11,11 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from bus_daemon import (
+    ARCHIVE_HASH_SQL,
     DEFAULT_AGENCY_ID,
     DEFAULT_TRIP_UPDATES_URL,
     DEFAULT_VEHICLES_URL,
+    EXPIRY_BATCH_TRIPS,
     RATE_LIMIT_SAFETY_SECONDS,
     ActiveBusIds,
     FeedFormatError,
@@ -69,6 +71,8 @@ class _RecordingConnection:
     def __init__(self, calls: list[tuple[str, list[tuple[object, ...]]]]) -> None:
         self.recording_cursor = _RecordingCursor(calls)
         self.execute_calls: list[tuple[str, tuple[object, ...]]] = []
+        # format_type of the archive update_hash column, None if absent
+        self.archive_hash_type: str | None = "text"
 
     def transaction(self) -> _AsyncContext:
         return _AsyncContext(None)
@@ -82,6 +86,8 @@ class _RecordingConnection:
             return _ExecuteResult(rows=[(datetime.now(tz=timezone.utc),)])
         if "INSERT INTO bus_histogram_polls" in statement:
             return _ExecuteResult(rows=[(parameters[0],)])
+        if "FROM pg_attribute" in statement and self.archive_hash_type is not None:
+            return _ExecuteResult(rows=[(self.archive_hash_type,)])
         return _ExecuteResult()
 
 
@@ -802,6 +808,26 @@ class StopUpdatePersistenceTests(unittest.IsolatedAsyncioTestCase):
         )
 
 
+    async def test_archive_hash_follows_the_column_type_during_compaction(self) -> None:
+        for column_type, expect_bigint in (("text", False), ("bigint", True)):
+            daemon = NtaBusDaemon("unused")
+            pool = _RecordingPool()
+            pool.recording_connection.archive_hash_type = column_type
+            daemon.pool = pool
+            feed = self._feed(10)
+
+            await daemon._insert_trip_updates(
+                1, feed.stop_updates, feed.trip_freshness,
+                datetime(2026, 9, 13, tzinfo=timezone.utc),
+            )
+
+            [(statement, rows)] = [
+                call for call in pool.calls if "INSERT INTO bus_stop_observations" in call[0]
+            ]
+            self.assertEqual(ARCHIVE_HASH_SQL in statement, expect_bigint, column_type)
+            self.assertEqual(statement.count("%s"), len(rows[0]))
+
+
 class VehiclePositionPersistenceTests(unittest.IsolatedAsyncioTestCase):
     @staticmethod
     def _position(latitude: float):
@@ -855,6 +881,23 @@ class VehiclePositionPersistenceTests(unittest.IsolatedAsyncioTestCase):
             if "DELETE FROM bus_vehicle_positions" in statement
         ]
         self.assertEqual(len(snapshot_deletes), 4)
+
+    async def test_archive_hash_follows_the_column_type_during_compaction(self) -> None:
+        for column_type, expect_bigint in (("text", False), ("bigint", True)):
+            daemon = NtaBusDaemon("unused")
+            pool = _RecordingPool()
+            pool.recording_connection.archive_hash_type = column_type
+            daemon.pool = pool
+
+            await daemon._upsert_vehicle_positions(
+                1, self._position(53.0), datetime(2026, 9, 13, tzinfo=timezone.utc)
+            )
+
+            [(statement, rows)] = [
+                call for call in pool.calls if "INSERT INTO bus_vehicle_observations" in call[0]
+            ]
+            self.assertEqual(ARCHIVE_HASH_SQL in statement, expect_bigint, column_type)
+            self.assertEqual(statement.count("%s"), len(rows[0]))
 
 
 class RealtimePollingTests(unittest.IsolatedAsyncioTestCase):
@@ -1022,6 +1065,94 @@ class RealtimePollingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             daemon.record_fetch.await_args.kwargs["error"],
             "GTFS-Realtime returned HTTP 503",
+        )
+
+
+class _ExpiryConnection(_RecordingConnection):
+    """Serves one candidate count per expiry batch, then an empty batch."""
+
+    def __init__(self, batches: list[tuple[int, int]]) -> None:
+        super().__init__([])
+        # (candidates, archived trips deleted) per batch
+        self.batches = batches
+        self.batch = -1
+
+    async def execute(self, statement, parameters=(), *, prepare=None):
+        self.execute_calls.append((statement, tuple(parameters)))
+        if "to_regclass('public.bus_stop_updates')" in statement:
+            return _ExecuteResult(rows=[(False,)])
+        if "CREATE TEMP TABLE expired_bus_trips" in statement:
+            self.batch += 1
+        candidates, deleted = (
+            self.batches[self.batch] if 0 <= self.batch < len(self.batches)
+            else (0, 0)
+        )
+        start = datetime(2026, 10, 30, 9, tzinfo=timezone.utc)
+        if "FROM expired_bus_trips" in statement and "count(*)" in statement:
+            return _ExecuteResult(rows=[(candidates, start, start + timedelta(minutes=15))])
+        if "DELETE FROM bus_trip_update_freshness" in statement:
+            return _ExecuteResult(rowcount=deleted)
+        return _ExecuteResult(rowcount=deleted * 10)
+
+
+class WorkingTableExpiryTests(unittest.IsolatedAsyncioTestCase):
+    async def _prune(self, batches: list[tuple[int, int]]) -> _ExpiryConnection:
+        daemon = NtaBusDaemon("unused")
+        connection = _ExpiryConnection(batches)
+        daemon.pool = AsyncMock()
+        daemon.pool.connection = lambda: _AsyncContext(connection)
+        await daemon.prune_working_tables()
+        return connection
+
+    def _creates(self, connection: _ExpiryConnection) -> int:
+        return sum(
+            "CREATE TEMP TABLE expired_bus_trips" in statement
+            for statement, _ in connection.execute_calls
+        )
+
+    async def test_full_batches_continue_until_the_backlog_is_short(self) -> None:
+        connection = await self._prune([(EXPIRY_BATCH_TRIPS, 5_000), (40, 40)])
+
+        self.assertEqual(self._creates(connection), 2)
+        archive_checks = [
+            parameters
+            for statement, parameters in connection.execute_calls
+            if "FROM bus_trip_observations archive" in statement
+        ]
+        # the archive check is bound to the batch's own time range
+        self.assertEqual(len(archive_checks), 2)
+        self.assertTrue(all(len(parameters) == 2 for parameters in archive_checks))
+        self.assertTrue(
+            any(
+                "max_parallel_workers_per_gather = 0" in statement
+                for statement, _ in connection.execute_calls
+            )
+        )
+
+    async def test_unarchived_trips_do_not_block_later_ones(self) -> None:
+        with self.assertLogs("bus_daemon", "WARNING"):
+            connection = await self._prune([(EXPIRY_BATCH_TRIPS, 0), (30, 30)])
+
+        lookups = [
+            parameters
+            for statement, parameters in connection.execute_calls
+            if "CREATE TEMP TABLE expired_bus_trips" in statement
+        ]
+        self.assertEqual(len(lookups), 2)
+        # the second batch starts after the stuck one's latest trip
+        self.assertEqual(
+            lookups[1][0], datetime(2026, 10, 30, 9, 15, tzinfo=timezone.utc)
+        )
+
+    async def test_no_expired_trips_ends_after_one_lookup(self) -> None:
+        connection = await self._prune([])
+
+        self.assertEqual(self._creates(connection), 1)
+        self.assertFalse(
+            any(
+                "DELETE FROM bus_delay_samples" in statement
+                for statement, _ in connection.execute_calls
+            )
         )
 
 

@@ -248,12 +248,84 @@ offered. Daily delay history refreshes every 15 minutes in the dashboard
 rather than every minute. A daily continuous aggregate per scope would make a
 year cheap if it is ever needed.
 
-The archive keeps one chunk per hour indefinitely. A cutoff written as
-`NOW() - interval` can't exclude chunks while planning, so a 24-hour journeys
-query spent 9.7 s planning across 1,392 chunks, and a prepared statement's
-sixth execution spent 9 s building a generic plan. History queries therefore
-bind an absolute cutoff and run with `plan_cache_mode = force_custom_plan`,
-which brought that planning down to about 50 ms.
+The archive is written into hourly chunks and kept indefinitely. A cutoff
+written as `NOW() - interval` can't exclude chunks while planning, so a 24-hour
+journeys query spent 9.7 s planning across 1,392 chunks, and a prepared
+statement's sixth execution spent 9 s building a generic plan. History queries
+therefore bind an absolute cutoff and run with
+`plan_cache_mode = force_custom_plan`, which brought that planning down to
+about 50 ms.
+
+### Archive layout
+
+Each compressed hourly chunk merges into one chunk per day
+(`compress_chunk_time_interval = '1 day'`), so a year is about 365 chunks
+rather than 8,760. `update_hash` in the stop and vehicle archives is the first
+8 bytes of the state's SHA-256 stored as a `BIGINT`. The full hex hash is
+random text that doesn't compress, and it was 71% of each compressed stop
+chunk. The collector still compares full hex hashes in memory and in
+`bus_stop_live`, and converts only what it archives.
+
+On one real day (6 November 2026) the compact layout measured:
+
+| Archive | Rows | Hourly chunks, hex hash | Daily chunks, bigint hash |
+|---|---|---|---|
+| Stop observations | 8.4M | 678 MB | 235 MB |
+| Vehicle observations | 526k | 90 MB | 57 MB |
+| Trip observations | 1.25M | 79 MB | 76 MB |
+
+Migration 020 sets this layout on a new, empty install. A populated archive is
+rebuilt by `scripts/compact_bus_archive.py` while the collector keeps running.
+Rows never change once written, so the script copies closed hours from the
+live table into `<archive>_compact`, checking a whole-row checksum for each
+hour, and compresses each finished day. The swap then locks both tables, copies
+the rows from the last few minutes and renames them, which took under a second
+in testing. The collector reads the column type at the start of each write
+and switches to the bigint form by itself. A write already waiting on the lock
+can fail once and is retried on the next poll.
+
+### Running the compaction
+
+```bash
+./backup-db.sh
+docker exec -i irish_bus_daemon python - --expected-db ireland_public \
+    --phase copy < scripts/compact_bus_archive.py
+docker exec -i irish_bus_daemon python - --expected-db ireland_public \
+    --phase swap < scripts/compact_bus_archive.py
+# check the history pages, then
+docker exec -i irish_bus_daemon python - --expected-db ireland_public \
+    --phase drop < scripts/compact_bus_archive.py
+```
+
+Each phase resumes where it stopped and can be rerun. `--archive` limits a run
+to one table and `--limit-hours` stops the copy early. Progress lives in
+`bus_storage_backfill_progress` under `compact:<archive>`. Until the drop
+phase, `<archive>_legacy` keeps the original rows. Drop refuses to run if the
+new table holds fewer rows from before the swap.
+
+### Working-table upkeep
+
+`bus_delay_samples` and `bus_trip_update_freshness` keep seven days. Expiry
+takes the oldest 5,000 expired trips at a time and checks them against the
+trip archive only within their own time range. The earlier correlated check
+decompressed every archive chunk older than a week (5.7 s planning and 167 s
+per batch in November 2026), ran as a parallel query and failed on the
+database container's 64 MB `/dev/shm`. Most runs failed, so the table held
+9.5 days and 14 GB. Expiry now runs without parallel workers, and each pass
+keeps taking batches for up to two minutes, so a backlog after downtime clears
+within a few runs. Migration 021 vacuums the working tables after 2% of a
+table is dead rather than the default 20%.
+
+Space freed this way is reused but not returned. A fresh primary key on
+`bus_delay_samples` takes about 114 bytes a row against 225 in production
+after the backlog, so once expiry has caught up, rebuild the bloated keys
+without blocking writes:
+
+```sql
+REINDEX INDEX CONCURRENTLY bus_delay_samples_pkey;
+REINDEX INDEX CONCURRENTLY bus_trip_update_freshness_pkey;
+REINDEX INDEX CONCURRENTLY bus_stop_live_pkey;
+```
 
 ## Published NTA performance
 
