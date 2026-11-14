@@ -181,6 +181,34 @@ It never rejects. Handlers and resolvers decide whether auth is required.
 
 See [auth-billing.md](auth-billing.md) for Clerk provisioning and Polar role sync.
 
+## Anonymous rate limits behind proxies
+
+Anonymous POST requests to `/graphql` and `/chat` use the TCP peer address as
+their rate-limit identity. Client-supplied `X-Real-IP` and `CF-Connecting-IP` are
+ignored. `X-Forwarded-For` is accepted only when the immediate peer is listed in
+`API_RATE_LIMIT_TRUSTED_PROXIES`, a comma-separated list of exact IPv4 or IPv6
+addresses. The default is empty, so forwarding headers have no effect.
+
+For a trusted peer, the API walks `X-Forwarded-For` from right to left, stopping
+at the first untrusted address. Missing or malformed headers fall back to the
+peer. Configure only proxies that overwrite the incoming header or append the
+actual peer address. Never trust an entire client network. Missing peer metadata
+shares one anonymous bucket rather than trusting a header.
+
+The dashboard nginx proxy currently derives its forwarded identity from
+`CF-Connecting-IP`. Trust that nginx peer only when it is reachable exclusively
+through the Cloudflare Tunnel boundary that supplies that header. Keep the API
+port private. Without trusted proxy configuration, visitors behind a proxy share
+its anonymous quota. Set stable proxy addresses before enabling trust.
+
+Set `API_RATE_LIMIT_IP_SALT` to a strong random value in the private operator
+environment. Startup warns when it is missing, empty or still `rail-salt`.
+Raw IP addresses are hashed before usage storage and are not logged here.
+
+GET `/graphql` serves only the playground HTML, so it remains unmetered.
+GraphQL queries execute via POST and count towards the quota. OPTIONS remains
+unmetered for CORS preflight.
+
 ## Environment
 
 The API reads `.env.local` first, then `.env`. Required:

@@ -65,6 +65,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_env_filter("irish_rail_api=info")
         .init();
 
+    let client_ip_config = rate_limit::ClientIpConfig::from_env()?;
+
     let pool = db::create_pool().await;
     tracing::info!("connected to database");
 
@@ -131,6 +133,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             app_state.clone(),
             auth::middleware::auth_middleware,
         ))
+        .layer(Extension(client_ip_config))
         .layer(cors)
         .with_state(app_state);
 
@@ -138,7 +141,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("listening on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await?;
 
     Ok(())
 }
