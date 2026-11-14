@@ -91,6 +91,16 @@ Jenkins deploys the operator stack with `/home/semyon/server-stacks/irish-rail/s
 
 Full description of each variable is in [auth-billing.md](auth-billing.md#polar-config-env) and [api.md](api.md#environment).
 
+## Proxy trust for anonymous quotas
+
+The API ignores forwarded client addresses by default. Set
+`API_RATE_LIMIT_TRUSTED_PROXIES` only after assigning stable addresses to the
+immediate proxies and restricting their ingress to the trusted tunnel boundary.
+The value is a comma-separated list of exact IP addresses, with no CIDR ranges.
+Forward it into the API container through the operator stack. Without this
+setting, anonymous visitors share the proxy's quota. See
+[API proxy trust](api.md#anonymous-rate-limits-behind-proxies) for header rules.
+
 ## Existing production rollout
 
 ```bash

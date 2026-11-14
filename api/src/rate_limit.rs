@@ -1,7 +1,10 @@
-use std::env;
+use std::{
+    env,
+    net::{AddrParseError, IpAddr, SocketAddr},
+};
 
 use axum::{
-    extract::{Request, State},
+    extract::{ConnectInfo, Request, State},
     http::{HeaderValue, Method, StatusCode},
     middleware::Next,
     response::{IntoResponse, Json, Response},
@@ -112,26 +115,72 @@ pub fn rate_limit_policy() -> RateLimitPolicy {
     }
 }
 
-fn get_client_ip(request: &Request) -> String {
-    let forwarded_for = request
-        .headers()
-        .get("x-forwarded-for")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|raw| raw.split(',').next())
-        .map(|v| v.trim());
-
-    let direct_ip = request
-        .headers()
-        .get("x-real-ip")
-        .and_then(|value| value.to_str().ok())
-        .map(|v| v.trim());
-
-    forwarded_for
-        .or(direct_ip)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("anonymous")
-        .to_string()
+#[derive(Clone)]
+pub struct ClientIpConfig {
+    trusted_proxies: Vec<IpAddr>,
 }
+
+impl ClientIpConfig {
+    pub fn from_env() -> Result<Self, AddrParseError> {
+        let trusted_proxies = env::var("API_RATE_LIMIT_TRUSTED_PROXIES")
+            .unwrap_or_default()
+            .split(',')
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::parse)
+            .collect::<Result<Vec<IpAddr>, _>>()?;
+
+        let salt = env::var("API_RATE_LIMIT_IP_SALT").unwrap_or_default();
+        if salt.trim().is_empty() || salt.trim() == "rail-salt" {
+            tracing::warn!("API_RATE_LIMIT_IP_SALT must be a strong random value in production");
+        }
+
+        Ok(Self { trusted_proxies })
+    }
+}
+
+fn get_client_ip(request: &Request) -> String {
+    let Some(ConnectInfo(peer)) = request.extensions().get::<ConnectInfo<SocketAddr>>() else {
+        return "anonymous".to_string();
+    };
+    let peer = peer.ip();
+    let Some(config) = request
+        .extensions()
+        .get::<ClientIpConfig>()
+        .filter(|config| config.trusted_proxies.contains(&peer))
+    else {
+        return peer.to_string();
+    };
+
+    let mut headers = request.headers().get_all("x-forwarded-for").iter();
+    let Some(header) = headers.next() else {
+        return peer.to_string();
+    };
+    // ambiguous or malformed chains must not choose a client-controlled identity
+    if headers.next().is_some() {
+        return peer.to_string();
+    }
+    let Ok(raw) = header.to_str() else {
+        return peer.to_string();
+    };
+    let Ok(addresses) = raw
+        .split(',')
+        .map(|value| value.trim().parse::<IpAddr>())
+        .collect::<Result<Vec<_>, _>>()
+    else {
+        return peer.to_string();
+    };
+
+    let mut client = peer;
+    for address in addresses.into_iter().rev() {
+        if !config.trusted_proxies.contains(&client) {
+            break;
+        }
+        client = address;
+    }
+    client.to_string()
+}
+
 fn resolve_subject_and_role(auth_user: Option<&AuthUser>, ip: &str) -> (String, String) {
     if let Some(user) = auth_user {
         return (format!("user:{}", user.id), user.role.clone());
@@ -332,6 +381,78 @@ mod tests {
         BillingAction,
     };
     use crate::models::AuthUser;
+
+    #[test]
+    fn untrusted_peer_cannot_spoof_forwarding_headers() {
+        let mut request = axum::http::Request::builder()
+            .header("x-forwarded-for", "198.51.100.1")
+            .header("x-real-ip", "198.51.100.2")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        request.extensions_mut().insert(axum::extract::ConnectInfo(
+            "192.0.2.10:1234".parse::<std::net::SocketAddr>().unwrap(),
+        ));
+        assert_eq!(super::get_client_ip(&request), "192.0.2.10");
+        let request = proxy_request(Some("198.51.100.10:1234"), "198.51.100.99");
+        assert_eq!(super::get_client_ip(&request), "198.51.100.10");
+    }
+
+    fn proxy_request(peer: Option<&str>, forwarded: &str) -> axum::extract::Request {
+        let mut request = axum::http::Request::builder()
+            .header("x-forwarded-for", forwarded)
+            .body(axum::body::Body::empty())
+            .unwrap();
+        if let Some(peer) = peer {
+            request.extensions_mut().insert(axum::extract::ConnectInfo(
+                peer.parse::<std::net::SocketAddr>().unwrap(),
+            ));
+        }
+        request.extensions_mut().insert(super::ClientIpConfig {
+            trusted_proxies: vec![
+                "192.0.2.10".parse().unwrap(),
+                "2001:db8::1".parse().unwrap(),
+            ],
+        });
+        request
+    }
+
+    #[test]
+    fn trusted_proxy_chain_stops_before_spoofed_prefix() {
+        let request = proxy_request(
+            Some("192.0.2.10:1234"),
+            "198.51.100.99, 198.51.100.1, 2001:db8::1",
+        );
+        assert_eq!(super::get_client_ip(&request), "198.51.100.1");
+        let request = proxy_request(Some("[2001:db8::1]:1234"), "2001:db8::2");
+        assert_eq!(super::get_client_ip(&request), "2001:db8::2");
+    }
+
+    #[test]
+    fn malformed_or_duplicate_forwarding_headers_use_peer() {
+        for header in ["", "unknown", "198.51.100.1, invalid", "198.51.100.1,"] {
+            let request = proxy_request(Some("192.0.2.10:1234"), header);
+            assert_eq!(super::get_client_ip(&request), "192.0.2.10");
+        }
+        let mut request = proxy_request(Some("192.0.2.10:1234"), "198.51.100.1");
+        request
+            .headers_mut()
+            .append("x-forwarded-for", "198.51.100.2".parse().unwrap());
+        assert_eq!(super::get_client_ip(&request), "192.0.2.10");
+        request.headers_mut().remove("x-forwarded-for");
+        request
+            .headers_mut()
+            .insert("x-real-ip", "198.51.100.3".parse().unwrap());
+        request
+            .headers_mut()
+            .insert("cf-connecting-ip", "198.51.100.4".parse().unwrap());
+        assert_eq!(super::get_client_ip(&request), "192.0.2.10");
+    }
+
+    #[test]
+    fn missing_peer_does_not_trust_headers() {
+        let request = proxy_request(None, "198.51.100.1");
+        assert_eq!(super::get_client_ip(&request), "anonymous");
+    }
 
     fn roles(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()
