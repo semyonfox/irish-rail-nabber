@@ -36,6 +36,8 @@ import aiohttp
 import psycopg
 from psycopg_pool import AsyncConnectionPool
 
+from context_collector import ContextCollector
+
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
@@ -513,6 +515,9 @@ class IrishRailDaemon:
 
         self._connect_api_key: Optional[str] = None
 
+        # weather and road traffic, off with CONTEXT_COLLECTION=0
+        self.context: Optional[ContextCollector] = None
+
     async def init(self):
         """set up database pool and HTTP session"""
         self.pool = AsyncConnectionPool(
@@ -522,10 +527,15 @@ class IrishRailDaemon:
         self.session = aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=20, connect=10)
         )
+        if os.getenv("CONTEXT_COLLECTION", "1") != "0":
+            self.context = ContextCollector(self.pool, self.record_fetch)
+            await self.context.open()
         logger.info("daemon initialized (pool: 2-20, timeout: 20s)")
 
     async def close(self):
         """clean up connections"""
+        if self.context:
+            await self.context.close()
         if self.session:
             await self.session.close()
         if self.pool:
@@ -1701,6 +1711,25 @@ class IrishRailDaemon:
                     self.schedule_task("rail-segments", self.rollup_rail_segments, 3600)
                 ),
             ]
+
+            if self.context:
+                context = self.context
+                try:
+                    await context.ensure_weather_stations()
+                    await context.refresh_tii_sites()
+                except Exception as e:
+                    logger.warning(f"context setup failed, tasks will retry: {e}")
+                for name, func, interval in (
+                    ("weather-live", context.fetch_live_weather, 1800),
+                    ("weather-warnings", context.fetch_weather_warnings, 600),
+                    # one station per run, a 304 when its file hasn't changed
+                    ("weather-archive", context.import_weather_archive, 600),
+                    ("tii-sites", context.refresh_tii_sites, 86400),
+                    ("tii-weekly", context.refresh_tii_weekly, 3600),
+                    ("tii-yearly", context.refresh_tii_yearly, 3600),
+                    ("tii-bulk", context.backfill_tii_daily_class, 3600),
+                ):
+                    tasks.append(asyncio.create_task(self.schedule_task(name, func, interval)))
 
             logger.info("daemon running - all tasks started")
             await asyncio.gather(*tasks)

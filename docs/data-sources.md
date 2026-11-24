@@ -209,6 +209,7 @@ The irishrail.ie website reads from a JSON API at `https://connect.irishrail.ie`
 ## Related docs
 
 - [scraper.md](scraper.md) — how the daemon consumes this API
+- [context-data.md](context-data.md) — Met Éireann weather and TII road traffic
 - [api.md](api.md) — how the data is re-exposed to clients
 - [network-graph.md](network-graph.md) — topology derived from this data + GeoJSON
 - [analysis/overview.md](analysis/overview.md) — what the dataset says about the network

@@ -182,7 +182,7 @@ pipeline {
             "$DAEMON_IMAGE" /bin/true
 
           docker run --rm --entrypoint python "$DAEMON_IMAGE" \
-            -m py_compile /app/daemon.py /app/bus_daemon.py
+            -m py_compile /app/daemon.py /app/bus_daemon.py /app/context_collector.py
 
           docker run -d --name "$DAEMON_CANDIDATE" \
             --network "$NETWORK" \

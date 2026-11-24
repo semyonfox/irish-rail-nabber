@@ -11,6 +11,7 @@ RUN pip install --no-cache-dir -v -r requirements.txt
 
 COPY schema.sql .
 COPY daemon.py .
+COPY context_collector.py .
 COPY bus_daemon.py .
 COPY migrations/ ./migrations/
 COPY docker-entrypoint.sh .
