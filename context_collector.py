@@ -1,6 +1,7 @@
 """weather and road traffic context, collected inside the rail daemon.
 
-sources, all CC BY 4.0 and free:
+sources, all free. Met Éireann and TII's bulk files are CC BY 4.0, TII's map
+backend publishes no licence, so its data is for private analysis:
 - Met Éireann live hourly observations (prodapi.metweb.ie), today and
   yesterday for 25 synoptic stations, not quality controlled
 - Met Éireann quality-controlled hourly archive (clidata.met.ie), one CSV per
@@ -51,6 +52,8 @@ TII_BULK_DAYS_PER_RUN = 20
 TII_REQUEST_GAP_SECONDS = 2.0
 # Met Éireann revises recent archive hours, so each refresh re-reads this much
 WEATHER_ARCHIVE_REPLAY = timedelta(days=45)
+# after a 403, 429 or server error every TII task waits this long
+TII_COOLDOWN_SECONDS = 1800
 # a site or station that failed waits this long before it is tried again
 RETRY_AFTER_FAILURE = timedelta(hours=6)
 # TII reports speeds in millimetres per second
@@ -152,9 +155,12 @@ def parse_archive_header(line: str) -> Optional[list[str]]:
     'ind' columns get their position so lookups stay exact"""
     if not line.startswith("date,"):
         return None
+    columns = line.strip().split(",")
+    if not {"rain", "temp", "wdsp"} <= set(columns):
+        return None
     return [
         f"{name}{index}" if name == "ind" else name
-        for index, name in enumerate(line.strip().split(","))
+        for index, name in enumerate(columns)
     ]
 
 
@@ -339,7 +345,12 @@ WHERE weather_hourly.source = 'live' OR EXCLUDED.source = 'archive'
 
 
 class TiiUnavailable(Exception):
-    """TII refused or failed. the current pass stops and the next run retries"""
+    """TII refused or failed. the current pass stops and the next run retries.
+    site_failed is false when no request was made because of a cooldown"""
+
+    def __init__(self, message: str, site_failed: bool = True) -> None:
+        super().__init__(message)
+        self.site_failed = site_failed
 
 
 class ContextCollector:
@@ -351,6 +362,8 @@ class ContextCollector:
         # every TII call shares one gap, whichever task makes it
         self._tii_lock = asyncio.Lock()
         self._tii_last_call = 0.0
+        # set by a refusal, honoured by every task until it passes
+        self._tii_blocked_until = 0.0
 
     async def open(self) -> None:
         self.session = aiohttp.ClientSession(
@@ -374,6 +387,8 @@ class ContextCollector:
         url = f"{TII_DATASERVER}/{path}"
         async with self._tii_lock:
             loop = asyncio.get_running_loop()
+            if loop.time() < self._tii_blocked_until:
+                raise TiiUnavailable(f"{path}: cooling down after a refusal", site_failed=False)
             wait = self._tii_last_call + TII_REQUEST_GAP_SECONDS - loop.time()
             if wait > 0:
                 await asyncio.sleep(wait)
@@ -383,7 +398,10 @@ class ContextCollector:
                 else:
                     request = self.session.post(url, headers=headers, json=body or {})
                 async with request as resp:
-                    if resp.status == 429 or resp.status >= 500:
+                    if resp.status in (403, 429) or resp.status >= 500:
+                        retry_after = resp.headers.get("Retry-After", "")
+                        cooldown = int(retry_after) if retry_after.isdigit() else TII_COOLDOWN_SECONDS
+                        self._tii_blocked_until = loop.time() + cooldown
                         raise TiiUnavailable(f"{path}: HTTP {resp.status}")
                     resp.raise_for_status()
                     return await resp.json(content_type=None)
@@ -545,6 +563,17 @@ class ContextCollector:
     # ---- TII ---------------------------------------------------------------
 
     async def refresh_tii_sites(self) -> None:
+        """runs hourly but only refreshes once a day, so a failed first call
+        doesn't leave the other TII tasks without sites for a day"""
+        async with self.pool.connection() as conn:
+            fresh = await (
+                await conn.execute(
+                    "SELECT max(updated_at) > NOW() - INTERVAL '1 day' FROM traffic_sites"
+                )
+            ).fetchone()
+            await conn.commit()
+        if fresh and fresh[0]:
+            return
         payload = await self._tii(
             "POST",
             "sites",
@@ -601,6 +630,14 @@ class ContextCollector:
                 payload = await self._tii("GET", f"siteDashboard/latestSpeed/{site_id}")
             except TiiUnavailable as failure:
                 error = str(failure)
+                if failure.site_failed:
+                    # this site has had its try today, so it can't block the rest
+                    async with self.pool.connection() as conn:
+                        await conn.execute(
+                            "UPDATE traffic_sites SET weekly_checked_on = %s WHERE site_id = %s",
+                            (today, site_id),
+                        )
+                        await conn.commit()
                 break
             except (aiohttp.ClientError, ValueError):
                 payload = None
@@ -643,6 +680,15 @@ class ContextCollector:
                 rows = parse_tii_yearly(site_id, await self._tii("POST", f"summary/yearly/{site_id}"))
             except TiiUnavailable as failure:
                 error = str(failure)
+                if failure.site_failed:
+                    async with self.pool.connection() as conn:
+                        await conn.execute(
+                            """UPDATE traffic_sites
+                               SET yearly_checked_at = NOW() - INTERVAL '7 days' + %s
+                               WHERE site_id = %s""",
+                            (RETRY_AFTER_FAILURE, site_id),
+                        )
+                        await conn.commit()
                 break
             except (aiohttp.ClientError, ValueError):
                 rows = None
@@ -686,13 +732,19 @@ class ContextCollector:
                 )
             ).fetchall()
             await conn.commit()
+        missing_in_a_row = 0
         for (day,) in days:
             try:
                 async with self.session.get(TII_DAILY_CLASS_URL.format(d=day)) as resp:
                     # the bucket answers a missing object with 403
                     if resp.status in (403, 404):
                         text = None
+                        missing_in_a_row += 1
+                        # a whole run of refusals looks like a block, not gaps
+                        if missing_in_a_row >= TII_BULK_DAYS_PER_RUN:
+                            raise ValueError(f"{day}: every day refused, treating as blocked")
                     elif resp.status == 200:
+                        missing_in_a_row = 0
                         text = await resp.text()
                         if not text.startswith('"cosit","class"'):
                             raise ValueError(f"{day}: unexpected file contents")

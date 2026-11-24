@@ -1471,10 +1471,13 @@ class IrishRailDaemon:
         return None
 
     async def fetch_service_alerts(self):
+        if time.monotonic() < self._connect_blocked_until:
+            return
         start = datetime.now()
         try:
             payload = await self.fetch_connect_json("/realtime/messages")
         except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
+            self._connect_back_off()
             await self.record_fetch("connect/messages", 0, "failed", str(e)[:200])
             return
         if not isinstance(payload, list):
@@ -1551,7 +1554,12 @@ class IrishRailDaemon:
                 if never_ran:
                     # withdrawn, or stopped being seen, before it was due to start
                     await conn.execute(
-                        """UPDATE rail_service_alerts SET impact_computed_at = NOW()
+                        """UPDATE rail_service_alerts SET
+                               corridor_codes = NULL, impact_events = NULL,
+                               impact_avg_late = NULL, impact_max_late = NULL,
+                               baseline_avg_late = NULL, pre_avg_late = NULL,
+                               pre_baseline_avg_late = NULL, impact_window_end = NULL,
+                               impact_computed_at = NOW()
                            WHERE alert_key = %s""",
                         (alert_key,),
                     )
@@ -1763,7 +1771,7 @@ class IrishRailDaemon:
                     ("weather-warnings", context.fetch_weather_warnings, 600),
                     # one station per run, a 304 when its file hasn't changed
                     ("weather-archive", context.import_weather_archive, 600),
-                    ("tii-sites", context.refresh_tii_sites, 86400),
+                    ("tii-sites", context.refresh_tii_sites, 3600),
                     ("tii-weekly", context.refresh_tii_weekly, 3600),
                     ("tii-yearly", context.refresh_tii_yearly, 3600),
                     ("tii-bulk", context.backfill_tii_daily_class, 3600),

@@ -29,9 +29,11 @@ Alerts land in `bus_service_alerts`, keyed by NTA's entity id (`ID-<creation tim
 
 Rows are keyed by stop pair, not timetable version: NTA publishes a new version most days but keeps stop ids, so `feed_version_id` is only the newest version seen, for names and coordinates. A timetable's stop times are kept until its last live trip has been rolled up, so trips running when a new timetable lands still count.
 
-Cancelled trips and skipped stops are left out. So is any leg where either stop's last prediction arrived more than 5 minutes before the bus was due there. On live data those stale legs averaged -929 s and were the prediction resets.
+Cancelled trips and skipped stops are left out.
 
-Columns are sums (`trips`, `gain_sum_s`, `gain_pos_sum_s`, `gain_sq_sum`, `run_sum_s`, `sched_run_sum_s`) plus `gain_hist`, trip counts per signed gain bucket (edges -300, -120, -60, -30, 0, 30, 60, 120 and 300 s). Everything adds up across days and hours, so any window can be averaged at read time. Per-leg predictions are noisy: on live data the median swing between neighbouring stops was 31 s when both came from the same poll and 202 s when they didn't, but both averaged close to zero. Net delay (`gain_sum_s`) over many trips cancels that noise. `gain_pos_sum_s` doesn't, so it overstates busy routes. Read medians from `gain_hist`. History starts when this ships. The archive could backfill it but nothing does yet.
+Trips are keyed on their trip id, service date and start time. NTA's trip-update entity ids are positions in each poll (`T577`, then `T576` a poll later), and keying on them split one trip into about 9 keys while lumping unrelated trips with the same start time under one. Undated trip descriptors, which separate added trips can share, still fall back to the entity id. Legs are also only formed within a single `trip_id`, so rows written under the old keys can't pair stops from two buses.
+
+Each stop's value is the last delay NTA predicted for it, not an observed time, so per-leg gains are noisy. Columns are sums (`trips`, `gain_sum_s`, `gain_pos_sum_s`, `gain_sq_sum`, `run_sum_s`, `sched_run_sum_s`) plus `gain_hist`, trip counts per signed gain bucket (edges -300, -120, -60, -30, 0, 30, 60, 120 and 300 s). Everything adds up across days and hours, so any window can be averaged at read time. On a live snapshot with trips separated properly, net gain averaged -1.4 s per leg and most legs sat within 30 s either way. Rank on net delay (`gain_sum_s`) over many trips and read medians from `gain_hist`. `gain_pos_sum_s` counts only increases, so it reads busy routes as worse than they are. History starts when this ships. The archive could backfill it but nothing does yet.
 
 ## Why schedules are versioned
 
