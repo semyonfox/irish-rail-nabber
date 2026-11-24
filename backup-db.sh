@@ -2,7 +2,7 @@
 # Irish Rail Database Backup Script
 # Hourly backups (keep 6) + Daily backups (keep indefinitely)
 
-set -e
+set -e -o pipefail
 
 # Configuration
 # Note: Database is in Docker container, use docker exec to connect
@@ -26,10 +26,11 @@ log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
 }
 
-backup_database() {
+backup_database() (
     local backup_type=$1
     local backup_dir=$2
     local timestamp=$(date '+%Y%m%d_%H%M%S')
+    local filename max_files backup_file temp_file size
     
     if [ "$backup_type" = "hourly" ]; then
         filename="ireland_public_${timestamp}.sql.gz"
@@ -41,32 +42,35 @@ backup_database() {
     
     backup_file="$backup_dir/$filename"
     
+    mkdir -p -- "$backup_dir"
     log "Starting $backup_type backup: $filename"
     
     # Perform the dump via Docker exec
     log "Connecting via docker exec to $DB_CONTAINER..."
-    docker exec "$DB_CONTAINER" pg_dump \
+    temp_file=$(mktemp -- "$backup_dir/.$filename.XXXXXX")
+    trap 'rm -f -- "$temp_file"' EXIT
+
+    if docker exec "$DB_CONTAINER" pg_dump \
         -h "$DB_HOST" \
         -p "$DB_PORT" \
         -U "$DB_USER" \
         -d "$DB_NAME" \
         --no-password \
-        --format=plain \
-        2>&1 | gzip -9 > "$backup_file"
-    
-    log "Backup file created, verifying..."
-    
-    if [ -f "$backup_file" ]; then
-        size=$(du -h "$backup_file" | cut -f1)
-        log "${GREEN}✓ $backup_type backup successful: $filename ($size)${NC}"
+        --format=plain | gzip -9 > "$temp_file" &&
+        mv -fT -- "$temp_file" "$backup_file"; then
+        trap - EXIT
     else
+        local status=$?
         log "${RED}✗ $backup_type backup FAILED: $filename${NC}"
-        return 1
+        return "$status"
     fi
+
+    size=$(du -h "$backup_file" | cut -f1)
+    log "${GREEN}✓ $backup_type backup successful: $filename ($size)${NC}"
     
     # Cleanup old backups (keep only the last N)
     cleanup_old_backups "$backup_dir" "$max_files"
-}
+)
 
 cleanup_old_backups() {
     local backup_dir=$1
