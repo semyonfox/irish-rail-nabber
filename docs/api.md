@@ -156,28 +156,35 @@ These fields require the `admin` role:
 | Field | Window and limits |
 |---|---|
 | `serviceAlerts` | Up to 90 inclusive Irish dates. Optional source and category filters. Pages contain 25 alerts by default, up to 100, with a maximum of 100 pages. |
-| `serviceAlert` | Latest revision by source (`RAIL` or `BUS`) and alert key, including rail corridor, impact figures and `impactWindowEnd` when available. |
-| `delayStretches` | Up to 31 inclusive service dates. Ranks directed stretches by net delay. Returns 30 rows by default, up to 100. |
-| `railDwellHotspots` | Same window as `delayStretches`, ranked by net delay while stopped. Returns 10 rows by default, up to 100. |
+| `serviceAlert` | Latest revision by source (`RAIL` or `BUS`) and alert key, including rail corridor, impact figures and `impactWindowEnd` when available. `neverRan` flags rail notices marked as withdrawn or last seen before their stated start. |
+| `delayStretches` | Up to 7 inclusive service dates for bus and 31 for rail. Ranks directed stretches by net delay. Returns 30 rows by default, up to 100. |
+| `railDwellHotspots` | Up to 31 inclusive service dates, ranked by net delay while stopped. Returns 10 rows by default, up to 100. |
 
 Both rankings accept a scheduled departure hour band in Irish time with an exclusive end.
-The minimum trip count defaults to 10. `netDelayMinutes` is the sum of signed delay gains,
-floored at zero and converted to minutes. `addedMinutes` counts only positive gains.
+The minimum trip count defaults to 10. `netDelayMinutes` is the sum of signed delay gains
+in minutes. Both rankings require a positive net sum. `addedMinutes` counts only positive gains.
 Stretch means and population standard deviations use trip-weighted sums. Schedule overrun
 is relative to total scheduled time and is null when that total is zero.
+
+For each stretch, `daysWithData` counts distinct service dates with records in the selected
+date range and hour band. Today counts as one day when partial data is available.
 
 Bus stretches combine all matching hours by directed stop pair. Stop names, coordinates
 and route names come from the newest timetable version in the group. The median bucket
 contains the lower middle trip in the merged signed gain histogram. `medianGainLowerS`
 is inclusive and `medianGainUpperS` is exclusive. A null bound means the bucket is open
-on that side. Both bounds are null for rail. `outlierDriven` is true when the mean gain
-is at least 60 seconds outside the bucket.
+on that side. `gainAtLeastTwoMinutesPct` is the percentage of histogram observations with
+a gain of 120 seconds or more. Both median bounds and this percentage are null for rail.
+The bus range is capped at seven days because there are about 250,000 hourly records per
+day and the query has a five-second time limit.
 
 Rail impact is measured for delay, disruption and works notices. `impactWindowEnd`
 is the earliest of the scheduled end, last sighting and 24 hours after the stated start.
 `impactEvents` counts station board readings during that window. Averages cover every
 train on the boards at the corridor stations, weighted by poll count. The earlier window
 covers the two hours before the notice's stated start.
+When impact processing marks a notice as never having run, `neverRan` is true and
+`impactWindowEnd` and the impact figures are null.
 
 Each Insights query runs with a five-second statement timeout, parallel query workers
 disabled and a custom plan for the selected dates.

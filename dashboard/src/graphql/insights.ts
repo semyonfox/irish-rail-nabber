@@ -28,6 +28,7 @@ export const SERVICE_ALERT = gql`
       corridorCodes
       impactEvents
       impactWindowEnd
+      neverRan
       impactAvgLate
       baselineAvgLate
       preAvgLate
@@ -56,13 +57,14 @@ export const DELAY_STRETCHES = gql`
       toLat
       toLon
       trips
+      daysWithData
       netDelayMinutes
       addedMinutes
       avgGainMinutes
       stddevMinutes
       medianGainLowerS
       medianGainUpperS
-      outlierDriven
+      gainAtLeastTwoMinutesPct
       overrunPct
       routes
     }
@@ -113,6 +115,7 @@ interface AlertDetail {
   corridorCodes: string[] | null;
   impactEvents: number | null;
   impactWindowEnd: string | null;
+  neverRan: boolean;
   impactAvgLate: number | null;
   baselineAvgLate: number | null;
   preAvgLate: number | null;
@@ -139,10 +142,11 @@ export interface DelayStretch extends DelayRanking {
   fromLon: number | null;
   toLat: number | null;
   toLon: number | null;
+  daysWithData: number;
   stddevMinutes: number;
   medianGainLowerS: number | null;
   medianGainUpperS: number | null;
-  outlierDriven: boolean;
+  gainAtLeastTwoMinutesPct: number | null;
   routes: string[];
 }
 
@@ -202,6 +206,7 @@ function isAlertDetail(value: unknown): value is AlertDetail {
     (value.corridorCodes === null || isList(value.corridorCodes, isString)) &&
     (value.impactEvents === null || isNumber(value.impactEvents)) &&
     (value.impactWindowEnd === null || isDate(value.impactWindowEnd)) &&
+    typeof value.neverRan === "boolean" &&
     (value.impactAvgLate === null || isNumber(value.impactAvgLate)) &&
     (value.baselineAvgLate === null || isNumber(value.baselineAvgLate)) &&
     (value.preAvgLate === null || isNumber(value.preAvgLate)) &&
@@ -242,10 +247,13 @@ function isStretch(value: unknown): value is DelayStretch {
     (value.fromLon === null || isNumber(value.fromLon)) &&
     (value.toLat === null || isNumber(value.toLat)) &&
     (value.toLon === null || isNumber(value.toLon)) &&
+    isNumber(value.daysWithData) &&
+    Number.isInteger(value.daysWithData) &&
+    value.daysWithData >= 1 &&
     isNumber(value.stddevMinutes) &&
     (value.medianGainLowerS === null || isNumber(value.medianGainLowerS)) &&
     (value.medianGainUpperS === null || isNumber(value.medianGainUpperS)) &&
-    typeof value.outlierDriven === "boolean" &&
+    (value.gainAtLeastTwoMinutesPct === null || isNumber(value.gainAtLeastTwoMinutesPct)) &&
     isList(value.routes, isString)
   );
 }

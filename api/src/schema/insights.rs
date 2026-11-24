@@ -48,6 +48,7 @@ struct ServiceAlert {
     corridor_codes: Option<Vec<String>>,
     impact_events: Option<i64>,
     impact_window_end: Option<String>,
+    never_ran: bool,
     impact_avg_late: Option<f64>,
     baseline_avg_late: Option<f64>,
     pre_avg_late: Option<f64>,
@@ -74,13 +75,14 @@ struct DelayStretch {
     to_lat: Option<f64>,
     to_lon: Option<f64>,
     trips: i64,
+    days_with_data: i32,
     net_delay_minutes: f64,
     added_minutes: f64,
     avg_gain_minutes: f64,
     stddev_minutes: f64,
     median_gain_lower_s: Option<i32>,
     median_gain_upper_s: Option<i32>,
-    outlier_driven: bool,
+    gain_at_least_two_minutes_pct: Option<f64>,
     overrun_pct: Option<f64>,
     routes: Vec<String>,
 }
@@ -112,8 +114,23 @@ struct InsightsHours {
     end: i32,
 }
 
-const ALERT_DAYS: i64 = 90;
-const RANKING_DAYS: i64 = 31;
+#[derive(Clone, Copy)]
+enum DateRangeLimit {
+    Alerts,
+    RailRanking,
+    BusStretches,
+}
+
+impl DateRangeLimit {
+    fn max_days(self) -> i64 {
+        match self {
+            Self::Alerts => 90,
+            Self::RailRanking => 31,
+            Self::BusStretches => 7,
+        }
+    }
+}
+
 const MAX_ALERT_PAGE: i32 = 100;
 const ALERTS_SQL: &str = include_str!("insights/alerts.sql");
 const STRETCHES_SQL: &str = include_str!("insights/stretches.sql");
@@ -127,7 +144,7 @@ fn admin_pool<'a>(ctx: &'a Context<'_>) -> Result<&'a PgPool> {
     ctx.data::<PgPool>()
 }
 
-fn dates(input: InsightsDates, max_days: i64) -> Result<(NaiveDate, NaiveDate)> {
+fn dates(input: InsightsDates, limit: DateRangeLimit) -> Result<(NaiveDate, NaiveDate)> {
     let parse = |value: &str| {
         NaiveDate::parse_from_str(value, "%Y-%m-%d")
             .ok()
@@ -137,10 +154,15 @@ fn dates(input: InsightsDates, max_days: i64) -> Result<(NaiveDate, NaiveDate)> 
     };
     let from = parse(&input.from)?;
     let to = parse(&input.to)?;
+    let max_days = limit.max_days();
     if !(0..max_days).contains(&(to - from).num_days()) {
-        return Err(Error::new(format!(
-            "Select a date range of 1 to {max_days} days"
-        )));
+        let message = match limit {
+            DateRangeLimit::BusStretches => format!(
+                "Select a bus date range of 1 to {max_days} days. Each day has about 250,000 hourly records and the query has a five-second time limit."
+            ),
+            _ => format!("Select a date range of 1 to {max_days} days"),
+        };
+        return Err(Error::new(message));
     }
     Ok((from, to))
 }
@@ -195,7 +217,7 @@ impl InsightsQuery {
         page: Option<i32>,
     ) -> Result<ServiceAlertPage> {
         let pool = admin_pool(ctx)?;
-        let (from, to) = dates(range, ALERT_DAYS)?;
+        let (from, to) = dates(range, DateRangeLimit::Alerts)?;
         let category = category
             .map(|value| validate_identifier(value, "category"))
             .transpose()?;
@@ -259,7 +281,11 @@ impl InsightsQuery {
         limit: Option<i32>,
     ) -> Result<Vec<DelayStretch>> {
         let pool = admin_pool(ctx)?;
-        let (from, to) = dates(range, RANKING_DAYS)?;
+        let date_limit = match mode {
+            InsightsMode::Rail => DateRangeLimit::RailRanking,
+            InsightsMode::Bus => DateRangeLimit::BusStretches,
+        };
+        let (from, to) = dates(range, date_limit)?;
         let (start, end) = hours(hour_band)?;
         let mut tx = insights_transaction(pool).await?;
         let stretches = sqlx::query_as(STRETCHES_SQL)
@@ -288,7 +314,7 @@ impl InsightsQuery {
         limit: Option<i32>,
     ) -> Result<Vec<DwellHotspot>> {
         let pool = admin_pool(ctx)?;
-        let (from, to) = dates(range, RANKING_DAYS)?;
+        let (from, to) = dates(range, DateRangeLimit::RailRanking)?;
         let (start, end) = hours(hour_band)?;
         let mut tx = insights_transaction(pool).await?;
         let hotspots = sqlx::query_as(DWELL_SQL)
@@ -321,12 +347,16 @@ mod tests {
 
     #[test]
     fn date_and_hour_bounds_include_only_supported_windows() {
-        assert!(dates(window("2026-03-01", "2026-03-31"), RANKING_DAYS).is_ok());
-        assert!(dates(window("2026-03-01", "2026-04-01"), RANKING_DAYS).is_err());
-        assert!(dates(window("2026-01-01", "2026-03-31"), ALERT_DAYS).is_ok());
-        assert!(dates(window("2026-01-01", "2026-04-01"), ALERT_DAYS).is_err());
-        assert!(dates(window("2026-03-02", "2026-03-01"), ALERT_DAYS).is_err());
-        assert!(dates(window("2026-3-01", "2026-03-01"), ALERT_DAYS).is_err());
+        use DateRangeLimit::{Alerts, BusStretches, RailRanking};
+
+        assert!(dates(window("2026-03-01", "2026-03-31"), RailRanking).is_ok());
+        assert!(dates(window("2026-03-01", "2026-04-01"), RailRanking).is_err());
+        assert!(dates(window("2026-03-01", "2026-03-07"), BusStretches).is_ok());
+        assert!(dates(window("2026-03-01", "2026-03-08"), BusStretches).is_err());
+        assert!(dates(window("2026-01-01", "2026-03-31"), Alerts).is_ok());
+        assert!(dates(window("2026-01-01", "2026-04-01"), Alerts).is_err());
+        assert!(dates(window("2026-03-02", "2026-03-01"), Alerts).is_err());
+        assert!(dates(window("2026-3-01", "2026-03-01"), Alerts).is_err());
         assert_eq!(hours(None).unwrap(), (0, 24));
         assert_eq!(
             hours(Some(InsightsHours { start: 7, end: 10 })).unwrap(),

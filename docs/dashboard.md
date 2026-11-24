@@ -26,15 +26,21 @@ Service alerts lists rail and NTA notices by date and category. Rail delay, disr
 works notices can show average lateness during the measured window and in the two hours
 before the notice's stated start. The display gives the measured end time or labels a
 window capped at 24 hours. Averages cover all trains at the corridor stations. Every poll
-of a train on a station board counts as one reading.
+of a train on a station board counts as one reading. If impact processing finds that a
+notice was withdrawn or last seen before its stated start, the details say it never ran.
+Other rail notice categories are marked as not measured.
 
 Delay stretches ranks directed stop pairs by net delay over the selected dates and Irish
-departure hours. Time recovered offsets time added, with a minimum total of zero. The
-Delay added column shows the sum of increases separately. Map colours use net delay per
-selected day, so the same daily total has the same colour for any date range. Bus rows
-combine timetable versions and show the median gain bucket. A row is flagged when its
-mean gain is at least 60 seconds outside that bucket. Rail rows show the mean and standard
-deviation. The rail view also ranks net delay picked up while stopped at stations.
+departure hours. Time recovered offsets time added and only stretches with positive net
+delay are ranked. The Delay added column shows the sum of increases separately. Map colours
+divide each stretch's net delay by the number of days with data for that stretch and hour
+band. Today counts as one day when partial data is available.
+
+Bus rows combine timetable versions and show the median gain bucket and the percentage of
+trips that gained at least two minutes of delay. Bus searches cover up to seven days
+because there are about 250,000 hourly records per day and the query has a five-second time
+limit. Rail searches cover up to 31 days. Rail rows show the mean and standard deviation.
+The rail view also ranks positive net delay picked up while stopped at stations.
 
 ## Layout
 

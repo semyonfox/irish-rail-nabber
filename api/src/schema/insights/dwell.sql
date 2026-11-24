@@ -1,6 +1,6 @@
 WITH ranked AS (
     SELECT station_code, SUM(trains) AS trips,
-           GREATEST(SUM(gain_sum_s), 0)::double precision / 60 AS net_delay_minutes,
+           SUM(gain_sum_s)::double precision / 60 AS net_delay_minutes,
            SUM(gain_pos_sum_s)::double precision / 60 AS added_minutes,
            SUM(gain_sum_s)::double precision / SUM(trains) / 60 AS avg_gain_minutes,
            100 * ((SUM(dwell_sum_s) - SUM(sched_dwell_sum_s)) / NULLIF(SUM(sched_dwell_sum_s), 0))::double precision
@@ -8,7 +8,7 @@ WITH ranked AS (
     FROM rail_dwell_delay_hourly
     WHERE service_date BETWEEN $1 AND $2 AND hour_local >= $3 AND hour_local < $4
     GROUP BY station_code
-    HAVING SUM(trains) >= $5 AND SUM(gain_pos_sum_s) > 0
+    HAVING SUM(trains) >= $5 AND SUM(gain_sum_s) > 0
     ORDER BY net_delay_minutes DESC, station_code
     LIMIT $6
 )

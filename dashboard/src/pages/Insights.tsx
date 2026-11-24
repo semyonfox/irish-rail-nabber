@@ -103,9 +103,11 @@ function labelCategory(value: string) {
 function DateControls({
   range,
   onChange,
+  descriptionId,
 }: {
   range: InsightsRange;
   onChange: (range: InsightsRange) => void;
+  descriptionId?: string;
 }) {
   return (
     <>
@@ -114,6 +116,7 @@ function DateControls({
         <input
           className="control w-full"
           type="date"
+          aria-describedby={descriptionId}
           value={range.from}
           onChange={(event) => onChange({ ...range, from: event.target.value })}
         />
@@ -123,6 +126,7 @@ function DateControls({
         <input
           className="control w-full"
           type="date"
+          aria-describedby={descriptionId}
           value={range.to}
           onChange={(event) => onChange({ ...range, to: event.target.value })}
         />
@@ -190,6 +194,8 @@ function AlertDetails({ alert }: { alert: AlertSummary }) {
           <h3 className="font-semibold">Average lateness against baseline</h3>
           {!impactCategories.has(category) ? (
             <p className="mt-2 text-sm text-ink-2">Impact is not measured for this category.</p>
+          ) : detail.neverRan ? (
+            <p className="mt-2 text-sm text-ink-2">This notice never ran.</p>
           ) : detail.impactWindowEnd === null ||
             (detail.impactAvgLate === null && detail.preAvgLate === null) ? (
             <p className="mt-2 text-sm text-ink-2">
@@ -422,8 +428,8 @@ function Stretches() {
   const [mode, setMode] = useState<InsightsMode>("RAIL");
   const [band, setBand] = useState(0);
   const [minimum, setMinimum] = useState(10);
-  const valid = validRange(range, 31);
-  const days = (Date.parse(range.to) - Date.parse(range.from)) / DAY + 1;
+  const maxDays = mode === "BUS" ? 7 : 31;
+  const valid = validRange(range, maxDays);
   const settled = useSettledFilters(JSON.stringify([range, mode, band, minimum]));
   const { start, end } = bands[band] ?? bands[0];
   const variables = { range, hourBand: { start, end }, minTrips: minimum };
@@ -450,7 +456,11 @@ function Stretches() {
           <Segmented label="Stretch mode" options={modes} value={mode} onChange={setMode} />
         </div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <DateControls range={range} onChange={setRange} />
+          <DateControls
+            range={range}
+            onChange={setRange}
+            descriptionId={mode === "BUS" ? "bus-stretch-range-help" : undefined}
+          />
           <label className="grid min-w-0 gap-1">
             Irish time
             <select
@@ -480,9 +490,17 @@ function Stretches() {
             </select>
           </label>
         </div>
+        {mode === "BUS" ? (
+          <p id="bus-stretch-range-help" className="text-sm text-ink-2" role="status">
+            Choose 1 to {maxDays} days for buses. Each day has about 250,000 hourly records and the
+            query has a five-second time limit.
+          </p>
+        ) : null}
       </div>
       {!valid ? (
-        <RangeMessage maxDays={31} />
+        mode === "RAIL" ? (
+          <RangeMessage maxDays={maxDays} />
+        ) : null
       ) : (
         <>
           {!settled || fetching ? (
@@ -493,7 +511,7 @@ function Stretches() {
             <Empty>No stretches match these filters.</Empty>
           ) : (
             <>
-              <DelayStretchMap stretches={stretches} days={days} />
+              <DelayStretchMap stretches={stretches} />
               <section
                 className="card min-w-0 overflow-hidden"
                 aria-labelledby="insights-stretch-heading"
@@ -531,7 +549,14 @@ function Stretches() {
                         <th scope="col" className="num">
                           Overrun
                         </th>
-                        {mode === "BUS" ? <th scope="col">Routes</th> : null}
+                        {mode === "BUS" ? (
+                          <>
+                            <th scope="col" className="num">
+                              Trips gaining ≥2 min
+                            </th>
+                            <th scope="col">Routes</th>
+                          </>
+                        ) : null}
                       </tr>
                     </thead>
                     <tbody>
@@ -539,11 +564,6 @@ function Stretches() {
                         <tr key={JSON.stringify([stretch.fromId, stretch.toId])}>
                           <td className="min-w-48 font-medium [overflow-wrap:anywhere]">
                             {stretch.fromName} → {stretch.toName}
-                            {stretch.outlierDriven ? (
-                              <span className="block text-xs text-ink-2">
-                                Likely outlier-driven
-                              </span>
-                            ) : null}
                           </td>
                           <td className="num">{numberFormat.format(stretch.trips)}</td>
                           <td className="num font-semibold">
@@ -557,7 +577,14 @@ function Stretches() {
                               : valueWithUnit(stretch.stddevMinutes, " min")}
                           </td>
                           <td className="num">{valueWithUnit(stretch.overrunPct, "%")}</td>
-                          {mode === "BUS" ? <td>{stretch.routes.join(", ") || "—"}</td> : null}
+                          {mode === "BUS" ? (
+                            <>
+                              <td className="num">
+                                {valueWithUnit(stretch.gainAtLeastTwoMinutesPct, "%")}
+                              </td>
+                              <td>{stretch.routes.join(", ") || "—"}</td>
+                            </>
+                          ) : null}
                         </tr>
                       ))}
                     </tbody>
@@ -638,13 +665,13 @@ function Stretches() {
       )}
       <div className="max-w-[72ch] space-y-2 text-sm text-ink-2">
         <p>
-          Rankings use net delay. Time recovered offsets increases in delay, with a minimum total of
-          zero. Delay added sums just the increases. Overrun compares total running time with total
-          timetabled time.
+          Rankings show positive net delay after time recovered offsets increases in delay. Delay
+          added sums just the increases. Overrun compares total running time with total timetabled
+          time.
         </p>
         <p>
           {mode === "BUS"
-            ? "Bus figures combine NTA predictions across timetable versions. The median gain is shown as a range. A stretch is flagged when the average gain is at least 60 seconds outside that range."
+            ? "Bus figures combine NTA predictions across timetable versions. The median gain is shown as a range."
             : "Rail figures use recorded times at station calls. Standard deviation shows how much gain varies across trains. Express services can span several stops, and today’s totals arrive after the service day."}
         </p>
         {mode === "BUS" ? <BusAttribution /> : null}

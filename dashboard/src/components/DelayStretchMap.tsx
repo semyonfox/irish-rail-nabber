@@ -26,27 +26,21 @@ function endpoint(lat: number | null, lon: number | null): [number, number] | nu
   return [lon, lat];
 }
 
-function plotLines(stretches: DelayStretch[], days: number) {
+function plotLines(stretches: DelayStretch[]) {
   return stretches.flatMap((stretch) => {
     const from = endpoint(stretch.fromLat, stretch.fromLon);
     const to = endpoint(stretch.toLat, stretch.toLon);
     if (!from || !to || (from[0] === to[0] && from[1] === to[1])) return [];
-    return [{ from, to, minutesPerDay: stretch.netDelayMinutes / days }];
+    return [{ from, to, minutesPerDay: stretch.netDelayMinutes / stretch.daysWithData }];
   });
 }
 
-export default function DelayStretchMap({
-  stretches,
-  days,
-}: {
-  stretches: DelayStretch[];
-  days: number;
-}) {
+export default function DelayStretchMap({ stretches }: { stretches: DelayStretch[] }) {
   const { theme } = useTheme();
   const [initialTheme] = useState(theme);
   const [readyMap, setReadyMap] = useState<maplibregl.Map | null>(null);
   const [mapError, setMapError] = useState(false);
-  const lines = useMemo(() => plotLines(stretches, days), [stretches, days]);
+  const lines = useMemo(() => plotLines(stretches), [stretches]);
 
   const attachMap = useCallback(
     (container: HTMLDivElement | null) => {
@@ -122,7 +116,10 @@ export default function DelayStretchMap({
           <h2 id="insights-map-heading" className="card-title">
             Net delay per day
           </h2>
-          <p className="card-desc">Straight lines connect the stops in each ranked stretch.</p>
+          <p className="card-desc">
+            Colours use the days with data for each stretch. Today counts if partial data is
+            available. Straight lines connect the stops.
+          </p>
         </div>
       </div>
       <div className="px-4">
