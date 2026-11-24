@@ -37,6 +37,9 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
       SKIP_DB_MIGRATIONS: "1"
+      CONTEXT_COLLECTION: ${CONTEXT_COLLECTION:-1}
+      RAIL_NOTICES: ${RAIL_NOTICES:-1}
+      WEATHER_ARCHIVE_FROM: ${WEATHER_ARCHIVE_FROM:-2013-06-01}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -74,6 +77,7 @@ services:
       NTA_TRIP_UPDATES_URL: ${NTA_TRIP_UPDATES_URL:-}
       NTA_VEHICLES_URL: ${NTA_VEHICLES_URL:-}
       NTA_GTFSR_URL: ${NTA_GTFSR_URL:-}
+      NTA_ALERTS_URL: ${NTA_ALERTS_URL-https://api.nationaltransport.ie/gtfsr/v2/Alerts?format=json}
       BUS_GTFS_ARCHIVE_DIRECTORY: /data/gtfs
       BUS_STATIC_REFRESH_SECONDS: ${BUS_STATIC_REFRESH_SECONDS:-86400}
       BUS_REALTIME_INTERVAL_SECONDS: ${BUS_REALTIME_INTERVAL_SECONDS:-60}

@@ -3,7 +3,7 @@ import unittest
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock
 
-from daemon import IrishRailDaemon
+from daemon import IrishRailDaemon, classify_service_alert, parse_service_alert
 
 
 def movement(location, order, arrival="12:00", date="14 Sep 2026"):
@@ -102,6 +102,45 @@ class MovementDedupTests(unittest.IsolatedAsyncioTestCase):
         await self.daemon.cleanup_stale_hashes()
         self.assertEqual(len(self.daemon.prev_movement_hashes), 2)
         self.assertTrue(all(key[0] == "A1" for key in self.daemon.prev_movement_hashes))
+
+
+class ServiceAlertParsingTest(unittest.TestCase):
+    RAW = {
+        "head": "Delays of up to +10/15minutes",
+        "text": "Due to a signalling fault.",
+        "start": "2026-11-24T16:44:00",
+        "end": "2026-11-24T23:59:00",
+        "locationCodes": ["gstns", "MHIDE"],
+        "products": ["Train", "DART"],
+        "eventStops": [{"sStop": "Malahide", "eStop": "Greystones", "direction": "1"}],
+    }
+
+    def test_body_edit_updates_the_same_alert(self):
+        first = parse_service_alert(self.RAW)
+        edited = parse_service_alert({**self.RAW, "text": "Now up to 30 minutes."})
+        self.assertEqual(first["alert_key"], edited["alert_key"])
+        self.assertNotEqual(first["content_hash"], edited["content_hash"])
+        self.assertEqual(first["location_codes"], ["GSTNS", "MHIDE"])
+        self.assertEqual(first["starts_local"], "2026-11-24T16:44")
+        self.assertEqual(first["category"], "delay")
+
+    def test_unusable_items_are_skipped(self):
+        self.assertIsNone(parse_service_alert({**self.RAW, "start": None}))
+        self.assertIsNone(parse_service_alert({**self.RAW, "head": " "}))
+        self.assertIsNone(parse_service_alert("not a dict"))
+
+    def test_categories_from_live_notices(self):
+        cases = {
+            "Balbriggan - Lift out of order": "accessibility",
+            "Howth Junction - Lift out of order due to Door Project Works": "accessibility",
+            "19:00 Dublin Heuston to Cork (Kent) expected +25 minutes delayed.": "delay",
+            "Customer Notice: This train has reduced capacity": "capacity",
+            "Enterprise services currently unavailable to book": "booking",
+            "Bus transfer between Ballina and Manulla Junction": "disruption",
+            "Delays of up to +15mins": "delay",
+        }
+        for head, category in cases.items():
+            self.assertEqual(classify_service_alert(head, ""), category, head)
 
 
 if __name__ == "__main__":

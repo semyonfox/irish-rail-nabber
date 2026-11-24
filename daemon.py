@@ -26,14 +26,18 @@ import logging
 import os
 import re
 import signal
+import time
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Dict, List, Optional
 
 import aiohttp
 import psycopg
 from psycopg_pool import AsyncConnectionPool
+
+from context_collector import ContextCollector
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -50,6 +54,172 @@ STATION_FETCH_CONCURRENCY = 30
 
 # stale movement hash cleanup interval (seconds)
 HASH_CLEANUP_INTERVAL = 3600
+
+# customer notices live on the API behind irishrail.ie, not the legacy ASMX feed.
+# its key is the public one the website ships to every browser, so we read it
+# from the homepage instead of pinning a copy that breaks when they rotate it.
+# the irishrail.ie terms restrict copying site content, so the data stays
+# private. RAIL_NOTICES=0 turns the poller off
+RAIL_NOTICES_ENABLED = os.getenv("RAIL_NOTICES", "1") == "1"
+# after a refusal or an outage, wait this long, doubling up to the cap
+CONNECT_BACKOFF_START_SECONDS = 600
+CONNECT_BACKOFF_MAX_SECONDS = 6 * 3600
+DUBLIN_TZ = ZoneInfo("Europe/Dublin")
+CONNECT_BASE_URL = "https://connect.irishrail.ie"
+CONNECT_KEY_PAGE = "https://www.irishrail.ie/en-ie/"
+_CONNECT_KEY_RE = re.compile(r'apiKey:"([A-Za-z0-9_-]{16,})"')
+
+# categories whose delay effect is worth measuring against the rollups
+ALERT_IMPACT_CATEGORIES = ["delay", "disruption", "works"]
+
+# first match wins, head is checked before body
+_ALERT_CATEGORY_RULES = (
+    # lift notices often blame works, they are still accessibility
+    ("accessibility", re.compile(r"\blifts?\b|escalator", re.I)),
+    (
+        "disruption",
+        re.compile(
+            r"cancel|suspend|no (?:train )?services?|bus transfer|replacement bus"
+            r"|disrupt|line (?:is )?(?:closed|blocked)",
+            re.I,
+        ),
+    ),
+    ("delay", re.compile(r"\bdelay|\blate\b|\+\s*\d+\s*min", re.I)),
+    ("works", re.compile(r"\bworks\b|engineering|closure", re.I)),
+    ("capacity", re.compile(r"capacity", re.I)),
+    ("booking", re.compile(r"\bbook|ticket", re.I)),
+)
+
+# an alert names its endpoints (e.g. MHIDE, GSTNS), not every station between.
+# the corridor is every stop between those endpoints on trains that ran through
+# both that day, so a Malahide-Greystones notice also covers Connolly and Bray.
+# delays then come from the hourly rollups, which keeps this around a
+# second where scanning station_events for four weeks took over a minute.
+ALERT_IMPACT_SQL = """
+WITH stops AS (
+    SELECT DISTINCT m.train_code, m.location_code, m.location_order
+    FROM train_movements m
+    WHERE m.train_date = %(service_date)s
+      AND m.fetched_at >= %(movements_from)s
+      AND m.fetched_at < %(movements_to)s
+      AND m.location_type <> 'T'
+      AND m.location_code IS NOT NULL
+), spans AS (
+    SELECT train_code, MIN(location_order) AS lo, MAX(location_order) AS hi
+    FROM stops
+    WHERE location_code = ANY(%(codes)s::text[])
+    GROUP BY train_code
+    HAVING cardinality(%(codes)s::text[]) > 1
+       AND COUNT(DISTINCT location_code) = cardinality(%(codes)s::text[])
+), corridor AS (
+    SELECT array_agg(DISTINCT code ORDER BY code) AS codes
+    FROM (
+        SELECT s.location_code AS code
+        FROM stops s JOIN spans p USING (train_code)
+        WHERE s.location_order BETWEEN p.lo AND p.hi
+        UNION
+        SELECT unnest(%(codes)s::text[])
+    ) c
+), w (label, weeks_back, s, f) AS (
+    SELECT 'during', 0, %(h0)s::timestamp, %(t1)s::timestamp
+    UNION ALL SELECT 'pre', 0, %(h0)s::timestamp - INTERVAL '2 hours', %(h0)s::timestamp
+    UNION ALL SELECT 'baseline', g, %(h0)s::timestamp, %(t1)s::timestamp
+        FROM generate_series(1, 4) g
+    UNION ALL SELECT 'pre_baseline', g, %(h0)s::timestamp - INTERVAL '2 hours', %(h0)s::timestamp
+        FROM generate_series(1, 4) g
+)
+SELECT c.codes, w.label, SUM(d.event_count)::bigint,
+       SUM(d.avg_late_minutes * d.event_count) / NULLIF(SUM(d.event_count), 0),
+       MAX(d.max_late_minutes)
+FROM corridor c
+CROSS JOIN w
+JOIN delay_history_hourly d
+  ON d.scope_code = ANY(c.codes)
+ AND d.bucket >= w.s - w.weeks_back * INTERVAL '7 days'
+ AND d.bucket < w.f - w.weeks_back * INTERVAL '7 days'
+GROUP BY c.codes, w.label
+"""
+
+# rail segment rollups. a service day is final once its late trains have
+# finished, so a day is rolled up from 04:00 the next morning
+RAIL_SEGMENT_DAYS_PER_RUN = 3
+RAIL_SEGMENT_LOOKBACK_DAYS = 400
+
+# seconds late from two time-of-day values, wrapped into +-12h so a 23:58
+# schedule and an 00:03 actual reads as 5 minutes late, not 23h55 early.
+# %% is how psycopg spells a literal % once the query has parameters
+_LATE = "((EXTRACT(EPOCH FROM {a} - {s})::int + 129600) %% 86400 - 43200)"
+_RUN = "((EXTRACT(EPOCH FROM {b} - {a})::int + 86400) %% 86400)"
+
+# last known state of every station call for one service date. 00:00 is the
+# feed's placeholder for an origin arrival or destination departure
+RAIL_CALLS_SQL = """
+CREATE TEMP TABLE rail_calls ON COMMIT DROP AS
+SELECT train_code, location_order, location_code, location_type,
+       NULLIF(scheduled_arrival, TIME '00:00') AS sa,
+       NULLIF(scheduled_departure, TIME '00:00') AS sd,
+       actual_arrival AS aa, actual_departure AS ad
+FROM (
+    SELECT DISTINCT ON (train_code, location_order)
+           train_code, location_order, location_code, location_type,
+           scheduled_arrival, scheduled_departure, actual_arrival, actual_departure
+    FROM train_movements
+    WHERE train_date = %(service_date)s
+      AND fetched_at >= %(movements_from)s
+      AND fetched_at < %(movements_to)s
+      AND location_code IS NOT NULL
+    ORDER BY train_code, location_order, fetched_at DESC
+) latest
+WHERE location_type <> 'T'
+"""
+
+RAIL_SEGMENT_INSERT_SQL = f"""
+INSERT INTO rail_segment_delay_hourly (
+    service_date, hour_local, from_code, to_code, trains, gain_sum_s,
+    gain_pos_sum_s, gain_sq_sum, max_gain_s, run_sum_s, sched_run_sum_s
+)
+SELECT %(service_date)s, hour_local, from_code, to_code, count(*), sum(gain),
+       sum(GREATEST(gain, 0)), sum(gain::bigint * gain), max(gain),
+       sum(sched_run + gain), sum(sched_run)
+FROM (
+    SELECT from_code, to_code, EXTRACT(HOUR FROM sd)::smallint AS hour_local,
+           {_LATE.format(a="naa", s="nsa")} - {_LATE.format(a="ad", s="sd")} AS gain,
+           {_RUN.format(a="sd", b="nsa")} AS sched_run
+    FROM (
+        SELECT location_code AS from_code, sd, ad,
+               lead(location_code) OVER w AS to_code,
+               lead(sa) OVER w AS nsa,
+               lead(aa) OVER w AS naa
+        FROM rail_calls
+        WINDOW w AS (PARTITION BY train_code ORDER BY location_order)
+    ) legs
+    WHERE to_code IS NOT NULL
+      AND sd IS NOT NULL AND ad IS NOT NULL
+      AND nsa IS NOT NULL AND naa IS NOT NULL
+) segs
+-- an hour gained between neighbouring stations is a bad actual, not a stretch
+WHERE abs(gain) <= 3600 AND sched_run <= 21600 AND sched_run + gain >= 0
+GROUP BY hour_local, from_code, to_code
+"""
+
+RAIL_DWELL_INSERT_SQL = f"""
+INSERT INTO rail_dwell_delay_hourly (
+    service_date, hour_local, station_code, trains, gain_sum_s, gain_pos_sum_s,
+    max_gain_s, dwell_sum_s, sched_dwell_sum_s
+)
+SELECT %(service_date)s, hour_local, location_code, count(*), sum(gain),
+       sum(GREATEST(gain, 0)), max(gain), sum(sched_dwell + gain), sum(sched_dwell)
+FROM (
+    SELECT location_code, EXTRACT(HOUR FROM sd)::smallint AS hour_local,
+           {_LATE.format(a="ad", s="sd")} - {_LATE.format(a="aa", s="sa")} AS gain,
+           {_RUN.format(a="sa", b="sd")} AS sched_dwell
+    FROM rail_calls
+    WHERE location_type = 'S'
+      AND sa IS NOT NULL AND sd IS NOT NULL AND aa IS NOT NULL AND ad IS NOT NULL
+) calls
+WHERE abs(gain) <= 3600 AND sched_dwell <= 3600 AND sched_dwell + gain >= 0
+GROUP BY hour_local, location_code
+"""
 
 # fetch_history only backs the latest-status checks and the 14-day analysis
 # report. it grew by about 50k rows a day with no limit
@@ -216,6 +386,82 @@ def stable_hash(*args) -> str:
     return h.hexdigest()
 
 
+def classify_service_alert(head: str, body: str) -> str:
+    for text in (head, body):
+        for category, pattern in _ALERT_CATEGORY_RULES:
+            if pattern.search(text):
+                return category
+    return "other"
+
+
+def _local_iso_or_none(val) -> Optional[str]:
+    """upstream sends naive Europe/Dublin times, postgres converts them on insert"""
+    if not isinstance(val, str):
+        return None
+    try:
+        return datetime.fromisoformat(val).isoformat(timespec="minutes")
+    except ValueError:
+        return None
+
+
+def rail_day_params(service_date) -> Dict:
+    """bounds for one service date's movements, bound as plain values so
+    timescale skips every other chunk at plan time"""
+    day_start = datetime.combine(service_date, datetime.min.time())
+    return {
+        "service_date": service_date,
+        "movements_from": day_start - timedelta(days=1),
+        "movements_to": day_start + timedelta(days=2),
+    }
+
+
+def alert_impact_params(codes: List[str], starts_at: datetime, ends_at: datetime) -> Dict:
+    """bind plain values so timescale can skip chunks at plan time. bounds
+    derived inside the SQL made the planner scan every train_movements chunk"""
+    return {
+        **rail_day_params(starts_at.astimezone(DUBLIN_TZ).date()),
+        "codes": codes,
+        # rollup buckets and fetched_at are naive UTC
+        "h0": starts_at.astimezone(timezone.utc).replace(tzinfo=None, minute=0, second=0, microsecond=0),
+        "t1": ends_at.astimezone(timezone.utc).replace(tzinfo=None),
+    }
+
+
+def parse_service_alert(raw) -> Optional[Dict]:
+    """turn one /realtime/messages item into a row, or None if it is unusable"""
+    if not isinstance(raw, dict):
+        return None
+    head = (raw.get("head") or "").strip()
+    body = (raw.get("text") or "").strip()
+    starts = _local_iso_or_none(raw.get("start"))
+    ends = _local_iso_or_none(raw.get("end"))
+    if not head or not starts or not ends:
+        return None
+
+    codes = sorted(
+        {c.strip().upper() for c in raw.get("locationCodes") or [] if isinstance(c, str) and c.strip()}
+    )
+    products = sorted({p for p in raw.get("products") or [] if isinstance(p, str)})
+    stops = [s for s in raw.get("eventStops") or [] if isinstance(s, dict)]
+    stops_json = json.dumps(stops, sort_keys=True)
+
+    return {
+        # identity survives body edits so a revised notice updates in place
+        "alert_key": stable_hash("\x1f".join([head, starts, ",".join(codes)])),
+        "head": head,
+        "body": body,
+        "category": classify_service_alert(head, body),
+        "starts_local": starts,
+        "ends_local": ends,
+        "location_codes": codes,
+        "products": products,
+        "event_stops": stops_json,
+        "content_hash": stable_hash(
+            "\x1f".join([head, body, starts, ends, ",".join(codes), ",".join(products), stops_json])
+        ),
+    }
+
+
 def load_canonical_station_coords() -> Dict[str, tuple[float, float]]:
     """Load local station coordinates as a fallback for broken upstream rows."""
     if not CANONICAL_STATIONS_FILE.exists():
@@ -274,6 +520,13 @@ class IrishRailDaemon:
         # shutdown coordination
         self._shutdown = asyncio.Event()
 
+        self._connect_api_key: Optional[str] = None
+        self._connect_backoff_seconds = 0
+        self._connect_blocked_until = 0.0
+
+        # weather and road traffic, off with CONTEXT_COLLECTION=0
+        self.context: Optional[ContextCollector] = None
+
     async def init(self):
         """set up database pool and HTTP session"""
         self.pool = AsyncConnectionPool(
@@ -283,10 +536,15 @@ class IrishRailDaemon:
         self.session = aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=20, connect=10)
         )
+        if os.getenv("CONTEXT_COLLECTION", "1") != "0":
+            self.context = ContextCollector(self.pool, self.record_fetch)
+            await self.context.open()
         logger.info("daemon initialized (pool: 2-20, timeout: 20s)")
 
     async def close(self):
         """clean up connections"""
+        if self.context:
+            await self.context.close()
         if self.session:
             await self.session.close()
         if self.pool:
@@ -1158,6 +1416,238 @@ class IrishRailDaemon:
             logger.info(f"pruned {deleted} fetch_history rows")
 
     # ====================================================================
+    # customer notices (connect.irishrail.ie)
+    # ====================================================================
+
+    async def _refresh_connect_api_key(self) -> Optional[str]:
+        async with self.session.get(CONNECT_KEY_PAGE) as resp:
+            if resp.status != 200:
+                logger.warning(f"connect key page: status {resp.status}")
+                return None
+            match = _CONNECT_KEY_RE.search(await resp.text())
+        if not match:
+            logger.warning("connect key not found on irishrail.ie homepage")
+            return None
+        self._connect_api_key = match.group(1)
+        return self._connect_api_key
+
+    def _connect_back_off(self, retry_after: Optional[str] = None) -> None:
+        self._connect_backoff_seconds = min(
+            max(self._connect_backoff_seconds * 2, CONNECT_BACKOFF_START_SECONDS),
+            CONNECT_BACKOFF_MAX_SECONDS,
+        )
+        wait = self._connect_backoff_seconds
+        if retry_after and retry_after.isdigit():
+            wait = max(wait, int(retry_after))
+        self._connect_blocked_until = time.monotonic() + wait
+        logger.warning(f"connect.irishrail.ie backing off for {wait}s")
+
+    async def fetch_connect_json(self, path: str):
+        """GET a connect.irishrail.ie path. re-reads the key once on 401/403,
+        then backs off on any refusal or outage instead of retrying every poll"""
+        if time.monotonic() < self._connect_blocked_until:
+            return None
+        for attempt in range(2):
+            key = self._connect_api_key
+            if key is None or attempt == 1:
+                key = await self._refresh_connect_api_key()
+            if key is None:
+                self._connect_back_off()
+                return None
+            async with self.session.get(
+                f"{CONNECT_BASE_URL}{path}",
+                headers={"x-api-key": key, "Accept": "application/json"},
+            ) as resp:
+                if resp.status in (401, 403):
+                    continue
+                if resp.status != 200:
+                    logger.warning(f"connect {path}: status {resp.status}")
+                    self._connect_back_off(resp.headers.get("Retry-After"))
+                    return None
+                payload = await resp.json(content_type=None)
+                self._connect_backoff_seconds = 0
+                return payload
+        self._connect_back_off()
+        return None
+
+    async def fetch_service_alerts(self):
+        if time.monotonic() < self._connect_blocked_until:
+            return
+        start = datetime.now()
+        try:
+            payload = await self.fetch_connect_json("/realtime/messages")
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
+            self._connect_back_off()
+            await self.record_fetch("connect/messages", 0, "failed", str(e)[:200])
+            return
+        if not isinstance(payload, list):
+            await self.record_fetch("connect/messages", 0, "failed", "unexpected payload")
+            return
+
+        alerts = {}
+        for raw in payload:
+            row = parse_service_alert(raw)
+            if row:
+                alerts[row["alert_key"]] = row
+
+        if alerts:
+            async with self.pool.connection() as conn:
+                async with conn.cursor() as cur:
+                    await cur.executemany(
+                        """INSERT INTO rail_service_alerts (
+                               alert_key, head, body, category, starts_at, ends_at,
+                               location_codes, products, event_stops, content_hash
+                           ) VALUES (
+                               %(alert_key)s, %(head)s, %(body)s, %(category)s,
+                               %(starts_local)s::timestamp AT TIME ZONE 'Europe/Dublin',
+                               %(ends_local)s::timestamp AT TIME ZONE 'Europe/Dublin',
+                               %(location_codes)s, %(products)s, %(event_stops)s::jsonb,
+                               %(content_hash)s
+                           )
+                           ON CONFLICT (alert_key) DO UPDATE SET
+                               last_seen = NOW(),
+                               body = EXCLUDED.body,
+                               category = EXCLUDED.category,
+                               ends_at = EXCLUDED.ends_at,
+                               products = EXCLUDED.products,
+                               event_stops = EXCLUDED.event_stops,
+                               content_hash = EXCLUDED.content_hash,
+                               revisions = rail_service_alerts.revisions
+                                   + (rail_service_alerts.content_hash <> EXCLUDED.content_hash)::int,
+                               -- an edit, or reappearing after a gap (republished, or the
+                               -- daemon was down), means the measured window was wrong
+                               impact_computed_at = CASE
+                                   WHEN rail_service_alerts.content_hash <> EXCLUDED.content_hash
+                                     OR rail_service_alerts.last_seen < NOW() - INTERVAL '10 minutes'
+                                   THEN NULL
+                                   ELSE rail_service_alerts.impact_computed_at
+                               END""",
+                        list(alerts.values()),
+                    )
+                await conn.commit()
+
+        duration = int((datetime.now() - start).total_seconds() * 1000)
+        await self.record_fetch("connect/messages", len(alerts), "success", duration_ms=duration)
+
+    async def compute_alert_impacts(self):
+        """compare delays along each finished alert's corridor with the same
+        window on the previous four weeks, using the hourly rollups"""
+        async with self.pool.connection() as conn:
+            pending = await (
+                await conn.execute(
+                    """SELECT alert_key, location_codes, starts_at,
+                              LEAST(ends_at, last_seen, starts_at + INTERVAL '24 hours'),
+                              LEAST(ends_at, last_seen) <= starts_at, last_seen
+                       FROM rail_service_alerts
+                       WHERE impact_computed_at IS NULL
+                         AND category = ANY(%s)
+                         AND cardinality(location_codes) > 0
+                         -- rollups rewrite the trailing two hours, wait until they settle
+                         AND LEAST(ends_at, last_seen) < NOW() - INTERVAL '2 hours'
+                       ORDER BY starts_at
+                       LIMIT 20""",
+                    (ALERT_IMPACT_CATEGORIES,),
+                )
+            ).fetchall()
+
+            # every write below checks last_seen is unchanged, so a notice that
+            # reappears mid-run is left for the next pass instead of being settled
+            for alert_key, codes, starts_at, ends_at, never_ran, seen in pending:
+                if never_ran:
+                    # withdrawn, or stopped being seen, before it was due to start
+                    await conn.execute(
+                        """UPDATE rail_service_alerts SET
+                               corridor_codes = NULL, impact_events = NULL,
+                               impact_avg_late = NULL, impact_max_late = NULL,
+                               baseline_avg_late = NULL, pre_avg_late = NULL,
+                               pre_baseline_avg_late = NULL, impact_window_end = NULL,
+                               impact_computed_at = NOW()
+                           WHERE alert_key = %s AND last_seen = %s""",
+                        (alert_key, seen),
+                    )
+                    await conn.commit()
+                    continue
+                rows = await (
+                    await conn.execute(ALERT_IMPACT_SQL, alert_impact_params(codes, starts_at, ends_at))
+                ).fetchall()
+                stats = {label: (n, avg, max_late) for corridor, label, n, avg, max_late in rows}
+                corridor = rows[0][0] if rows else codes
+                during = stats.get("during", (0, None, None))
+                await conn.execute(
+                    """UPDATE rail_service_alerts SET
+                           corridor_codes = %s, impact_events = %s,
+                           impact_avg_late = %s, impact_max_late = %s,
+                           baseline_avg_late = %s, pre_avg_late = %s,
+                           pre_baseline_avg_late = %s, impact_window_end = %s,
+                           impact_computed_at = NOW()
+                       WHERE alert_key = %s AND last_seen = %s""",
+                    (
+                        corridor,
+                        during[0],
+                        during[1],
+                        during[2],
+                        stats.get("baseline", (0, None, None))[1],
+                        stats.get("pre", (0, None, None))[1],
+                        stats.get("pre_baseline", (0, None, None))[1],
+                        ends_at,
+                        alert_key,
+                        seen,
+                    ),
+                )
+                await conn.commit()
+
+            if pending:
+                logger.info(f"alert impacts: {len(pending)} alerts matched to delays")
+
+    async def rollup_rail_segments(self):
+        """roll finished service days into segment and dwell totals, newest
+        first, a few days per run so the backfill stays gentle"""
+        async with self.pool.connection() as conn:
+            days = await (
+                await conn.execute(
+                    """SELECT d::date
+                       FROM generate_series(
+                           (NOW() AT TIME ZONE 'Europe/Dublin')::date - %s,
+                           (NOW() AT TIME ZONE 'Europe/Dublin' - INTERVAL '28 hours')::date,
+                           INTERVAL '1 day'
+                       ) d
+                       WHERE NOT EXISTS (
+                           SELECT 1 FROM rail_segment_rollup_days r
+                           WHERE r.service_date = d::date
+                       )
+                       ORDER BY d DESC
+                       LIMIT %s""",
+                    (RAIL_SEGMENT_LOOKBACK_DAYS, RAIL_SEGMENT_DAYS_PER_RUN),
+                )
+            ).fetchall()
+            # end the implicit transaction so each day below commits on its own
+            # and its ON COMMIT DROP temp table goes with it
+            await conn.commit()
+
+            for (service_date,) in days:
+                params = rail_day_params(service_date)
+                async with conn.transaction():
+                    await conn.execute(
+                        "DELETE FROM rail_segment_delay_hourly WHERE service_date = %s",
+                        (service_date,),
+                    )
+                    await conn.execute(
+                        "DELETE FROM rail_dwell_delay_hourly WHERE service_date = %s",
+                        (service_date,),
+                    )
+                    await conn.execute(RAIL_CALLS_SQL, params)
+                    segments = await conn.execute(RAIL_SEGMENT_INSERT_SQL, params)
+                    await conn.execute(RAIL_DWELL_INSERT_SQL, params)
+                    await conn.execute(
+                        """INSERT INTO rail_segment_rollup_days (service_date, legs)
+                           VALUES (%s, %s)
+                           ON CONFLICT (service_date) DO UPDATE SET
+                               legs = EXCLUDED.legs, computed_at = NOW()""",
+                        (service_date, segments.rowcount),
+                    )
+                logger.info(f"rail segments {service_date}: {segments.rowcount} segment-hours")
+
+    # ====================================================================
     # schedulers
     # ====================================================================
 
@@ -1262,7 +1752,34 @@ class IrishRailDaemon:
                         "fetch-history-retention", self.prune_fetch_history, 3600
                     )
                 ),
+                asyncio.create_task(
+                    self.schedule_task("alert-impacts", self.compute_alert_impacts, 900)
+                ),
+                asyncio.create_task(
+                    self.schedule_task("rail-segments", self.rollup_rail_segments, 3600)
+                ),
             ]
+
+            if RAIL_NOTICES_ENABLED:
+                tasks.append(
+                    asyncio.create_task(
+                        self.schedule_task("service-alerts", self.fetch_service_alerts, 120)
+                    )
+                )
+
+            if self.context:
+                context = self.context
+                for name, func, interval in (
+                    ("weather-live", context.fetch_live_weather, 1800),
+                    ("weather-warnings", context.fetch_weather_warnings, 600),
+                    # one station per run, a 304 when its file hasn't changed
+                    ("weather-archive", context.import_weather_archive, 600),
+                    ("tii-sites", context.refresh_tii_sites, 3600),
+                    ("tii-weekly", context.refresh_tii_weekly, 3600),
+                    ("tii-yearly", context.refresh_tii_yearly, 3600),
+                    ("tii-bulk", context.backfill_tii_daily_class, 3600),
+                ):
+                    tasks.append(asyncio.create_task(self.schedule_task(name, func, interval)))
 
             logger.info("daemon running - all tasks started")
             await asyncio.gather(*tasks)

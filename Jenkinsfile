@@ -181,14 +181,17 @@ pipeline {
             -e DATABASE_URL=postgresql://candidate:candidate-db-password@db:5432/candidate \
             "$DAEMON_IMAGE" /bin/true
 
-          docker run --rm --entrypoint python "$DAEMON_IMAGE" \
-            -m py_compile /app/daemon.py /app/bus_daemon.py
+          # importing catches what py_compile can't, like a missing module
+          docker run --rm --entrypoint python -w /app "$DAEMON_IMAGE" \
+            -c "import daemon, bus_daemon, context_collector"
 
           docker run -d --name "$DAEMON_CANDIDATE" \
             --network "$NETWORK" \
             --restart no \
             -e DATABASE_URL=postgresql://candidate:candidate-db-password@db:5432/candidate \
             -e SKIP_DB_MIGRATIONS=1 \
+            -e CONTEXT_COLLECTION=0 \
+            -e RAIL_NOTICES=0 \
             -e POSTGRES_USER=candidate \
             -e POSTGRES_PASSWORD=candidate-db-password \
             -e POSTGRES_DB=candidate \

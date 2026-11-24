@@ -35,6 +35,7 @@ export default function Layout() {
   const pathMode = transportModeForPath(pathname);
   const [lastTransportMode, setLastTransportMode] = useState(pathMode ?? "rail");
   const transportMode = pathMode ?? lastTransportMode;
+  const isAdmin = user?.role === "admin";
   const links = transportLinks[transportMode];
   const navRef = useRef<HTMLElement>(null);
 
@@ -45,7 +46,7 @@ export default function Layout() {
       nav.scrollLeft =
         active.offsetLeft - nav.offsetLeft - (nav.clientWidth - active.clientWidth) / 2;
     }
-  }, [pathname, transportMode]);
+  }, [isAdmin, pathname, transportMode]);
   const [helpOpen, setHelpOpen] = useState(false);
   const previousPath = useRef(pathname);
   useEffect(() => {
@@ -113,6 +114,15 @@ export default function Layout() {
               {link.paid ? <span className="paid-label">Paid</span> : null}
             </NavLink>
           ))}
+          {isAdmin ? (
+            <NavLink
+              to="/insights"
+              className={({ isActive }) => `nav-link${isActive ? " is-active" : ""}`}
+            >
+              <Icon name="activity" />
+              Insights
+            </NavLink>
+          ) : null}
         </nav>
 
         <div className="header-actions">

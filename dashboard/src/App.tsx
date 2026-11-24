@@ -20,6 +20,7 @@ const BusStopDetail = lazy(() => import("./pages/BusStopDetail"));
 const BusHistory = lazy(() => import("./pages/BusHistory"));
 const BusPublished = lazy(() => import("./pages/BusPublished"));
 const Analytics = lazy(() => import("./pages/Analytics"));
+const Insights = lazy(() => import("./pages/Insights"));
 const History = lazy(() => import("./pages/History"));
 
 function RouteFallback() {
@@ -71,6 +72,14 @@ export default function App() {
                   element={
                     <ProtectedRoute requirePaid>
                       <Analytics />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="insights"
+                  element={
+                    <ProtectedRoute requireAdmin>
+                      <Insights />
                     </ProtectedRoute>
                   }
                 />

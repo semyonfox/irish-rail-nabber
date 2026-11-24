@@ -191,9 +191,25 @@ When ranking stations by delay or punctuality, exclude or annotate stations in t
 - Irish Rail provides this feed as-is, no support.
 - Service levels vary heavily: weekday peak vs. weekend vs. industrial action shift the active train count from ~70 down to ~30. Refresh cadences do not change, but the volume of new data per refresh does.
 
+## Customer notices (connect.irishrail.ie)
+
+The irishrail.ie website reads from a JSON API at `https://connect.irishrail.ie`. It needs an `x-api-key` header, but the key is the public one shipped in the homepage HTML (`apiKey:"..."`). The daemon reads it from the homepage at startup and again on any 401/403, so a rotation fixes itself. None of it is documented and it can change without notice.
+
+| Path | Returns | Used |
+|------|---------|------|
+| `/realtime/messages` | customer notices: `head`, `text`, `start`, `end` (Europe/Dublin local), `locationCodes`, `products`, `eventStops` | every 120s into `rail_service_alerts` |
+| `/realtime/live/{code}` | station board with each train's full calling pattern (`locations`) and `delay` | no, same data as the ASMX boards |
+| `/realtime/trains/current`, `/realtime/stations` | JSON versions of the ASMX feeds | no |
+| `/bridges/heights` | 453 rail bridges as GeoJSON with clearance in metres | no, static reference |
+| `/fares/stations`, `/fares/codes/`, `/fares/names/` | fare lookup | no |
+| `/realtime/trains/movements/{code}` | 403 for this key | no |
+
+`/realtime/messages` holds the same notices Irish Rail posts on social media, already tied to station codes. The irishrail.ie terms of use restrict copying site content without written permission, so this data is for private analysis only. Ask Irish Rail before publishing or sharing anything built on it. `RAIL_NOTICES=0` turns the poller off. NTA's GTFS-Realtime alerts, which are CC BY 4.0, carry some Irish Rail notices too (see [buses.md](buses.md#service-alerts)). After a refusal or an outage the poller backs off from 10 minutes up to 6 hours and honours `Retry-After`. It only lists live and upcoming notices, so history starts when polling starts. Instagram is not usable: anonymous requests hit a login wall.
+
 ## Related docs
 
 - [scraper.md](scraper.md) — how the daemon consumes this API
+- [context-data.md](context-data.md) — Met Éireann weather and TII road traffic
 - [api.md](api.md) — how the data is re-exposed to clients
 - [network-graph.md](network-graph.md) — topology derived from this data + GeoJSON
 - [analysis/overview.md](analysis/overview.md) — what the dataset says about the network

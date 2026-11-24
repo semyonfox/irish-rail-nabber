@@ -12,9 +12,10 @@ Single source of truth for irish-rail-nabber. Each doc owns one concern; cross-r
 6. [chatbot.md](chatbot.md) — the AI assistant with database tools
 7. [auth-billing.md](auth-billing.md) — accounts, Polar.sh, paid tiers
 8. [data-sources.md](data-sources.md) — the upstream Irish Rail API
-9. [deployment.md](deployment.md) — Docker, cloud, backups, recovery
-10. [network-graph.md](network-graph.md) — rail topology and visualizations
-11. [testing.md](testing.md) — verification checklists
+9. [context-data.md](context-data.md) — Met Éireann weather and TII road traffic
+10. [deployment.md](deployment.md) — Docker, cloud, backups, recovery
+11. [network-graph.md](network-graph.md) — rail topology and visualizations
+12. [testing.md](testing.md) — verification checklists
 
 ## Analysis
 

@@ -9,12 +9,33 @@ The bus collector adds NTA GTFS schedules, realtime trip updates and current veh
 | Matching GTFS schedule | `https://www.transportforireland.ie/transitData/Data/GTFS_Realtime.zip` | public | daily |
 | TripUpdates | `https://api.nationaltransport.ie/gtfsr/v2/gtfsr?format=json` | `x-api-key` | alternating, normally about every two minutes |
 | Vehicles | `https://api.nationaltransport.ie/gtfsr/v2/Vehicles?format=json` | `x-api-key` | alternating, normally about every two minutes |
+| Alerts | `https://api.nationaltransport.ie/gtfsr/v2/Alerts?format=json` | `x-api-key` | one slot every 10 minutes, set `NTA_ALERTS_URL=` to turn off |
 
 The collector keeps only routes whose GTFS `route_type` is `3` or `11`, or the extended bus/coach types `200–209`, `700–716` and `800`, plus their agencies, trips, stops, stop times, predictions and vehicle positions. The NTA exposes trip updates and vehicle positions through separate operations, but its fair-usage policy permits only one realtime API request per token every 60 seconds. The collector therefore alternates the operations within one shared request budget. With the one-second safety margin, each kind normally refreshes about every 122 seconds.
 
 The NTA describes its live feed as covering services provided by Dublin Bus, Bus Éireann and Go-Ahead Ireland. The matching static schedule covers a broader bus network, so a route appearing in the schedule does not by itself mean realtime positions are available for it.
 
 NTA data uses CC BY 4.0. Public views must name the NTA, link to the source and say that the data is supplied as is. The dashboard bus page includes this notice. Review the NTA's commercial-use wording before placing bus data behind a paid plan.
+
+## Service alerts
+
+`/gtfsr/v2/Alerts` is standard GTFS-Realtime ServiceAlerts for Dublin Bus, Bus Éireann, Go-Ahead, Luas and some Irish Rail notices. It takes one slot of the shared one-request-a-minute budget at most every 10 minutes, counting failed attempts, so trip updates and vehicles lose about one refresh in ten. `/gtfsr/v2/ServiceAlerts` is a 404.
+
+Alerts land in `bus_service_alerts`, keyed by NTA's entity id (`ID-<creation time>`), falling back to header, first start and agencies when an alert has none, so edits update the row and bump `revisions`. NTA marks open-ended alerts with an end in the year 3000, stored as `ends_at = NULL`. NTA sets `cause` and `effect` to `UNKNOWN` on every alert, so `category` comes from the text: disruption, diversion, stop_change, delay, works, timetable or other. Route and stop ids belong to the row's `feed_version_id`.
+
+## Segment delay
+
+`bus_segment_delay_hourly` holds delay picked up between consecutive stops, per service date, scheduled hour, and stop pair. A trip is folded in when it leaves `bus_stop_live`, 30 minutes after its last update, in the same statement that deletes it. NTA sends delays without times, so each stop uses the last delay predicted for it, and run times are the timetable run from `bus_stop_times` plus the delay gained. Legs that gain more than 30 minutes, or that would arrive before they left, are prediction resets and are dropped.
+
+Rows are keyed by stop pair, not timetable version: NTA publishes a new version most days but keeps stop ids, so `feed_version_id` is only the newest version seen, for names and coordinates. A timetable's stop times are kept until its last live trip has been rolled up, so trips running when a new timetable lands still count.
+
+Cancelled trips and skipped stops are left out. So is any leg the bus was not due to finish until more than 5 minutes after the feed last listed the trip, since a trip that vanishes early leaves forecasts for legs it never ran. When the daily timetable switch lands, running trips keep a frozen copy under the old version. A leg in that copy is skipped when the active version is still tracking its starting stop, since the active version will count it from there. The check runs after stops are paired, so the old copy keeps the legs the new version can no longer see.
+
+After the trip key fix ships, rows written under the old keys roll up within about 30 minutes, some of them several times. Delete that day's rows once, the morning after the deploy: `DELETE FROM bus_segment_delay_hourly WHERE service_date <= '<deploy date>'`. Nothing else reads the table yet. A collector outage longer than 30 minutes double counts the trips running through it: they are rolled up when their rows expire and again when they finish, because NTA keeps listing passed stops. Treat the hours around an outage with care.
+
+Trips are keyed on their trip id, service date and start time. NTA's trip-update entity ids are positions in each poll (`T577`, then `T576` a poll later), and keying on them split one trip into about 9 keys while lumping unrelated trips with the same start time under one. NTA's added trips carry no trip id, so they still fall back to the entity id and stay fragmented, but they never reach the segment rollup. Change detection ignores entity ids too, so a renumbered but unchanged prediction is not written again. Legs are also only formed within a single `trip_id`, so rows written under the old keys can't pair stops from two buses.
+
+Each stop's value is the last delay NTA predicted for it, not an observed time, so per-leg gains are noisy. Columns are sums (`trips`, `gain_sum_s`, `gain_pos_sum_s`, `gain_sq_sum`, `run_sum_s`, `sched_run_sum_s`) plus `gain_hist`, trip counts per signed gain bucket (edges -300, -120, -60, -30, 0, 30, 60, 120 and 300 s). Everything adds up across days and hours, so any window can be averaged at read time. On a live snapshot with trips separated properly, net gain averaged -1.4 s per leg and most legs sat within 30 s either way. Rank on net delay (`gain_sum_s`) over many trips and read medians from `gain_hist`. `gain_pos_sum_s` counts only increases, so it reads busy routes as worse than they are. History starts when this ships. The archive could backfill it but nothing does yet.
 
 ## Why schedules are versioned
 
