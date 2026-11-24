@@ -17,8 +17,10 @@ import hashlib
 import io
 import json
 import math
+import os
 from pathlib import Path
 import re
+import tempfile
 import urllib.request
 
 from psycopg import sql
@@ -230,24 +232,32 @@ def normalize(families: dict[str, list[dict]]) -> list[dict]:
 
 def prepare(directory: Path, refresh: bool) -> tuple[list[dict], dict]:
     directory.mkdir(parents=True, exist_ok=True)
-    model_path = directory / "model.json"
-    if refresh or not model_path.exists():
-        model = download_json(PUBLIC_API + PUBLIC_REPORT + "/modelsAndExploration?preferReadOnlySession=true")
-        model_path.write_text(json.dumps(model))
-    else:
-        model = json.loads(model_path.read_text())
+    definitions = metric_definitions()
+    snapshot_path = directory / "snapshot.json"
+    snapshot = None
+    if not refresh:
+        if snapshot_path.is_file():
+            snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+            if not isinstance(snapshot, dict):
+                raise ValueError("Expected a cached snapshot object")
+        else:
+            legacy_paths = {name: directory / f"{name}.json" for name in ("model", *definitions)}
+            if all(path.is_file() for path in legacy_paths.values()):
+                snapshot = {name: json.loads(path.read_text()) for name, path in legacy_paths.items()}
+
+    needs_download = snapshot is None
+    if snapshot is None:
+        snapshot = {"model": download_json(PUBLIC_API + PUBLIC_REPORT + "/modelsAndExploration?preferReadOnlySession=true")}
+    model = snapshot["model"]
     model_id = model["models"][0]["id"]
     if not isinstance(model_id, int):
         raise ValueError("Invalid public model identifier")
     responses, families = {}, {}
-    for label, (entity, metrics) in metric_definitions().items():
-        path = directory / (label + ".json")
+    for label, (entity, metrics) in definitions.items():
         request = build_query(entity, metrics, model_id)
-        if refresh or not path.exists():
-            response = download_json(PUBLIC_API + "querydata?synchronous=true", request)
-            path.write_text(json.dumps(response))
-        else:
-            response = json.loads(path.read_text())
+        if needs_download:
+            snapshot[label] = download_json(PUBLIC_API + "querydata?synchronous=true", request)
+        response = snapshot[label]
         rows = decode_rows(response, [*DIMENSIONS, *(name for name, _ in metrics)])
         print(f"{label}: {len(rows):,} published route-period rows")
         families[label] = rows
@@ -257,6 +267,15 @@ def prepare(directory: Path, refresh: bool) -> tuple[list[dict], dict]:
         raise ValueError("No records; refusing an empty replacement")
     bundle = {"source_url": SOURCE_URL, "source_updated_at": model["models"][0].get("LastRefreshTime"),
               "responses": responses}
+    if needs_download:
+        # stage on the same filesystem so readers open one complete snapshot
+        with tempfile.TemporaryDirectory(dir=directory) as staging:
+            staged_path = Path(staging) / snapshot_path.name
+            with staged_path.open("w", encoding="utf-8") as output:
+                json.dump(snapshot, output)
+                output.flush()
+                os.fsync(output.fileno())
+            staged_path.replace(snapshot_path)
     return records, bundle
 
 

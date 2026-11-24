@@ -20,7 +20,9 @@ def test_files():
             content = f.read()
         size_kb = html_file.stat().st_size / 1024
         has_data = '"data":' in content and len(content) > 100000
-        tests.append(("Interactive HTML", html_file.exists() and has_data, f"{size_kb:.0f} KB"))
+        tests.append(("Interactive HTML", has_data, f"{size_kb:.0f} KB"))
+    else:
+        tests.append(("Interactive HTML", False, f"missing {html_file}"))
     
     # Test PNG image
     png_file = output_dir / "network_graph.png"
@@ -28,6 +30,8 @@ def test_files():
         size_kb = png_file.stat().st_size / 1024
         is_valid = png_file.stat().st_size > 100000
         tests.append(("PNG Image", is_valid, f"{size_kb:.0f} KB"))
+    else:
+        tests.append(("PNG Image", False, f"missing {png_file}"))
     
     # Test graph data
     graph_file = output_dir / "irish_rail_network_proximity.pkl"
@@ -35,6 +39,8 @@ def test_files():
         with open(graph_file, 'rb') as f:
             G = pickle.load(f)
         tests.append(("Graph Data", G.number_of_nodes() == 158, f"{G.number_of_nodes()} nodes, {G.number_of_edges()} edges"))
+    else:
+        tests.append(("Graph Data", False, f"missing {graph_file}"))
     
     # Test stations
     stations_file = output_dir / "irish_rail_stations.json"
@@ -42,6 +48,8 @@ def test_files():
         with open(stations_file, 'r') as f:
             stations = json.load(f)
         tests.append(("Station Data", len(stations) > 100, f"{len(stations)} stations"))
+    else:
+        tests.append(("Station Data", False, f"missing {stations_file}"))
     
     # Print results
     print("=" * 60)

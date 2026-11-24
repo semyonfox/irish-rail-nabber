@@ -570,8 +570,6 @@ class IrishRailDaemon:
                 )
                 return
 
-            self.prev_trains_hash = content_hash
-
             # refresh type map if stale (every 5 min instead of every 3s)
             await self._refresh_type_map()
 
@@ -587,29 +585,33 @@ class IrishRailDaemon:
                         lon_str = extract_text(train, "TrainLongitude", "0")
                         lat, lon = to_irish_coordinate_pair(lat_str, lon_str)
 
-                        await conn.execute(
-                            """INSERT INTO train_snapshots
-                               (train_code, train_status, latitude, longitude,
-                                train_date, direction, public_message, train_type,
-                                fetched_at)
-                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())""",
-                            (
-                                code,
-                                extract_text(train, "TrainStatus"),
-                                lat,
-                                lon,
-                                extract_text(train, "TrainDate"),
-                                extract_text(train, "Direction"),
-                                extract_text(train, "PublicMessage"),
-                                self._type_map.get(code),
-                            ),
+                        values = (
+                            code,
+                            extract_text(train, "TrainStatus"),
+                            lat,
+                            lon,
+                            extract_text(train, "TrainDate"),
+                            extract_text(train, "Direction"),
+                            extract_text(train, "PublicMessage"),
+                            self._type_map.get(code),
                         )
-                        count += 1
                     except Exception as e:
                         logger.debug(f"train parse error: {e}")
+                        continue
+
+                    await conn.execute(
+                        """INSERT INTO train_snapshots
+                           (train_code, train_status, latitude, longitude,
+                            train_date, direction, public_message, train_type,
+                            fetched_at)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())""",
+                        values,
+                    )
+                    count += 1
 
                 await conn.commit()
 
+            self.prev_trains_hash = content_hash
             duration = int((datetime.now() - start).total_seconds() * 1000)
             await self.record_fetch(
                 "getCurrentTrainsXML", count, "success", duration_ms=duration
@@ -651,8 +653,8 @@ class IrishRailDaemon:
                     "getHaconTrainsXML", 0, "skipped", duration_ms=duration
                 )
                 return
-            self.prev_hacon_hash = content_hash
 
+            pending_hashes: Dict[str, str] = {}
             inserted = 0
             unchanged = 0
             async with self.pool.connection() as conn:
@@ -680,45 +682,53 @@ class IrishRailDaemon:
                             extract_text(train, "Difference"),
                         )
 
-                        if self.prev_hacon_train_hashes.get(code) == fp:
+                        previous = pending_hashes.get(
+                            code, self.prev_hacon_train_hashes.get(code)
+                        )
+                        if previous == fp:
                             unchanged += 1
                             continue
-                        self.prev_hacon_train_hashes[code] = fp
 
-                        await conn.execute(
-                            """INSERT INTO train_snapshots_hacon
-                               (train_code, train_status, latitude, longitude, train_date,
-                                direction, last_location_type, last_location, next_location,
-                                difference_seconds, train_origin, train_destination,
-                                train_origin_time, train_destination_time,
-                                scheduled_departure, scheduled_arrival, fetched_at)
-                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                                       %s, %s, %s, %s, NOW())""",
-                            (
-                                code,
-                                extract_text(train, "TrainStatus") or None,
-                                lat,
-                                lon,
-                                extract_text(train, "TrainDate") or None,
-                                extract_text(train, "Direction") or None,
-                                extract_text(train, "LastLocationType") or None,
-                                extract_text(train, "LastLocation") or None,
-                                extract_text(train, "NextLocation") or None,
-                                to_int_or_none(extract_text(train, "Difference")),
-                                extract_text(train, "TrainOrigin") or None,
-                                extract_text(train, "TrainDestination") or None,
-                                parse_hacon_datetime(extract_text(train, "TrainOriginTime")),
-                                parse_hacon_datetime(extract_text(train, "TrainDestinationTime")),
-                                parse_hacon_datetime(extract_text(train, "ScheduledDeparture")),
-                                parse_hacon_datetime(extract_text(train, "ScheduledArrival")),
-                            ),
+                        values = (
+                            code,
+                            extract_text(train, "TrainStatus") or None,
+                            lat,
+                            lon,
+                            extract_text(train, "TrainDate") or None,
+                            extract_text(train, "Direction") or None,
+                            extract_text(train, "LastLocationType") or None,
+                            extract_text(train, "LastLocation") or None,
+                            extract_text(train, "NextLocation") or None,
+                            to_int_or_none(extract_text(train, "Difference")),
+                            extract_text(train, "TrainOrigin") or None,
+                            extract_text(train, "TrainDestination") or None,
+                            parse_hacon_datetime(extract_text(train, "TrainOriginTime")),
+                            parse_hacon_datetime(extract_text(train, "TrainDestinationTime")),
+                            parse_hacon_datetime(extract_text(train, "ScheduledDeparture")),
+                            parse_hacon_datetime(extract_text(train, "ScheduledArrival")),
                         )
-                        inserted += 1
                     except Exception as e:
                         logger.debug(f"hacon parse error for {code}: {e}")
+                        continue
+
+                    await conn.execute(
+                        """INSERT INTO train_snapshots_hacon
+                           (train_code, train_status, latitude, longitude, train_date,
+                            direction, last_location_type, last_location, next_location,
+                            difference_seconds, train_origin, train_destination,
+                            train_origin_time, train_destination_time,
+                            scheduled_departure, scheduled_arrival, fetched_at)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                                   %s, %s, %s, %s, NOW())""",
+                        values,
+                    )
+                    pending_hashes[code] = fp
+                    inserted += 1
 
                 await conn.commit()
 
+            self.prev_hacon_train_hashes.update(pending_hashes)
+            self.prev_hacon_hash = content_hash
             duration = int((datetime.now() - start).total_seconds() * 1000)
             await self.record_fetch(
                 "getHaconTrainsXML", inserted, "success", duration_ms=duration
@@ -760,33 +770,45 @@ class IrishRailDaemon:
 
         changed_count = 0
         total_records = 0
+        write_error = None
 
         for result in board_results:
+            if isinstance(result, Exception):
+                logger.debug(f"fetch error: {result}")
+                continue
+
+            station_code, xml = result
+            if not xml:
+                continue
+
+            content_hash = stable_hash(_TIMESTAMP_RE.sub("", xml))
+            if self.prev_boards_hashes.get(station_code) == content_hash:
+                continue
+
             try:
-                if isinstance(result, Exception):
-                    logger.debug(f"fetch error: {result}")
-                    continue
-
-                station_code, xml = result
-                if not xml:
-                    continue
-
-                content_hash = stable_hash(_TIMESTAMP_RE.sub("", xml))
-
-                if self.prev_boards_hashes.get(station_code) == content_hash:
-                    continue
-
-                self.prev_boards_hashes[station_code] = content_hash
-                changed_count += 1
                 count = await self._insert_station_events(station_code, xml)
-                total_records += count
+            except ET.ParseError as e:
+                logger.debug(f"board parse error for {station_code}: {e}")
+                continue
             except Exception as e:
-                logger.debug(f"board processing error: {e}")
+                logger.warning(f"board insert failed for {station_code}: {e}")
+                write_error = write_error or f"{station_code}: {e}"
+                continue
+
+            self.prev_boards_hashes[station_code] = content_hash
+            changed_count += 1
+            total_records += count
 
         duration = int((datetime.now() - start).total_seconds() * 1000)
         status = "success" if changed_count > 0 else "skipped"
+        if write_error is not None:
+            status = "failed"
         await self.record_fetch(
-            "getStationDataByCodeXML", total_records, status, duration_ms=duration
+            "getStationDataByCodeXML",
+            total_records,
+            status,
+            error=write_error,
+            duration_ms=duration,
         )
         if changed_count > 0:
             logger.info(
@@ -804,6 +826,8 @@ class IrishRailDaemon:
     async def _insert_station_events(self, station_code: str, xml: str) -> int:
         """parse and insert station events for one station.
 
+        return the committed row count. XML and storage errors reach the batch caller.
+
         fixes applied:
         - train_date extracted and stored (was missing entirely)
         - query_time extracted and stored (column existed but was never populated)
@@ -815,103 +839,100 @@ class IrishRailDaemon:
         if not xml:
             return 0
 
-        try:
-            root = parse_xml(xml)
-            count = 0
+        root = parse_xml(xml)
+        pending_hashes: Dict[str, str] = {}
+        count = 0
 
-            async with self.pool.connection() as conn:
-                for board in root:
-                    try:
-                        train_code = extract_text(board, "Traincode")
-                        if not train_code:
-                            continue
+        async with self.pool.connection() as conn:
+            for board in root:
+                try:
+                    train_code = extract_text(board, "Traincode")
+                    if not train_code:
+                        continue
 
-                        train_code = train_code.strip()
-                        train_date = extract_text(board, "Traindate")
-                        query_time = extract_text(board, "Querytime")
-                        scheduled_arrival = to_time_or_none(
-                            extract_text(board, "Scharrival")
-                        )
-                        scheduled_departure = to_time_or_none(
-                            extract_text(board, "Schdepart")
-                        )
-                        expected_arrival = to_time_or_none(
-                            extract_text(board, "Exparrival")
-                        )
-                        expected_departure = to_time_or_none(
-                            extract_text(board, "Expdepart")
-                        )
-                        late_minutes = normalize_late_minutes(
-                            to_int_or_none(extract_text(board, "Late")),
-                            scheduled_arrival,
-                            scheduled_departure,
-                            expected_arrival,
-                            expected_departure,
-                        )
+                    train_code = train_code.strip()
+                    train_date = extract_text(board, "Traindate")
+                    query_time = extract_text(board, "Querytime")
+                    scheduled_arrival = to_time_or_none(
+                        extract_text(board, "Scharrival")
+                    )
+                    scheduled_departure = to_time_or_none(
+                        extract_text(board, "Schdepart")
+                    )
+                    expected_arrival = to_time_or_none(
+                        extract_text(board, "Exparrival")
+                    )
+                    expected_departure = to_time_or_none(
+                        extract_text(board, "Expdepart")
+                    )
+                    late_minutes = normalize_late_minutes(
+                        to_int_or_none(extract_text(board, "Late")),
+                        scheduled_arrival,
+                        scheduled_departure,
+                        expected_arrival,
+                        expected_departure,
+                    )
 
-                        # row-level dedup: only insert if train state changed
-                        # fingerprint includes all meaningful fields except fetched_at and query_time
-                        fingerprint = stable_hash(
-                            extract_text(board, "Status"),
-                            late_minutes,
-                            extract_text(board, "Lastlocation"),
-                            expected_arrival,
-                            expected_departure,
-                        )
-                        cache_key = f"{train_code}:{station_code}:{train_date}"
+                    # row-level dedup: only insert if train state changed
+                    fingerprint = stable_hash(
+                        extract_text(board, "Status"),
+                        late_minutes,
+                        extract_text(board, "Lastlocation"),
+                        expected_arrival,
+                        expected_departure,
+                    )
+                    cache_key = f"{train_code}:{station_code}:{train_date}"
+                    previous = pending_hashes.get(
+                        cache_key, self.prev_train_at_station_hashes.get(cache_key)
+                    )
+                    if previous == fingerprint:
+                        continue
 
-                        if (
-                            self.prev_train_at_station_hashes.get(cache_key)
-                            == fingerprint
-                        ):
-                            continue  # no change, skip insert
+                    values = (
+                        train_code,
+                        station_code,
+                        train_date or None,
+                        extract_text(board, "Origin"),
+                        extract_text(board, "Destination"),
+                        extract_text(board, "Traintype"),
+                        extract_text(board, "Direction"),
+                        extract_text(board, "Status"),
+                        scheduled_arrival,
+                        scheduled_departure,
+                        expected_arrival,
+                        expected_departure,
+                        late_minutes,
+                        extract_text(board, "Lastlocation"),
+                        to_int_or_none(extract_text(board, "Duein")),
+                        extract_text(board, "Locationtype") or None,
+                        to_time_or_none(extract_text(board, "Origintime")),
+                        to_time_or_none(extract_text(board, "Destinationtime")),
+                        to_time_or_none(query_time),
+                    )
+                except Exception as e:
+                    logger.debug(f"board parse error for {station_code}: {e}")
+                    continue
 
-                        self.prev_train_at_station_hashes[cache_key] = fingerprint
+                await conn.execute(
+                    """INSERT INTO station_events
+                       (train_code, station_code, train_date,
+                        origin, destination, train_type, direction,
+                        status, scheduled_arrival, scheduled_departure,
+                        expected_arrival, expected_departure,
+                        late_minutes, last_location, due_in,
+                        location_type, origin_time, destination_time,
+                        query_time, fetched_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                               %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())""",
+                    values,
+                )
+                pending_hashes[cache_key] = fingerprint
+                count += 1
 
-                        await conn.execute(
-                            """INSERT INTO station_events
-                               (train_code, station_code, train_date,
-                                origin, destination, train_type, direction,
-                                status, scheduled_arrival, scheduled_departure,
-                                expected_arrival, expected_departure,
-                                late_minutes, last_location, due_in,
-                                location_type, origin_time, destination_time,
-                                query_time, fetched_at)
-                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                                       %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())""",
-                            (
-                                train_code,
-                                station_code,
-                                train_date or None,
-                                extract_text(board, "Origin"),
-                                extract_text(board, "Destination"),
-                                extract_text(board, "Traintype"),
-                                extract_text(board, "Direction"),
-                                extract_text(board, "Status"),
-                                scheduled_arrival,
-                                scheduled_departure,
-                                expected_arrival,
-                                expected_departure,
-                                late_minutes,
-                                extract_text(board, "Lastlocation"),
-                                to_int_or_none(extract_text(board, "Duein")),
-                                extract_text(board, "Locationtype") or None,
-                                to_time_or_none(extract_text(board, "Origintime")),
-                                to_time_or_none(extract_text(board, "Destinationtime")),
-                                to_time_or_none(query_time),
-                            ),
-                        )
-                        count += 1
-                    except Exception as e:
-                        logger.debug(f"board parse error for {station_code}: {e}")
+            await conn.commit()
 
-                await conn.commit()
-
-            return count
-
-        except Exception as e:
-            logger.debug(f"board insert failed for {station_code}: {e}")
-            return 0
+        self.prev_train_at_station_hashes.update(pending_hashes)
+        return count
 
     async def fetch_all_train_movements(self):
         """track full journey paths for all live trains (with dedup)"""

@@ -286,8 +286,10 @@ can fail once and is retried on the next poll.
 
 ### Running the compaction
 
+Before copying the archive, confirm a current, verified production backup is
+available. See [Backups and recovery](deployment.md#backups-and-recovery).
+
 ```bash
-./backup-db.sh
 docker exec -i irish_bus_daemon python - --expected-db ireland_public \
     --phase copy < scripts/compact_bus_archive.py
 docker exec -i irish_bus_daemon python - --expected-db ireland_public \
