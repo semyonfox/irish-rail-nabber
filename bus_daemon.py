@@ -491,10 +491,11 @@ class ActiveBusIds:
     trip_routes: Mapping[str, str]
 
 
+# NTA renumbers entity ids every poll, so they stay out of the change hashes.
+# with them in, about three quarters of archived rows were unchanged states
 def _stop_update_state_hash(update: ParsedStopUpdate) -> str:
     return _stable_payload_hash(
         {
-            "entity_id": update.entity_id,
             "trip_id": update.trip_id,
             "route_id": update.route_id,
             "service_date": update.service_date,
@@ -514,7 +515,6 @@ def _stop_update_state_hash(update: ParsedStopUpdate) -> str:
 def _vehicle_position_state_hash(position: ParsedVehiclePosition) -> str:
     return _stable_payload_hash(
         {
-            "entity_id": position.entity_id,
             "vehicle_instance_key": position.vehicle_instance_key,
             "vehicle_id": position.vehicle_id,
             "vehicle_label": position.vehicle_label,
@@ -546,8 +546,19 @@ def _trip_instance_key(
     start_time: int | str | None,
     vehicle_id: str | None,
 ) -> str:
-    if entity_id is not None:
+    # NTA's entity ids are positions in each poll (T577, then T576 a poll
+    # later), not trip identities, so a dated trip descriptor comes first. keying
+    # on the entity split one trip into a new key almost every poll. a trip id
+    # with no date or start can be shared by separate added trips, so it doesn't
+    # count. NTA's added trips carry no trip id at all and still use the entity
+    if trip_id is not None and (service_date is not None or start_time is not None):
         fields: dict[str, object] = {
+            "trip_id": trip_id,
+            "service_date": service_date,
+            "start_time": start_time,
+        }
+    elif entity_id is not None:
+        fields = {
             "entity_id": entity_id,
             "service_date": service_date,
             "start_time": start_time,

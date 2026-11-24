@@ -324,6 +324,28 @@ class ParseTripUpdatesTests(unittest.TestCase):
         )
         self.assertEqual(canceled.trip_freshness[0].schedule_relationship, "CANCELED")
 
+    def test_one_trip_keeps_its_key_when_nta_renumbers_the_entity(self) -> None:
+        def poll(entity_id: str) -> str:
+            return _parse_trip_updates_feed(
+                {
+                    "entity": [
+                        {
+                            "id": entity_id,
+                            "tripUpdate": {
+                                "trip": {
+                                    "tripId": "6056_30802",
+                                    "startDate": "20261124",
+                                    "startTime": "19:30:00",
+                                },
+                                "stopTimeUpdate": {"stopSequence": 4, "arrival": {"delay": 60}},
+                            },
+                        }
+                    ]
+                }
+            ).trip_freshness[0].trip_instance_key
+
+        self.assertEqual(poll("T577"), poll("T576"))
+
     def test_differential_incrementality_is_exposed(self) -> None:
         parsed = _parse_trip_updates_feed(
             {"header": {"incrementality": "DIFFERENTIAL"}, "entity": []}
