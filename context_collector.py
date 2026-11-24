@@ -48,6 +48,8 @@ TII_BULK_FIRST_DAY = date(2013, 6, 1)
 # data.tii.ie stopped publishing daily files in April 2021
 TII_BULK_LAST_DAY = date(2021, 4, 15)
 TII_BULK_DAYS_PER_RUN = 20
+# a day the bucket is known to serve, used to tell a block from a gap
+TII_BULK_KNOWN_DAY = date(2019, 6, 4)
 # TII's dataserver is a public map backend, so go gently
 TII_REQUEST_GAP_SECONDS = 2.0
 # Met Éireann revises recent archive hours, so each refresh re-reads this much
@@ -156,7 +158,8 @@ def parse_archive_header(line: str) -> Optional[list[str]]:
     if not line.startswith("date,"):
         return None
     columns = line.strip().split(",")
-    if not {"rain", "temp", "wdsp"} <= set(columns):
+    # Phoenix Park and Markree publish no wind columns, so only these are required
+    if not {"rain", "temp"} <= set(columns):
         return None
     return [
         f"{name}{index}" if name == "ind" else name
@@ -406,6 +409,7 @@ class ContextCollector:
                     resp.raise_for_status()
                     return await resp.json(content_type=None)
             except (aiohttp.ClientConnectionError, asyncio.TimeoutError) as error:
+                self._tii_blocked_until = loop.time() + TII_COOLDOWN_SECONDS
                 raise TiiUnavailable(f"{path}: {error}") from error
             finally:
                 self._tii_last_call = loop.time()
@@ -718,44 +722,26 @@ class ContextCollector:
         if site_ids:
             await self.record_fetch("tii/yearly", written, "failed" if error else "success", error)
 
-    async def backfill_tii_daily_class(self) -> None:
-        """2013-2021 daily counts per site and vehicle class, a few days per run.
-        a day only counts as done on a real file or a confirmed missing one,
-        anything else stops the run and it is tried again next time"""
+    async def _fetch_tii_day(self, day: date) -> Optional[list[tuple]]:
+        """rows for one bulk day, None when the bucket answers 403 or 404.
+        anything else raises, so the day is retried"""
+        async with self.session.get(TII_DAILY_CLASS_URL.format(d=day)) as resp:
+            if resp.status in (403, 404):
+                return None
+            if resp.status != 200:
+                raise ValueError(f"{day}: HTTP {resp.status}")
+            text = await resp.text()
+        if not text.startswith('"cosit","class"'):
+            raise ValueError(f"{day}: unexpected file contents")
+        rows = parse_tii_daily_class(text)
+        if any(row[1] != day for row in rows):
+            raise ValueError(f"{day}: file holds counts for another date")
+        return rows
+
+    async def _record_tii_days(self, days: list[tuple[date, list[tuple]]]) -> None:
         async with self.pool.connection() as conn:
-            days = await (
-                await conn.execute(
-                    """SELECT d::date FROM generate_series(%s::date, %s::date, INTERVAL '1 day') d
-                       WHERE NOT EXISTS (SELECT 1 FROM traffic_bulk_days b WHERE b.day = d::date)
-                       ORDER BY d DESC LIMIT %s""",
-                    (TII_BULK_FIRST_DAY, TII_BULK_LAST_DAY, TII_BULK_DAYS_PER_RUN),
-                )
-            ).fetchall()
-            await conn.commit()
-        missing_in_a_row = 0
-        for (day,) in days:
-            try:
-                async with self.session.get(TII_DAILY_CLASS_URL.format(d=day)) as resp:
-                    # the bucket answers a missing object with 403
-                    if resp.status in (403, 404):
-                        text = None
-                        missing_in_a_row += 1
-                        # a whole run of refusals looks like a block, not gaps
-                        if missing_in_a_row >= TII_BULK_DAYS_PER_RUN:
-                            raise ValueError(f"{day}: every day refused, treating as blocked")
-                    elif resp.status == 200:
-                        missing_in_a_row = 0
-                        text = await resp.text()
-                        if not text.startswith('"cosit","class"'):
-                            raise ValueError(f"{day}: unexpected file contents")
-                    else:
-                        raise ValueError(f"{day}: HTTP {resp.status}")
-            except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as failure:
-                await self.record_fetch("tii/bulk", 0, "failed", str(failure)[:200])
-                return
-            rows = parse_tii_daily_class(text) if text else []
-            async with self.pool.connection() as conn:
-                async with conn.transaction():
+            async with conn.transaction():
+                for day, rows in days:
                     async with conn.cursor() as cur:
                         await cur.executemany(
                             """INSERT INTO traffic_daily_class (cosit, day, vehicle_class, vehicles)
@@ -769,4 +755,39 @@ class ContextCollector:
                            ON CONFLICT (day) DO UPDATE SET rows = EXCLUDED.rows""",
                         (day, len(rows)),
                     )
-            await asyncio.sleep(TII_REQUEST_GAP_SECONDS / 2)
+
+    async def backfill_tii_daily_class(self) -> None:
+        """2013-2021 daily counts per site and vehicle class, a few days per run.
+        a refused day only counts as missing once the same run has shown the
+        bucket is serving files, so a block never marks days done"""
+        async with self.pool.connection() as conn:
+            days = await (
+                await conn.execute(
+                    """SELECT d::date FROM generate_series(%s::date, %s::date, INTERVAL '1 day') d
+                       WHERE NOT EXISTS (SELECT 1 FROM traffic_bulk_days b WHERE b.day = d::date)
+                       ORDER BY d DESC LIMIT %s""",
+                    (TII_BULK_FIRST_DAY, TII_BULK_LAST_DAY, TII_BULK_DAYS_PER_RUN),
+                )
+            ).fetchall()
+            await conn.commit()
+        if not days:
+            return
+        fetched: list[tuple[date, Optional[list[tuple]]]] = []
+        try:
+            for (day,) in days:
+                fetched.append((day, await self._fetch_tii_day(day)))
+                await asyncio.sleep(TII_REQUEST_GAP_SECONDS / 2)
+            if all(rows is None for _day, rows in fetched):
+                # a long genuine gap and a block look the same, so ask for a
+                # day that is known to exist
+                if await self._fetch_tii_day(TII_BULK_KNOWN_DAY) is None:
+                    raise ValueError("every day refused, including a known day")
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as failure:
+            # days fetched before the failure are kept, refused ones are not
+            await self._record_tii_days([(d, r) for d, r in fetched if r is not None])
+            await self.record_fetch("tii/bulk", 0, "failed", str(failure)[:200])
+            return
+        await self._record_tii_days([(d, r or []) for d, r in fetched])
+        await self.record_fetch(
+            "tii/bulk", sum(len(r or []) for _d, r in fetched), "success", None
+        )

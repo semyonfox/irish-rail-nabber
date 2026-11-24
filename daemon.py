@@ -1560,7 +1560,9 @@ class IrishRailDaemon:
                                baseline_avg_late = NULL, pre_avg_late = NULL,
                                pre_baseline_avg_late = NULL, impact_window_end = NULL,
                                impact_computed_at = NOW()
-                           WHERE alert_key = %s""",
+                           WHERE alert_key = %s
+                             -- it may have reappeared since it was read
+                             AND LEAST(ends_at, last_seen) <= starts_at""",
                         (alert_key,),
                     )
                     await conn.commit()

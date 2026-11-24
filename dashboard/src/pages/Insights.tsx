@@ -195,7 +195,9 @@ function AlertDetails({ alert }: { alert: AlertSummary }) {
           {!impactCategories.has(category) ? (
             <p className="mt-2 text-sm text-ink-2">Impact is not measured for this category.</p>
           ) : detail.neverRan ? (
-            <p className="mt-2 text-sm text-ink-2">This notice never ran.</p>
+            <p className="mt-2 text-sm text-ink-2">
+              Not seen after its stated start, so no impact was measured.
+            </p>
           ) : detail.impactWindowEnd === null ||
             (detail.impactAvgLate === null && detail.preAvgLate === null) ? (
             <p className="mt-2 text-sm text-ink-2">
@@ -491,16 +493,13 @@ function Stretches() {
           </label>
         </div>
         {mode === "BUS" ? (
-          <p id="bus-stretch-range-help" className="text-sm text-ink-2" role="status">
-            Choose 1 to {maxDays} days for buses. Each day has about 250,000 hourly records and the
-            query has a five-second time limit.
+          <p id="bus-stretch-range-help" className="text-sm text-ink-2">
+            Choose 1 to {maxDays} days for buses.
           </p>
         ) : null}
       </div>
       {!valid ? (
-        mode === "RAIL" ? (
-          <RangeMessage maxDays={maxDays} />
-        ) : null
+        <RangeMessage maxDays={maxDays} />
       ) : (
         <>
           {!settled || fetching ? (

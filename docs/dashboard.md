@@ -27,7 +27,7 @@ works notices can show average lateness during the measured window and in the tw
 before the notice's stated start. The display gives the measured end time or labels a
 window capped at 24 hours. Averages cover all trains at the corridor stations. Every poll
 of a train on a station board counts as one reading. If impact processing finds that a
-notice was withdrawn or last seen before its stated start, the details say it never ran.
+notice was withdrawn or last seen before its stated start, the details say it was not seen after its start and no impact was measured.
 Other rail notice categories are marked as not measured.
 
 Delay stretches ranks directed stop pairs by net delay over the selected dates and Irish
@@ -38,8 +38,7 @@ band. Today counts as one day when partial data is available.
 
 Bus rows combine timetable versions and show the median gain bucket and the percentage of
 trips that gained at least two minutes of delay. Bus searches cover up to seven days
-because there are about 250,000 hourly records per day and the query has a five-second time
-limit. Rail searches cover up to 31 days. Rail rows show the mean and standard deviation.
+until query times on production data have been measured. Rail searches cover up to 31 days. Rail rows show the mean and standard deviation.
 The rail view also ranks positive net delay picked up while stopped at stations.
 
 ## Layout

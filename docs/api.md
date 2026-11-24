@@ -175,8 +175,8 @@ contains the lower middle trip in the merged signed gain histogram. `medianGainL
 is inclusive and `medianGainUpperS` is exclusive. A null bound means the bucket is open
 on that side. `gainAtLeastTwoMinutesPct` is the percentage of histogram observations with
 a gain of 120 seconds or more. Both median bounds and this percentage are null for rail.
-The bus range is capped at seven days because there are about 250,000 hourly records per
-day and the query has a five-second time limit.
+The bus range is capped at seven days until query times on production data have been
+measured, since every Insights query has a five-second statement timeout.
 
 Rail impact is measured for delay, disruption and works notices. `impactWindowEnd`
 is the earliest of the scheduled end, last sighting and 24 hours after the stated start.

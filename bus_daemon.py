@@ -136,7 +136,7 @@ WITH finished AS (
           AND freshness.trip_instance_key = live.trip_instance_key
           AND freshness.last_seen_at >= NOW() - INTERVAL '30 minutes'
     )
-    RETURNING live.feed_version_id, live.trip_instance_key, live.trip_id,
+    RETURNING live.feed_version_id, live.trip_instance_key, live.stop_key, live.trip_id,
               live.route_id, live.service_date, live.stop_id, live.stop_sequence,
               live.schedule_relationship, live.arrival_delay_seconds,
               live.departure_delay_seconds
@@ -150,19 +150,31 @@ WITH finished AS (
                AS reached_scheduled,
            COALESCE(f.departure_delay_seconds, f.arrival_delay_seconds) AS left_delay,
            lead(COALESCE(f.arrival_delay_seconds, f.departure_delay_seconds)) OVER trip
-               AS reached_delay
+               AS reached_delay,
+           seen.last_seen_at AS trip_last_seen
     FROM finished f
+    JOIN bus_trip_update_freshness seen
+      ON seen.feed_version_id = f.feed_version_id
+     AND seen.trip_instance_key = f.trip_instance_key
     JOIN bus_stop_times st
       ON st.feed_version_id = f.feed_version_id
      AND st.trip_id = f.trip_id
      AND st.stop_sequence = f.stop_sequence
     WHERE f.stop_id IS NOT NULL
       AND COALESCE(f.schedule_relationship, 'SCHEDULED') = 'SCHEDULED'
+      AND seen.schedule_relationship <> 'CANCELED'
+      -- the daily timetable switch leaves a frozen copy of running trips under
+      -- the old version. skip a stop the active version is still tracking, or
+      -- the leg is counted twice
       AND NOT EXISTS (
-          SELECT 1 FROM bus_trip_update_freshness cancelled
-          WHERE cancelled.feed_version_id = f.feed_version_id
-            AND cancelled.trip_instance_key = f.trip_instance_key
-            AND cancelled.schedule_relationship = 'CANCELED'
+          SELECT 1 FROM bus_stop_live current
+          WHERE current.feed_version_id = (
+                    SELECT id FROM transit_feed_versions
+                    WHERE source = '{FEED_SOURCE}' AND is_active
+                )
+            AND current.feed_version_id <> f.feed_version_id
+            AND current.trip_instance_key = f.trip_instance_key
+            AND current.stop_key = f.stop_key
       )
     -- trip_id as well, since rows keyed before trip keys were fixed can mix trips
     WINDOW trip AS (PARTITION BY f.feed_version_id, f.trip_instance_key, f.trip_id
@@ -178,6 +190,10 @@ WITH finished AS (
       AND service_date IS NOT NULL
       AND left_delay IS NOT NULL AND reached_delay IS NOT NULL
       AND left_scheduled IS NOT NULL AND reached_scheduled IS NOT NULL
+      -- only legs the bus was due to finish while the feed still listed the
+      -- trip. a trip that vanished early leaves forecasts for legs never run
+      AND (service_date + make_interval(secs => reached_scheduled + reached_delay))
+              AT TIME ZONE 'Europe/Dublin' <= trip_last_seen + INTERVAL '5 minutes'
 ), bucketed AS (
     SELECT *, width_bucket(gain, ARRAY{BUS_GAIN_BUCKET_EDGES}) AS bucket
     FROM clean
@@ -632,10 +648,11 @@ class ActiveBusIds:
     trip_routes: Mapping[str, str]
 
 
+# NTA renumbers entity ids every poll, so they stay out of the change hashes.
+# with them in, about three quarters of archived rows were unchanged states
 def _stop_update_state_hash(update: ParsedStopUpdate) -> str:
     return _stable_payload_hash(
         {
-            "entity_id": update.entity_id,
             "trip_id": update.trip_id,
             "route_id": update.route_id,
             "service_date": update.service_date,
@@ -655,7 +672,6 @@ def _stop_update_state_hash(update: ParsedStopUpdate) -> str:
 def _vehicle_position_state_hash(position: ParsedVehiclePosition) -> str:
     return _stable_payload_hash(
         {
-            "entity_id": position.entity_id,
             "vehicle_instance_key": position.vehicle_instance_key,
             "vehicle_id": position.vehicle_id,
             "vehicle_label": position.vehicle_label,
@@ -689,8 +705,9 @@ def _trip_instance_key(
 ) -> str:
     # NTA's entity ids are positions in each poll (T577, then T576 a poll
     # later), not trip identities, so a dated trip descriptor comes first. keying
-    # on the entity split one trip into a new key almost every poll. an undated
-    # descriptor can be shared by separate added trips, so those keep the entity
+    # on the entity split one trip into a new key almost every poll. a trip id
+    # with no date or start can be shared by separate added trips, so it doesn't
+    # count. NTA's added trips carry no trip id at all and still use the entity
     if trip_id is not None and (service_date is not None or start_time is not None):
         fields: dict[str, object] = {
             "trip_id": trip_id,
@@ -703,7 +720,7 @@ def _trip_instance_key(
             "service_date": service_date,
             "start_time": start_time,
         }
-    elif any((route_id, service_date, start_time)):
+    elif any((trip_id, route_id, service_date, start_time)):
         fields = {
             "trip_id": trip_id,
             "route_id": route_id,
@@ -2990,12 +3007,21 @@ class NtaBusDaemon:
             # an old timetable is dropped once its last live trip has been rolled
             # up. the import lock stops this racing a timetable being reactivated
             async with connection.transaction():
-                await connection.execute(
-                    "SELECT pg_advisory_xact_lock(hashtext(%s))", (STATIC_IMPORT_LOCK,)
+                # the daily import holds this lock for its whole transaction, so
+                # skip and try again next pass rather than wait it out
+                locked = await (
+                    await connection.execute(
+                        "SELECT pg_try_advisory_xact_lock(hashtext(%s))",
+                        (STATIC_IMPORT_LOCK,),
+                    )
+                ).fetchone()
+                retired_ids = (
+                    await (
+                        await connection.execute(RETIRED_TIMETABLES_SQL, (FEED_SOURCE,))
+                    ).fetchall()
+                    if locked and locked[0]
+                    else []
                 )
-                retired_ids = await (
-                    await connection.execute(RETIRED_TIMETABLES_SQL, (FEED_SOURCE,))
-                ).fetchall()
                 for (retired_id,) in retired_ids:
                     retired = await connection.execute(
                         "DELETE FROM bus_stop_times WHERE feed_version_id = %s",

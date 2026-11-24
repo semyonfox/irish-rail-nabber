@@ -158,7 +158,7 @@ fn dates(input: InsightsDates, limit: DateRangeLimit) -> Result<(NaiveDate, Naiv
     if !(0..max_days).contains(&(to - from).num_days()) {
         let message = match limit {
             DateRangeLimit::BusStretches => format!(
-                "Select a bus date range of 1 to {max_days} days. Each day has about 250,000 hourly records and the query has a five-second time limit."
+                "Select a bus date range of 1 to {max_days} days"
             ),
             _ => format!("Select a date range of 1 to {max_days} days"),
         };
