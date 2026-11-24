@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS rail_service_alerts (
     baseline_avg_late DOUBLE PRECISION,
     pre_avg_late DOUBLE PRECISION,
     pre_baseline_avg_late DOUBLE PRECISION,
+    -- the measured window stops here: the end, the last sighting, or 24h in
+    impact_window_end TIMESTAMPTZ,
     impact_computed_at TIMESTAMPTZ
 );
 

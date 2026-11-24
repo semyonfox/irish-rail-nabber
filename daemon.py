@@ -26,6 +26,7 @@ import logging
 import os
 import re
 import signal
+import time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -57,6 +58,12 @@ HASH_CLEANUP_INTERVAL = 3600
 # customer notices live on the API behind irishrail.ie, not the legacy ASMX feed.
 # its key is the public one the website ships to every browser, so we read it
 # from the homepage instead of pinning a copy that breaks when they rotate it.
+# the irishrail.ie terms forbid copying site content without written
+# permission, so this stays off unless RAIL_NOTICES=1
+RAIL_NOTICES_ENABLED = os.getenv("RAIL_NOTICES", "0") == "1"
+# after a refusal or an outage, wait this long, doubling up to the cap
+CONNECT_BACKOFF_START_SECONDS = 600
+CONNECT_BACKOFF_MAX_SECONDS = 6 * 3600
 DUBLIN_TZ = ZoneInfo("Europe/Dublin")
 CONNECT_BASE_URL = "https://connect.irishrail.ie"
 CONNECT_KEY_PAGE = "https://www.irishrail.ie/en-ie/"
@@ -514,6 +521,8 @@ class IrishRailDaemon:
         self._shutdown = asyncio.Event()
 
         self._connect_api_key: Optional[str] = None
+        self._connect_backoff_seconds = 0
+        self._connect_blocked_until = 0.0
 
         # weather and road traffic, off with CONTEXT_COLLECTION=0
         self.context: Optional[ContextCollector] = None
@@ -1422,13 +1431,28 @@ class IrishRailDaemon:
         self._connect_api_key = match.group(1)
         return self._connect_api_key
 
+    def _connect_back_off(self, retry_after: Optional[str] = None) -> None:
+        self._connect_backoff_seconds = min(
+            max(self._connect_backoff_seconds * 2, CONNECT_BACKOFF_START_SECONDS),
+            CONNECT_BACKOFF_MAX_SECONDS,
+        )
+        wait = self._connect_backoff_seconds
+        if retry_after and retry_after.isdigit():
+            wait = max(wait, int(retry_after))
+        self._connect_blocked_until = time.monotonic() + wait
+        logger.warning(f"connect.irishrail.ie backing off for {wait}s")
+
     async def fetch_connect_json(self, path: str):
-        """GET a connect.irishrail.ie path, re-reading the key once on 401/403"""
+        """GET a connect.irishrail.ie path. re-reads the key once on 401/403,
+        then backs off on any refusal or outage instead of retrying every poll"""
+        if time.monotonic() < self._connect_blocked_until:
+            return None
         for attempt in range(2):
             key = self._connect_api_key
             if key is None or attempt == 1:
                 key = await self._refresh_connect_api_key()
             if key is None:
+                self._connect_back_off()
                 return None
             async with self.session.get(
                 f"{CONNECT_BASE_URL}{path}",
@@ -1438,8 +1462,12 @@ class IrishRailDaemon:
                     continue
                 if resp.status != 200:
                     logger.warning(f"connect {path}: status {resp.status}")
+                    self._connect_back_off(resp.headers.get("Retry-After"))
                     return None
-                return await resp.json(content_type=None)
+                payload = await resp.json(content_type=None)
+                self._connect_backoff_seconds = 0
+                return payload
+        self._connect_back_off()
         return None
 
     async def fetch_service_alerts(self):
@@ -1505,7 +1533,8 @@ class IrishRailDaemon:
             pending = await (
                 await conn.execute(
                     """SELECT alert_key, location_codes, starts_at,
-                              LEAST(ends_at, last_seen, starts_at + INTERVAL '24 hours')
+                              LEAST(ends_at, last_seen, starts_at + INTERVAL '24 hours'),
+                              LEAST(ends_at, last_seen) <= starts_at
                        FROM rail_service_alerts
                        WHERE impact_computed_at IS NULL
                          AND category = ANY(%s)
@@ -1518,7 +1547,16 @@ class IrishRailDaemon:
                 )
             ).fetchall()
 
-            for alert_key, codes, starts_at, ends_at in pending:
+            for alert_key, codes, starts_at, ends_at, never_ran in pending:
+                if never_ran:
+                    # withdrawn, or stopped being seen, before it was due to start
+                    await conn.execute(
+                        """UPDATE rail_service_alerts SET impact_computed_at = NOW()
+                           WHERE alert_key = %s""",
+                        (alert_key,),
+                    )
+                    await conn.commit()
+                    continue
                 rows = await (
                     await conn.execute(ALERT_IMPACT_SQL, alert_impact_params(codes, starts_at, ends_at))
                 ).fetchall()
@@ -1530,7 +1568,8 @@ class IrishRailDaemon:
                            corridor_codes = %s, impact_events = %s,
                            impact_avg_late = %s, impact_max_late = %s,
                            baseline_avg_late = %s, pre_avg_late = %s,
-                           pre_baseline_avg_late = %s, impact_computed_at = NOW()
+                           pre_baseline_avg_late = %s, impact_window_end = %s,
+                           impact_computed_at = NOW()
                        WHERE alert_key = %s""",
                     (
                         corridor,
@@ -1540,6 +1579,7 @@ class IrishRailDaemon:
                         stats.get("baseline", (0, None, None))[1],
                         stats.get("pre", (0, None, None))[1],
                         stats.get("pre_baseline", (0, None, None))[1],
+                        ends_at,
                         alert_key,
                     ),
                 )
@@ -1702,9 +1742,6 @@ class IrishRailDaemon:
                     )
                 ),
                 asyncio.create_task(
-                    self.schedule_task("service-alerts", self.fetch_service_alerts, 120)
-                ),
-                asyncio.create_task(
                     self.schedule_task("alert-impacts", self.compute_alert_impacts, 900)
                 ),
                 asyncio.create_task(
@@ -1712,13 +1749,15 @@ class IrishRailDaemon:
                 ),
             ]
 
+            if RAIL_NOTICES_ENABLED:
+                tasks.append(
+                    asyncio.create_task(
+                        self.schedule_task("service-alerts", self.fetch_service_alerts, 120)
+                    )
+                )
+
             if self.context:
                 context = self.context
-                try:
-                    await context.ensure_weather_stations()
-                    await context.refresh_tii_sites()
-                except Exception as e:
-                    logger.warning(f"context setup failed, tasks will retry: {e}")
                 for name, func, interval in (
                     ("weather-live", context.fetch_live_weather, 1800),
                     ("weather-warnings", context.fetch_weather_warnings, 600),

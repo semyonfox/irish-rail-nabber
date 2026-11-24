@@ -49,6 +49,10 @@ TII_BULK_LAST_DAY = date(2021, 4, 15)
 TII_BULK_DAYS_PER_RUN = 20
 # TII's dataserver is a public map backend, so go gently
 TII_REQUEST_GAP_SECONDS = 2.0
+# Met Éireann revises recent archive hours, so each refresh re-reads this much
+WEATHER_ARCHIVE_REPLAY = timedelta(days=45)
+# a site or station that failed waits this long before it is tried again
+RETRY_AFTER_FAILURE = timedelta(hours=6)
 # TII reports speeds in millimetres per second
 MM_PER_S_TO_KMH = 0.0036
 
@@ -334,11 +338,19 @@ WHERE weather_hourly.source = 'live' OR EXCLUDED.source = 'archive'
 """
 
 
+class TiiUnavailable(Exception):
+    """TII refused or failed. the current pass stops and the next run retries"""
+
+
 class ContextCollector:
     def __init__(self, pool: Any, record_fetch: Any) -> None:
         self.pool = pool
         self.record_fetch = record_fetch
         self.session: Optional[aiohttp.ClientSession] = None
+        self._stations_ready = False
+        # every TII call shares one gap, whichever task makes it
+        self._tii_lock = asyncio.Lock()
+        self._tii_last_call = 0.0
 
     async def open(self) -> None:
         self.session = aiohttp.ClientSession(
@@ -356,19 +368,35 @@ class ContextCollector:
             return await resp.json(content_type=None)
 
     async def _tii(self, method: str, path: str, body: Optional[dict] = None) -> object:
+        """one paced call to TII's map backend. a 429 or server error raises
+        TiiUnavailable so the caller stops its pass instead of hammering on"""
         headers = {"X-Requested-With": "XMLHttpRequest"}
         url = f"{TII_DATASERVER}/{path}"
-        if method == "GET":
-            request = self.session.get(url, headers=headers)
-        else:
-            request = self.session.post(url, headers=headers, json=body or {})
-        async with request as resp:
-            resp.raise_for_status()
-            return await resp.json(content_type=None)
+        async with self._tii_lock:
+            loop = asyncio.get_running_loop()
+            wait = self._tii_last_call + TII_REQUEST_GAP_SECONDS - loop.time()
+            if wait > 0:
+                await asyncio.sleep(wait)
+            try:
+                if method == "GET":
+                    request = self.session.get(url, headers=headers)
+                else:
+                    request = self.session.post(url, headers=headers, json=body or {})
+                async with request as resp:
+                    if resp.status == 429 or resp.status >= 500:
+                        raise TiiUnavailable(f"{path}: HTTP {resp.status}")
+                    resp.raise_for_status()
+                    return await resp.json(content_type=None)
+            except (aiohttp.ClientConnectionError, asyncio.TimeoutError) as error:
+                raise TiiUnavailable(f"{path}: {error}") from error
+            finally:
+                self._tii_last_call = loop.time()
 
     # ---- weather -----------------------------------------------------------
 
     async def ensure_weather_stations(self) -> None:
+        if self._stations_ready:
+            return
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
                 await cur.executemany(
@@ -380,9 +408,11 @@ class ContextCollector:
                     [(s.station_id, s.slug, s.name, s.lat, s.lon) for s in WEATHER_STATIONS],
                 )
             await conn.commit()
+        self._stations_ready = True
 
     async def fetch_live_weather(self) -> None:
         """today and yesterday for every station, so a missed hour heals itself"""
+        await self.ensure_weather_stations()
         rows: list[tuple] = []
         failed = 0
         for station in WEATHER_STATIONS:
@@ -404,53 +434,66 @@ class ContextCollector:
         )
 
     async def import_weather_archive(self) -> None:
-        """one station per run, only when its CSV changed. rows stream straight
-        from the response so a 60 MB file never sits in memory"""
+        """one station per run, only when its CSV changed. a changed file is
+        re-read from WEATHER_ARCHIVE_REPLAY before the last import so revised
+        hours land too. rows stream from the response, a 60 MB file never sits
+        in memory"""
+        await self.ensure_weather_stations()
         async with self.pool.connection() as conn:
             pending = await (
                 await conn.execute(
-                    """SELECT s.station_id, p.last_modified,
-                              COALESCE(p.imported_through, %s)
+                    """SELECT s.station_id, p.last_modified, p.imported_through
                        FROM weather_stations s
                        LEFT JOIN weather_archive_progress p USING (station_id)
                        WHERE p.checked_at IS NULL OR p.checked_at < NOW() - INTERVAL '1 day'
                        ORDER BY p.checked_at NULLS FIRST
-                       LIMIT 1""",
-                    (datetime.combine(WEATHER_ARCHIVE_FROM, datetime.min.time(), timezone.utc),),
+                       LIMIT 1"""
                 )
             ).fetchone()
             await conn.commit()
         if pending is None:
             return
         station_id, last_modified, imported_through = pending
-        url = MET_ARCHIVE_URL.format(station=station_id)
+        archive_from = datetime.combine(WEATHER_ARCHIVE_FROM, datetime.min.time(), timezone.utc)
+        replay_from = (
+            max(archive_from, imported_through - WEATHER_ARCHIVE_REPLAY)
+            if imported_through else archive_from
+        )
 
-        headers = {"If-Modified-Since": last_modified} if last_modified else {}
-        async with self.session.get(url, headers=headers) as resp:
-            if resp.status == 304:
-                rows_written, newest, modified = 0, imported_through, last_modified
-            else:
-                resp.raise_for_status()
-                modified = resp.headers.get("Last-Modified")
-
-                rows_written, newest = 0, imported_through
-                header: Optional[list[str]] = None
-                batch: list[tuple] = []
-                # stream line by line so a 60 MB file never sits in memory
-                async for raw in resp.content:
-                    line = raw.decode("latin-1")
-                    if header is None:
-                        header = parse_archive_header(line)
-                        continue
-                    row = parse_archive_row(station_id, header, line)
-                    if row is None or row[1] <= imported_through:
-                        continue
-                    batch.append(row)
-                    newest = max(newest, row[1])
-                    if len(batch) >= 5000:
-                        rows_written += await self._write_weather(batch)
-                        batch = []
-                rows_written += await self._write_weather(batch)
+        rows_written, newest, modified, status, error = 0, imported_through, last_modified, "success", None
+        try:
+            headers = {"If-Modified-Since": last_modified} if last_modified else {}
+            async with self.session.get(
+                MET_ARCHIVE_URL.format(station=station_id), headers=headers
+            ) as resp:
+                if resp.status != 304:
+                    resp.raise_for_status()
+                    header: Optional[list[str]] = None
+                    batch: list[tuple] = []
+                    newest_seen: Optional[datetime] = None
+                    async for raw in resp.content:
+                        line = raw.decode("latin-1")
+                        if header is None:
+                            header = parse_archive_header(line)
+                            continue
+                        row = parse_archive_row(station_id, header, line)
+                        if row is None:
+                            continue
+                        newest_seen = row[1] if newest_seen is None else max(newest_seen, row[1])
+                        if row[1] < replay_from:
+                            continue
+                        batch.append(row)
+                        if len(batch) >= 5000:
+                            rows_written += await self._write_weather(batch)
+                            batch = []
+                    if header is None or newest_seen is None:
+                        raise ValueError("no hourly rows, the file format may have changed")
+                    rows_written += await self._write_weather(batch)
+                    newest, modified = newest_seen, resp.headers.get("Last-Modified")
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as failure:
+            # progress stays put but the station goes to the back of the queue
+            status, error = "failed", str(failure)[:200]
+            logger.warning(f"weather archive {station_id}: {failure}")
 
         async with self.pool.connection() as conn:
             await conn.execute(
@@ -461,10 +504,10 @@ class ContextCollector:
                        last_modified = EXCLUDED.last_modified,
                        imported_through = EXCLUDED.imported_through,
                        checked_at = NOW()""",
-                (station_id, modified, newest),
+                (station_id, modified, newest or archive_from),
             )
             await conn.commit()
-        await self.record_fetch(f"met/archive/{station_id}", rows_written, "success", None)
+        await self.record_fetch(f"met/archive/{station_id}", rows_written, status, error)
 
     async def _write_weather(self, rows: list[tuple]) -> int:
         if not rows:
@@ -534,33 +577,36 @@ class ContextCollector:
             await conn.commit()
         await self.record_fetch("tii/sites", len(rows), "success", None)
 
-    async def _active_site_ids(self, query: str) -> list[str]:
+    async def _active_site_ids(self, query: str, params: tuple = ()) -> list[str]:
         async with self.pool.connection() as conn:
-            rows = await (await conn.execute(query)).fetchall()
+            rows = await (await conn.execute(query, params)).fetchall()
             await conn.commit()
         return [row[0] for row in rows]
 
     async def refresh_tii_weekly(self) -> None:
-        """one rolling seven-day snapshot per site per Irish day"""
+        """one rolling seven-day snapshot per site per Irish day. a site is
+        tried once a day whether or not it answers"""
         today = datetime.now(DUBLIN).date()
         site_ids = await self._active_site_ids(
-            f"""SELECT site_id FROM traffic_sites s
-                WHERE NOT is_disabled
-                  AND NOT EXISTS (SELECT 1 FROM traffic_site_weekly w
-                                  WHERE w.site_id = s.site_id
-                                    AND w.captured_on = DATE '{today.isoformat()}')"""
+            """SELECT site_id FROM traffic_sites
+               WHERE NOT is_disabled
+                 AND (weekly_checked_on IS NULL OR weekly_checked_on < %s)
+               ORDER BY site_id""",
+            (today,),
         )
-        written = failed = 0
+        written = 0
+        error = None
         for site_id in site_ids:
             try:
                 payload = await self._tii("GET", f"siteDashboard/latestSpeed/{site_id}")
-            except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
-                failed += 1
-                await asyncio.sleep(TII_REQUEST_GAP_SECONDS)
-                continue
+            except TiiUnavailable as failure:
+                error = str(failure)
+                break
+            except (aiohttp.ClientError, ValueError):
+                payload = None
             row = parse_tii_week(site_id, today, payload)
-            if row:
-                async with self.pool.connection() as conn:
+            async with self.pool.connection() as conn:
+                if row:
                     await conn.execute(
                         """INSERT INTO traffic_site_weekly (
                                site_id, captured_on, source_days, total_count,
@@ -570,17 +616,20 @@ class ContextCollector:
                            ON CONFLICT (site_id, captured_on) DO NOTHING""",
                         row,
                     )
-                    await conn.commit()
-                written += 1
-            await asyncio.sleep(TII_REQUEST_GAP_SECONDS)
+                    written += 1
+                await conn.execute(
+                    "UPDATE traffic_sites SET weekly_checked_on = %s WHERE site_id = %s",
+                    (today, site_id),
+                )
+                await conn.commit()
         if site_ids:
             await self.record_fetch(
-                "tii/latestSpeed", written, "success" if not failed else "partial",
-                f"{failed} sites failed" if failed else None,
+                "tii/latestSpeed", written, "failed" if error else "success", error
             )
 
     async def refresh_tii_yearly(self) -> None:
-        """AADT by year changes at most monthly, so each site is checked weekly"""
+        """AADT by year changes at most monthly, so each site is checked weekly.
+        a site that fails waits RETRY_AFTER_FAILURE rather than jumping the queue"""
         site_ids = await self._active_site_ids(
             """SELECT site_id FROM traffic_sites
                WHERE yearly_checked_at IS NULL OR yearly_checked_at < NOW() - INTERVAL '7 days'
@@ -588,10 +637,14 @@ class ContextCollector:
                LIMIT 60"""
         )
         written = 0
+        error = None
         for site_id in site_ids:
             try:
                 rows = parse_tii_yearly(site_id, await self._tii("POST", f"summary/yearly/{site_id}"))
-            except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
+            except TiiUnavailable as failure:
+                error = str(failure)
+                break
+            except (aiohttp.ClientError, ValueError):
                 rows = None
             async with self.pool.connection() as conn:
                 if rows:
@@ -607,18 +660,22 @@ class ContextCollector:
                             rows,
                         )
                     written += len(rows)
-                if rows is not None:
-                    await conn.execute(
-                        "UPDATE traffic_sites SET yearly_checked_at = NOW() WHERE site_id = %s",
-                        (site_id,),
-                    )
+                # a failed site comes back in RETRY_AFTER_FAILURE, not next run
+                await conn.execute(
+                    """UPDATE traffic_sites SET yearly_checked_at =
+                           CASE WHEN %s THEN NOW()
+                                ELSE NOW() - INTERVAL '7 days' + %s END
+                       WHERE site_id = %s""",
+                    (rows is not None, RETRY_AFTER_FAILURE, site_id),
+                )
                 await conn.commit()
-            await asyncio.sleep(TII_REQUEST_GAP_SECONDS)
         if site_ids:
-            await self.record_fetch("tii/yearly", written, "success", None)
+            await self.record_fetch("tii/yearly", written, "failed" if error else "success", error)
 
     async def backfill_tii_daily_class(self) -> None:
-        """2013-2021 daily counts per site and vehicle class, a few days per run"""
+        """2013-2021 daily counts per site and vehicle class, a few days per run.
+        a day only counts as done on a real file or a confirmed missing one,
+        anything else stops the run and it is tried again next time"""
         async with self.pool.connection() as conn:
             days = await (
                 await conn.execute(
@@ -630,10 +687,21 @@ class ContextCollector:
             ).fetchall()
             await conn.commit()
         for (day,) in days:
-            async with self.session.get(TII_DAILY_CLASS_URL.format(d=day)) as resp:
-                # a missing day is a 403 from the bucket, record it as empty
-                text = await resp.text() if resp.status == 200 else ""
-            rows = parse_tii_daily_class(text)
+            try:
+                async with self.session.get(TII_DAILY_CLASS_URL.format(d=day)) as resp:
+                    # the bucket answers a missing object with 403
+                    if resp.status in (403, 404):
+                        text = None
+                    elif resp.status == 200:
+                        text = await resp.text()
+                        if not text.startswith('"cosit","class"'):
+                            raise ValueError(f"{day}: unexpected file contents")
+                    else:
+                        raise ValueError(f"{day}: HTTP {resp.status}")
+            except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as failure:
+                await self.record_fetch("tii/bulk", 0, "failed", str(failure)[:200])
+                return
+            rows = parse_tii_daily_class(text) if text else []
             async with self.pool.connection() as conn:
                 async with conn.transaction():
                     async with conn.cursor() as cur:

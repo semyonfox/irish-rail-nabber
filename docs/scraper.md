@@ -28,7 +28,7 @@ Benchmarked April 2026. Earlier 3s intervals were ~75% wasted.
 | Train movements (`getTrainMovementsXML`) | 60s | event-driven; changes only on arrival/departure |
 | Station reference (`getAllStationsXML`) | 24h | static |
 | HACON enriched feed (`getHaconTrainsXML`) | 10s | same cadence, richer fields per train |
-| Customer notices (`connect.irishrail.ie/realtime/messages`) | 120s | notices are posted by hand, 20 or so live at once |
+| Customer notices (`connect.irishrail.ie/realtime/messages`) | 120s, only with `RAIL_NOTICES=1` | notices are posted by hand, 20 or so live at once |
 | Alert impact matching | 15 min | only alerts that ended more than 2h ago, once each |
 | Rail segment rollup | 1h | one service day at a time from 04:00 the next morning, backfilling 3 older days per run |
 
@@ -165,7 +165,7 @@ Impact matching runs for `delay`, `disruption` and `works` alerts once they are 
 - `baseline_avg_late`: the same window on the same weekday over the previous 4 weeks
 - `pre_avg_late` and `pre_baseline_avg_late`: the 2 hours before the alert, today and on those weekdays
 
-If `pre_avg_late` is well above `pre_baseline_avg_late`, delays were already building before Irish Rail posted the notice. Averages are weighted by board prediction count, so they read lower than per-train worst lateness.
+If `pre_avg_late` is well above `pre_baseline_avg_late`, delays were already building before the notice's stated start. That is not the same as before it was posted: only `first_seen` says when it appeared, to within the 2 minute poll. The measured window is capped at 24 hours and ends at `impact_window_end`. Alerts that were withdrawn or stopped being seen before their start get no impact. Averages are weighted by station board readings, every poll of every train on the boards, and cover all trains at the corridor stations, not only the affected ones. Baseline weeks are offset by 7 days in UTC, so the week either side of a clock change compares hours one apart.
 
 ### Segment delay
 

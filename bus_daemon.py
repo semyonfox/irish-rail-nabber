@@ -95,12 +95,39 @@ STATIC_IMPORT_LOCK = "irish-rail-nabber:nta-static-feed"
 UTC = timezone.utc
 DatabaseRow = tuple[object, ...]
 
+# trips still running when a new timetable lands keep using the old version's
+# stop times until they finish, or the segment rollup can't time them
+PRUNE_STOP_TIMES_SQL = """DELETE FROM bus_stop_times
+   WHERE feed_version_id IN (
+       SELECT version.id FROM transit_feed_versions version
+       WHERE version.source = %s AND version.id <> %s
+         AND NOT EXISTS (
+             SELECT 1 FROM bus_stop_live live WHERE live.feed_version_id = version.id
+         )
+   )"""
+
+PRUNE_RETIRED_STOP_TIMES_SQL = """DELETE FROM bus_stop_times
+   WHERE feed_version_id IN (
+       SELECT version.id FROM transit_feed_versions version
+       WHERE version.source = %s AND NOT version.is_active
+         AND NOT EXISTS (
+             SELECT 1 FROM bus_stop_live live WHERE live.feed_version_id = version.id
+         )
+   )"""
+
+# signed gain buckets in seconds. sums and means get dragged around by the odd
+# prediction reset, a histogram lets read time take a median instead.
+# bucket 0 is below -300 s, bucket 9 is above 300 s
+BUS_GAIN_BUCKET_EDGES = [-300, -120, -60, -30, 0, 30, 60, 120, 300]
+
 # a trip leaves bus_stop_live 30 minutes after its last update, holding the last
 # delay NTA predicted for every stop, which is as close to actual as the feed
 # gets. NTA sends delays without times, so run times come from the timetable
 # plus the delay picked up. each finished trip is folded into stop-to-stop
-# totals in the same statement that deletes it, so nothing rescans the archive
-BUS_SEGMENT_ROLLUP_SQL = """
+# totals in the same statement that deletes it, so nothing rescans the archive.
+# stop ids are stable across NTA's daily timetable versions, so totals are kept
+# per stop pair and only remember the newest version for names and routes
+BUS_SEGMENT_ROLLUP_SQL = f"""
 WITH finished AS (
     DELETE FROM bus_stop_live live
     WHERE NOT EXISTS (
@@ -112,7 +139,7 @@ WITH finished AS (
     RETURNING live.feed_version_id, live.trip_instance_key, live.trip_id,
               live.route_id, live.service_date, live.stop_id, live.stop_sequence,
               live.schedule_relationship, live.arrival_delay_seconds,
-              live.departure_delay_seconds
+              live.departure_delay_seconds, live.last_seen_at
 ), legs AS (
     SELECT f.feed_version_id, f.route_id, f.service_date,
            f.stop_id AS from_stop_id,
@@ -123,7 +150,9 @@ WITH finished AS (
                AS reached_scheduled,
            COALESCE(f.departure_delay_seconds, f.arrival_delay_seconds) AS left_delay,
            lead(COALESCE(f.arrival_delay_seconds, f.departure_delay_seconds)) OVER trip
-               AS reached_delay
+               AS reached_delay,
+           f.last_seen_at AS left_seen,
+           lead(f.last_seen_at) OVER trip AS reached_seen
     FROM finished f
     JOIN bus_stop_times st
       ON st.feed_version_id = f.feed_version_id
@@ -131,6 +160,12 @@ WITH finished AS (
      AND st.stop_sequence = f.stop_sequence
     WHERE f.stop_id IS NOT NULL
       AND COALESCE(f.schedule_relationship, 'SCHEDULED') = 'SCHEDULED'
+      AND NOT EXISTS (
+          SELECT 1 FROM bus_trip_update_freshness cancelled
+          WHERE cancelled.feed_version_id = f.feed_version_id
+            AND cancelled.trip_instance_key = f.trip_instance_key
+            AND cancelled.schedule_relationship = 'CANCELED'
+      )
     WINDOW trip AS (PARTITION BY f.feed_version_id, f.trip_instance_key
                     ORDER BY f.stop_sequence)
 ), clean AS (
@@ -144,25 +179,44 @@ WITH finished AS (
       AND service_date IS NOT NULL
       AND left_delay IS NOT NULL AND reached_delay IS NOT NULL
       AND left_scheduled IS NOT NULL AND reached_scheduled IS NOT NULL
-), rolled AS (
-    INSERT INTO bus_segment_delay_hourly AS segment (
-        service_date, hour_local, feed_version_id, from_stop_id, to_stop_id,
-        trips, gain_sum_s, gain_pos_sum_s, gain_sq_sum, max_gain_s,
-        run_sum_s, sched_run_sum_s, route_ids
-    )
-    SELECT service_date, hour_local, feed_version_id, from_stop_id, to_stop_id,
-           count(*), sum(gain), sum(GREATEST(gain, 0)), sum(gain::bigint * gain),
-           max(gain), sum(scheduled_run + gain), sum(scheduled_run),
-           array_agg(DISTINCT route_id) FILTER (WHERE route_id IS NOT NULL)
+      -- a value is stale when the feed stopped sending it more than 5 minutes
+      -- before the bus was due there. on live data these legs averaged -929 s,
+      -- they are the prediction resets
+      AND (service_date + make_interval(secs => left_scheduled + left_delay))
+              AT TIME ZONE 'Europe/Dublin' - left_seen <= INTERVAL '5 minutes'
+      AND (service_date + make_interval(secs => reached_scheduled + reached_delay))
+              AT TIME ZONE 'Europe/Dublin' - reached_seen <= INTERVAL '5 minutes'
+), bucketed AS (
+    SELECT *, width_bucket(gain, ARRAY[-300, -120, -60, -30, 0, 30, 60, 120, 300]) AS bucket
     FROM clean
-    -- a 30 minute jump between neighbouring stops, or a bus arriving before it
-    -- left, is a prediction reset rather than traffic
     WHERE abs(gain) <= 1800
       AND scheduled_run BETWEEN 0 AND 7200
       AND scheduled_run + gain >= 0
-    GROUP BY 1, 2, 3, 4, 5
-    ON CONFLICT (service_date, hour_local, feed_version_id, from_stop_id, to_stop_id)
+), rolled AS (
+    INSERT INTO bus_segment_delay_hourly AS segment (
+        service_date, hour_local, from_stop_id, to_stop_id, feed_version_id,
+        trips, gain_sum_s, gain_pos_sum_s, gain_sq_sum, max_gain_s,
+        run_sum_s, sched_run_sum_s, gain_hist, route_ids
+    )
+    SELECT service_date, hour_local, from_stop_id, to_stop_id, max(feed_version_id),
+           count(*), sum(gain), sum(GREATEST(gain, 0)), sum(gain::bigint * gain),
+           max(gain), sum(scheduled_run + gain), sum(scheduled_run),
+           ARRAY[count(*) FILTER (WHERE bucket = 0),
+               count(*) FILTER (WHERE bucket = 1),
+               count(*) FILTER (WHERE bucket = 2),
+               count(*) FILTER (WHERE bucket = 3),
+               count(*) FILTER (WHERE bucket = 4),
+               count(*) FILTER (WHERE bucket = 5),
+               count(*) FILTER (WHERE bucket = 6),
+               count(*) FILTER (WHERE bucket = 7),
+               count(*) FILTER (WHERE bucket = 8),
+               count(*) FILTER (WHERE bucket = 9)],
+           array_agg(DISTINCT route_id) FILTER (WHERE route_id IS NOT NULL)
+    FROM bucketed
+    GROUP BY 1, 2, 3, 4
+    ON CONFLICT (service_date, hour_local, from_stop_id, to_stop_id)
     DO UPDATE SET
+        feed_version_id = GREATEST(segment.feed_version_id, EXCLUDED.feed_version_id),
         trips = segment.trips + EXCLUDED.trips,
         gain_sum_s = segment.gain_sum_s + EXCLUDED.gain_sum_s,
         gain_pos_sum_s = segment.gain_pos_sum_s + EXCLUDED.gain_pos_sum_s,
@@ -170,6 +224,10 @@ WITH finished AS (
         max_gain_s = GREATEST(segment.max_gain_s, EXCLUDED.max_gain_s),
         run_sum_s = segment.run_sum_s + EXCLUDED.run_sum_s,
         sched_run_sum_s = segment.sched_run_sum_s + EXCLUDED.sched_run_sum_s,
+        gain_hist = ARRAY(
+            SELECT old + new
+            FROM unnest(segment.gain_hist, EXCLUDED.gain_hist) AS counts(old, new)
+        ),
         route_ids = ARRAY(
             SELECT DISTINCT unnest(segment.route_ids || EXCLUDED.route_ids) ORDER BY 1
         )
@@ -1046,8 +1104,10 @@ def parse_service_alerts(
         )
         entities_json = json.dumps(entities, sort_keys=True)
         parsed = ParsedServiceAlert(
-            # identity survives text and stop-list edits so a revision updates in place
-            alert_key=_stable_payload_hash(
+            # NTA entity ids look like ID-<creation time> and survive edits.
+            # without one, header, start and agencies are the best identity left
+            alert_key=_optional_text(_get(entity, "id"))
+            or _stable_payload_hash(
                 {"header": header, "starts_at": starts_at, "agencies": agency_ids}
             ),
             entity_id=_optional_text(_get(entity, "id")),
@@ -1907,14 +1967,7 @@ class NtaBusDaemon:
                )""",
             (FEED_SOURCE, version_id),
         )
-        cursor = await connection.execute(
-            """DELETE FROM bus_stop_times
-               WHERE feed_version_id IN (
-                   SELECT id FROM transit_feed_versions
-                   WHERE source = %s AND id <> %s
-               )""",
-            (FEED_SOURCE, version_id),
-        )
+        cursor = await connection.execute(PRUNE_STOP_TIMES_SQL, (FEED_SOURCE, version_id))
         return max(0, cursor.rowcount)
 
     async def _import_static_feed(
@@ -2936,8 +2989,18 @@ class NtaBusDaemon:
                 )
                 if (await legacy.fetchone())[0]:
                     return
+                # see the expiry loop below, parallel plans fail on this container
+                await connection.execute("SET LOCAL max_parallel_workers_per_gather = 0")
                 live = await connection.execute(BUS_SEGMENT_ROLLUP_SQL)
                 finished_stops, rolled_segments = await live.fetchone() or (0, 0)
+
+            # an old timetable is dropped once its last live trip has been rolled up
+            async with connection.transaction():
+                retired = await connection.execute(
+                    PRUNE_RETIRED_STOP_TIMES_SQL, (FEED_SOURCE,)
+                )
+            if retired.rowcount:
+                logger.info("pruned %s stop times from retired timetables", retired.rowcount)
 
             samples = trips = 0
             deadline = time.monotonic() + EXPIRY_RUN_SECONDS

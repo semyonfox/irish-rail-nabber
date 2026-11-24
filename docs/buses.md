@@ -21,13 +21,17 @@ NTA data uses CC BY 4.0. Public views must name the NTA, link to the source and 
 
 `/gtfsr/v2/Alerts` is standard GTFS-Realtime ServiceAlerts for Dublin Bus, Bus Éireann, Go-Ahead, Luas and some Irish Rail notices. It takes one slot of the shared one-request-a-minute budget at most every 10 minutes, counting failed attempts, so trip updates and vehicles lose about one refresh in ten. `/gtfsr/v2/ServiceAlerts` is a 404.
 
-Alerts land in `bus_service_alerts`, keyed by header, first start and agencies, so edits to the text or the affected stops update the row and bump `revisions`. NTA marks open-ended alerts with an end in the year 3000, stored as `ends_at = NULL`. NTA sets `cause` and `effect` to `UNKNOWN` on every alert, so `category` comes from the text: disruption, diversion, stop_change, delay, works, timetable or other. Route and stop ids belong to the row's `feed_version_id`.
+Alerts land in `bus_service_alerts`, keyed by NTA's entity id (`ID-<creation time>`), falling back to header, first start and agencies when an alert has none, so edits update the row and bump `revisions`. NTA marks open-ended alerts with an end in the year 3000, stored as `ends_at = NULL`. NTA sets `cause` and `effect` to `UNKNOWN` on every alert, so `category` comes from the text: disruption, diversion, stop_change, delay, works, timetable or other. Route and stop ids belong to the row's `feed_version_id`.
 
 ## Segment delay
 
 `bus_segment_delay_hourly` holds delay picked up between consecutive stops, per service date, scheduled hour, and stop pair. A trip is folded in when it leaves `bus_stop_live`, 30 minutes after its last update, in the same statement that deletes it. NTA sends delays without times, so each stop uses the last delay predicted for it, and run times are the timetable run from `bus_stop_times` plus the delay gained. Legs that gain more than 30 minutes, or that would arrive before they left, are prediction resets and are dropped.
 
-Columns are sums (`trips`, `gain_sum_s`, `gain_pos_sum_s`, `gain_sq_sum`, `run_sum_s`, `sched_run_sum_s`), so any mix of days, hours and routes can be added up and averaged at read time. `gain_pos_sum_s` counts only delay added, which is the "cost" of a stretch. History starts when this ships. The archive could backfill it but nothing does yet.
+Rows are keyed by stop pair, not timetable version: NTA publishes a new version most days but keeps stop ids, so `feed_version_id` is only the newest version seen, for names and coordinates. A timetable's stop times are kept until its last live trip has been rolled up, so trips running when a new timetable lands still count.
+
+Cancelled trips and skipped stops are left out. So is any leg where either stop's last prediction arrived more than 5 minutes before the bus was due there. On live data those stale legs averaged -929 s and were the prediction resets.
+
+Columns are sums (`trips`, `gain_sum_s`, `gain_pos_sum_s`, `gain_sq_sum`, `run_sum_s`, `sched_run_sum_s`) plus `gain_hist`, trip counts per signed gain bucket (edges -300, -120, -60, -30, 0, 30, 60, 120 and 300 s). Everything adds up across days and hours, so any window can be averaged at read time. Per-leg predictions are noisy: on live data the median swing between neighbouring stops was 31 s when both came from the same poll and 202 s when they didn't, but both averaged close to zero. Net delay (`gain_sum_s`) over many trips cancels that noise. `gain_pos_sum_s` doesn't, so it overstates busy routes. Read medians from `gain_hist`. History starts when this ships. The archive could backfill it but nothing does yet.
 
 ## Why schedules are versioned
 

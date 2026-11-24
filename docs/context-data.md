@@ -1,6 +1,6 @@
 # Weather and road traffic
 
-`context_collector.py` runs inside the rail daemon and gathers conditions to line delays up against. Everything here is free and CC BY 4.0. Set `CONTEXT_COLLECTION=0` to turn it off.
+`context_collector.py` runs inside the rail daemon and gathers conditions to line delays up against. Met Éireann data and TII's bulk files are CC BY 4.0. TII's map backend publishes no licence of its own, so treat what comes from it as reference data for private analysis and ask TII before republishing it. Set `CONTEXT_COLLECTION=0` to turn it off.
 
 ## Sources
 
@@ -23,4 +23,6 @@
 - TII reports speeds in millimetres per second. They are stored in km/h.
 - TII only exposes a rolling seven-day window per site, not hourly counts. One snapshot a day builds history, and `source_days` says which days a snapshot covered, since a site with gaps reaches further back. The per-site hourly dashboards are behind reCAPTCHA and are not used.
 - `data.tii.ie` stopped publishing daily files in April 2021. The bulk backfill covers June 2013 to April 2021 and records missing days as zero rows. Counters are keyed by `cosit`, which joins to `traffic_sites.cosit`.
-- TII's dataserver is the backend of their public map, so requests are spaced two seconds apart.
+- TII's dataserver is the backend of their public map. Every call, whichever task makes it, goes through one limiter two seconds apart. A 429, server error or connection failure stops the pass and the next hourly run carries on. A site is tried once a day for its weekly snapshot whether or not it answers, and a site whose yearly summary fails waits 6 hours.
+- The weather archive re-reads the last 45 days before its previous import whenever a station's file changes, so revised hours replace old ones. A file without the expected header doesn't advance anything, and the station goes to the back of the queue.
+- A bulk TII day is only recorded once it returns a real file or a confirmed missing one (403 or 404). Anything else stops the run and the day is retried.

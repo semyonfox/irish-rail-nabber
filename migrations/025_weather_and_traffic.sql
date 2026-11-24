@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS traffic_sites (
     bearing REAL,
     is_disabled BOOLEAN NOT NULL DEFAULT FALSE,
     yearly_checked_at TIMESTAMPTZ,
+    weekly_checked_on DATE,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

@@ -197,14 +197,14 @@ The irishrail.ie website reads from a JSON API at `https://connect.irishrail.ie`
 
 | Path | Returns | Used |
 |------|---------|------|
-| `/realtime/messages` | customer notices: `head`, `text`, `start`, `end` (Europe/Dublin local), `locationCodes`, `products`, `eventStops` | yes, every 120s into `rail_service_alerts` |
+| `/realtime/messages` | customer notices: `head`, `text`, `start`, `end` (Europe/Dublin local), `locationCodes`, `products`, `eventStops` | only with `RAIL_NOTICES=1`, every 120s into `rail_service_alerts` |
 | `/realtime/live/{code}` | station board with each train's full calling pattern (`locations`) and `delay` | no, same data as the ASMX boards |
 | `/realtime/trains/current`, `/realtime/stations` | JSON versions of the ASMX feeds | no |
 | `/bridges/heights` | 453 rail bridges as GeoJSON with clearance in metres | no, static reference |
 | `/fares/stations`, `/fares/codes/`, `/fares/names/` | fare lookup | no |
 | `/realtime/trains/movements/{code}` | 403 for this key | no |
 
-`/realtime/messages` holds the same notices Irish Rail posts on social media, already tied to station codes. It only lists live and upcoming notices, so history starts when polling starts. Instagram is not usable: anonymous requests hit a login wall.
+`/realtime/messages` holds the same notices Irish Rail posts on social media, already tied to station codes. The irishrail.ie terms of use forbid copying site content without written permission, so the poller is off unless `RAIL_NOTICES=1` is set, which should wait for Irish Rail's say-so. NTA's GTFS-Realtime alerts, which are CC BY 4.0, carry some Irish Rail notices too (see [buses.md](buses.md#service-alerts)). After a refusal or an outage the poller backs off from 10 minutes up to 6 hours and honours `Retry-After`. It only lists live and upcoming notices, so history starts when polling starts. Instagram is not usable: anonymous requests hit a login wall.
 
 ## Related docs
 
