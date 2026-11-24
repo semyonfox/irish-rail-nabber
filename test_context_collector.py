@@ -67,11 +67,12 @@ class TrafficParsingTests(unittest.TestCase):
         self.assertIsNone(parse_tii_week("a", date(2026, 11, 24), {"data": []}))
 
     def test_bulk_class_csv(self) -> None:
-        rows = parse_tii_daily_class(
-            '"cosit","class","year","month","day","VehicleCount"\n'
-            '"000000001012","1","2019","6","1","236"\n"bad","x","","","",""\n'
-        )
+        header = '"cosit","class","year","month","day","VehicleCount"\n'
+        rows = parse_tii_daily_class(header + '"000000001012","1","2019","6","1","236"\n')
         self.assertEqual(rows, [("000000001012", date(2019, 6, 1), 1, 236)])
+        # a damaged row must fail the whole file, not quietly shrink the day
+        with self.assertRaises(ValueError):
+            parse_tii_daily_class(header + '"000000001012","x","2019","6","2","236"\n')
 
 
 if __name__ == "__main__":

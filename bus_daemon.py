@@ -151,7 +151,21 @@ WITH finished AS (
            COALESCE(f.departure_delay_seconds, f.arrival_delay_seconds) AS left_delay,
            lead(COALESCE(f.arrival_delay_seconds, f.departure_delay_seconds)) OVER trip
                AS reached_delay,
-           seen.last_seen_at AS trip_last_seen
+           seen.last_seen_at AS trip_last_seen,
+           -- the daily timetable switch leaves a frozen copy of running trips
+           -- under the old version. a leg starting at a stop the active version
+           -- still tracks will be counted from there, so the old copy skips it.
+           -- checked after pairing so the old copy keeps legs the new one can't
+           EXISTS (
+               SELECT 1 FROM bus_stop_live current
+               WHERE current.feed_version_id = (
+                         SELECT id FROM transit_feed_versions
+                         WHERE source = '{FEED_SOURCE}' AND is_active
+                     )
+                 AND current.feed_version_id <> f.feed_version_id
+                 AND current.trip_instance_key = f.trip_instance_key
+                 AND current.stop_key = f.stop_key
+           ) AS from_tracked_elsewhere
     FROM finished f
     JOIN bus_trip_update_freshness seen
       ON seen.feed_version_id = f.feed_version_id
@@ -163,19 +177,7 @@ WITH finished AS (
     WHERE f.stop_id IS NOT NULL
       AND COALESCE(f.schedule_relationship, 'SCHEDULED') = 'SCHEDULED'
       AND seen.schedule_relationship <> 'CANCELED'
-      -- the daily timetable switch leaves a frozen copy of running trips under
-      -- the old version. skip a stop the active version is still tracking, or
-      -- the leg is counted twice
-      AND NOT EXISTS (
-          SELECT 1 FROM bus_stop_live current
-          WHERE current.feed_version_id = (
-                    SELECT id FROM transit_feed_versions
-                    WHERE source = '{FEED_SOURCE}' AND is_active
-                )
-            AND current.feed_version_id <> f.feed_version_id
-            AND current.trip_instance_key = f.trip_instance_key
-            AND current.stop_key = f.stop_key
-      )
+
     -- trip_id as well, since rows keyed before trip keys were fixed can mix trips
     WINDOW trip AS (PARTITION BY f.feed_version_id, f.trip_instance_key, f.trip_id
                     ORDER BY f.stop_sequence)
@@ -187,6 +189,7 @@ WITH finished AS (
            reached_scheduled - left_scheduled AS scheduled_run
     FROM legs
     WHERE step = 1
+      AND NOT from_tracked_elsewhere
       AND service_date IS NOT NULL
       AND left_delay IS NOT NULL AND reached_delay IS NOT NULL
       AND left_scheduled IS NOT NULL AND reached_scheduled IS NOT NULL

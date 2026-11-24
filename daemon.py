@@ -1537,7 +1537,7 @@ class IrishRailDaemon:
                 await conn.execute(
                     """SELECT alert_key, location_codes, starts_at,
                               LEAST(ends_at, last_seen, starts_at + INTERVAL '24 hours'),
-                              LEAST(ends_at, last_seen) <= starts_at
+                              LEAST(ends_at, last_seen) <= starts_at, last_seen
                        FROM rail_service_alerts
                        WHERE impact_computed_at IS NULL
                          AND category = ANY(%s)
@@ -1550,7 +1550,9 @@ class IrishRailDaemon:
                 )
             ).fetchall()
 
-            for alert_key, codes, starts_at, ends_at, never_ran in pending:
+            # every write below checks last_seen is unchanged, so a notice that
+            # reappears mid-run is left for the next pass instead of being settled
+            for alert_key, codes, starts_at, ends_at, never_ran, seen in pending:
                 if never_ran:
                     # withdrawn, or stopped being seen, before it was due to start
                     await conn.execute(
@@ -1560,10 +1562,8 @@ class IrishRailDaemon:
                                baseline_avg_late = NULL, pre_avg_late = NULL,
                                pre_baseline_avg_late = NULL, impact_window_end = NULL,
                                impact_computed_at = NOW()
-                           WHERE alert_key = %s
-                             -- it may have reappeared since it was read
-                             AND LEAST(ends_at, last_seen) <= starts_at""",
-                        (alert_key,),
+                           WHERE alert_key = %s AND last_seen = %s""",
+                        (alert_key, seen),
                     )
                     await conn.commit()
                     continue
@@ -1580,7 +1580,7 @@ class IrishRailDaemon:
                            baseline_avg_late = %s, pre_avg_late = %s,
                            pre_baseline_avg_late = %s, impact_window_end = %s,
                            impact_computed_at = NOW()
-                       WHERE alert_key = %s""",
+                       WHERE alert_key = %s AND last_seen = %s""",
                     (
                         corridor,
                         during[0],
@@ -1591,6 +1591,7 @@ class IrishRailDaemon:
                         stats.get("pre_baseline", (0, None, None))[1],
                         ends_at,
                         alert_key,
+                        seen,
                     ),
                 )
                 await conn.commit()

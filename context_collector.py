@@ -284,8 +284,10 @@ def parse_tii_week(site_id: str, captured_on: date, payload: object) -> Optional
 
 
 def parse_tii_daily_class(text: str) -> list[tuple]:
+    """rows of one bulk file. any row that doesn't parse raises, so a damaged
+    file can't be recorded as a complete day"""
     rows = []
-    for row in csv.DictReader(io.StringIO(text)):
+    for line_number, row in enumerate(csv.DictReader(io.StringIO(text)), start=2):
         try:
             rows.append(
                 (
@@ -295,8 +297,8 @@ def parse_tii_daily_class(text: str) -> list[tuple]:
                     int(row["VehicleCount"]),
                 )
             )
-        except (KeyError, TypeError, ValueError):
-            continue
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError(f"line {line_number} does not parse") from error
     return rows
 
 
@@ -408,7 +410,11 @@ class ContextCollector:
                         raise TiiUnavailable(f"{path}: HTTP {resp.status}")
                     resp.raise_for_status()
                     return await resp.json(content_type=None)
-            except (aiohttp.ClientConnectionError, asyncio.TimeoutError) as error:
+            except (
+                aiohttp.ClientConnectionError,
+                aiohttp.ClientPayloadError,
+                asyncio.TimeoutError,
+            ) as error:
                 self._tii_blocked_until = loop.time() + TII_COOLDOWN_SECONDS
                 raise TiiUnavailable(f"{path}: {error}") from error
             finally:
@@ -758,8 +764,10 @@ class ContextCollector:
 
     async def backfill_tii_daily_class(self) -> None:
         """2013-2021 daily counts per site and vehicle class, a few days per run.
-        a refused day only counts as missing once the same run has shown the
-        bucket is serving files, so a block never marks days done"""
+        a refused day only counts as missing when a day known to exist still
+        downloads with rows afterwards, so a block, even one starting mid-run,
+        never marks days done. a damaged file is skipped and retried without
+        holding up older days"""
         async with self.pool.connection() as conn:
             days = await (
                 await conn.execute(
@@ -772,22 +780,33 @@ class ContextCollector:
             await conn.commit()
         if not days:
             return
-        fetched: list[tuple[date, Optional[list[tuple]]]] = []
+        served: list[tuple[date, list[tuple]]] = []
+        refused: list[date] = []
+        problems: list[str] = []
         try:
             for (day,) in days:
-                fetched.append((day, await self._fetch_tii_day(day)))
+                try:
+                    rows = await self._fetch_tii_day(day)
+                except ValueError as damaged:
+                    problems.append(str(damaged))
+                    continue
+                if rows is None:
+                    refused.append(day)
+                else:
+                    served.append((day, rows))
                 await asyncio.sleep(TII_REQUEST_GAP_SECONDS / 2)
-            if all(rows is None for _day, rows in fetched):
-                # a long genuine gap and a block look the same, so ask for a
-                # day that is known to exist
-                if await self._fetch_tii_day(TII_BULK_KNOWN_DAY) is None:
-                    raise ValueError("every day refused, including a known day")
+            if refused:
+                probe = await self._fetch_tii_day(TII_BULK_KNOWN_DAY)
+                if not probe:
+                    problems.append("known day refused or empty, treating refusals as a block")
+                    refused = []
         except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as failure:
-            # days fetched before the failure are kept, refused ones are not
-            await self._record_tii_days([(d, r) for d, r in fetched if r is not None])
-            await self.record_fetch("tii/bulk", 0, "failed", str(failure)[:200])
-            return
-        await self._record_tii_days([(d, r or []) for d, r in fetched])
+            problems.append(str(failure))
+            refused = []
+        await self._record_tii_days(served + [(day, []) for day in refused])
         await self.record_fetch(
-            "tii/bulk", sum(len(r or []) for _d, r in fetched), "success", None
+            "tii/bulk",
+            sum(len(rows) for _day, rows in served),
+            "failed" if problems else "success",
+            "; ".join(problems)[:200] or None,
         )
