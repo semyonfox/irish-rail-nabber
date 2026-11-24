@@ -28,7 +28,7 @@ Benchmarked April 2026. Earlier 3s intervals were ~75% wasted.
 | Train movements (`getTrainMovementsXML`) | 60s | event-driven; changes only on arrival/departure |
 | Station reference (`getAllStationsXML`) | 24h | static |
 | HACON enriched feed (`getHaconTrainsXML`) | 10s | same cadence, richer fields per train |
-| Customer notices (`connect.irishrail.ie/realtime/messages`) | 120s, only with `RAIL_NOTICES=1` | notices are posted by hand, 20 or so live at once |
+| Customer notices (`connect.irishrail.ie/realtime/messages`) | 120s, off with `RAIL_NOTICES=0` | notices are posted by hand, 20 or so live at once |
 | Alert impact matching | 15 min | only alerts that ended more than 2h ago, once each |
 | Rail segment rollup | 1h | one service day at a time from 04:00 the next morning, backfilling 3 older days per run |
 

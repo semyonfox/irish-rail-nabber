@@ -58,9 +58,9 @@ HASH_CLEANUP_INTERVAL = 3600
 # customer notices live on the API behind irishrail.ie, not the legacy ASMX feed.
 # its key is the public one the website ships to every browser, so we read it
 # from the homepage instead of pinning a copy that breaks when they rotate it.
-# the irishrail.ie terms forbid copying site content without written
-# permission, so this stays off unless RAIL_NOTICES=1
-RAIL_NOTICES_ENABLED = os.getenv("RAIL_NOTICES", "0") == "1"
+# the irishrail.ie terms restrict copying site content, so the data stays
+# private. RAIL_NOTICES=0 turns the poller off
+RAIL_NOTICES_ENABLED = os.getenv("RAIL_NOTICES", "1") == "1"
 # after a refusal or an outage, wait this long, doubling up to the cap
 CONNECT_BACKOFF_START_SECONDS = 600
 CONNECT_BACKOFF_MAX_SECONDS = 6 * 3600
