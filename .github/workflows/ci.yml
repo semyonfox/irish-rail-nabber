@@ -128,7 +128,10 @@ jobs:
         run: vp build
 
   python:
-    name: Python scripts
+    name: Python scripts (${{ matrix.python }})
+    strategy:
+      matrix:
+        python: ['3.11', '3.15']
     needs: repository-hygiene
     if: needs.repository-hygiene.outputs.python == 'true'
     runs-on: ubuntu-latest
@@ -138,7 +141,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: ${{ matrix.python }}
           cache: pip
       - name: Install dependencies
         run: pip install -r requirements.txt
