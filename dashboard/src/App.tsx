@@ -12,6 +12,12 @@ const AccountPage = lazy(() => import("./billing/AccountPage"));
 const PricingPage = lazy(() => import("./billing/PricingPage"));
 const ChatAssistant = lazy(() => import("./pages/ChatAssistant"));
 const Stations = lazy(() => import("./pages/Stations"));
+const BusRoutes = lazy(() => import("./pages/BusRoutes"));
+const BusStopDetail = lazy(() => import("./pages/BusStopDetail"));
+const BusJourneyDetail = lazy(() => import("./pages/BusJourneyDetail"));
+const BusPublished = lazy(() => import("./pages/BusPublished"));
+const BusHistory = lazy(() => import("./pages/BusHistory"));
+const BusRouteDetail = lazy(() => import("./pages/BusRouteDetail"));
 const Buses = lazy(() => import("./pages/Buses"));
 const Analytics = lazy(() => import("./pages/Analytics"));
 const History = lazy(() => import("./pages/History"));
@@ -32,6 +38,15 @@ export default function App() {
                 <Route path="buses" element={<Buses />} />
                 <Route path="buses/stops" element={<Buses view="stops" />} />
                 <Route path="buses/network" element={<Buses view="network" />} />
+                <Route path="buses/routes" element={<BusRoutes />} />
+                <Route path="buses/routes/:feedVersionId/:routeId" element={<BusRouteDetail />} />
+                <Route path="buses/stops/:feedVersionId/:stopId" element={<BusStopDetail />} />
+                <Route
+                  path="buses/journeys/:feedVersionId/:tripInstanceKey"
+                  element={<BusJourneyDetail />}
+                />
+                <Route path="buses/published" element={<BusPublished />} />
+                <Route path="buses/history" element={<BusHistory />} />
                 {/* clerk walks multi-step flows under these paths */}
                 <Route path="login/*" element={<LoginPage />} />
                 <Route path="register/*" element={<RegisterPage />} />

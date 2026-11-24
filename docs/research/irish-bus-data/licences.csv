@@ -1,0 +1,330 @@
+Licence Number,Category,Route Number,Operator Name,Origin,Destination,Expiry Date
+07057,Regular,395,Bernard Kavanagh and Sons Ltd,Templemore,Nenagh,31/10/2028
+07023,Regular,394,Bernard Kavanagh and Sons Ltd,Clonmel,Thurles,31/10/2028
+95408,Regular,871a,Bernard Kavanagh and Sons Ltd,Urlingford,Kilkenny,31/10/2028
+95409,Regular,812,Bernard Kavanagh and Sons Ltd,Urlingford,Roscrea,31/10/2028
+95422,Regular,397,Bernard Kavanagh and Sons Ltd,Nenagh,Thurles,31/10/2028
+95424,Regular,393,Bernard Kavanagh and Sons Ltd,Thurles,Clonmel,31/10/2028
+95425,Regular,396,Bernard Kavanagh and Sons Ltd,Thurles,Clonmel,31/10/2028
+23247,Regular,179,Sillan Tours Limited,Cootehill,Dublin,16/10/2026
+19364,Regular,961,Seamus Doherty,Crolly,Letterkenny,31/10/2028
+07200,Regular,500 XN 501-7 501X 505X 506X,Eirebus Limited,Swords,Dublin,31/10/2028
+11029,Specific Targeted,11029,Cronins Coaches Limited,Cork City,Cork City,28/03/2029
+09002,Specific Targeted,09002,Cronins Coaches Limited,Cork City,Cork City,31/03/2028
+06034,Specific Targeted,06034,Cronins Coaches Limited,Cork,Cork,16/03/2028
+07121,Regular,427,Burke Bros. Coaches Limited,Dunmore,Galway,31/10/2028
+95131,Regular,435,Burke Bros. Coaches Limited,Ballinrobe,Galway,31/10/2028
+00001,Regular,UM04,Ardcavan Coach Tours Limited,Wexford,Maynooth,31/08/2028
+20032,Regular,211,Barrys Coaches Ltd,Cobh,Little Island,10/09/2029
+17203,Regular,200,Barrys Coaches Ltd,Cobh,Cork City,14/08/2029
+20012,Regular,210,Barrys Coaches Ltd,Apple Computers Cork,Little Island,11/02/2029
+95180,Regular,250,Barrys Coaches Ltd,Cobh,Bayview,31/08/2028
+240002,Regular,783,National Express Bus and Coach Service Limited,Dublin Airport,Terenure,24/01/2027
+96084,Regular,991,John and Michael McGeehan,Killybegs,Letterkenny,31/10/2028
+05042,Specific Targeted,05042,Deros Coach Tours Ltd,Killarney,Killarney,31/03/2028
+22005,Specific Targeted,22005,Deros Coach Tours Ltd,Killarney,Killarney,15/03/2028
+04094,Specific Targeted,04094,Deros Coach Tours Ltd,Killarney,Killarney,31/01/2028
+07083,Regular,843,John Kearns,Birr,Tullamore,31/10/2028
+02055,Regular,847,John Kearns,Birr,Dublin,01/10/2028
+01006,Regular,844,John Kearns,Birr,Galway,31/10/2028
+99037,Regular,845,John Kearns,Birr,Dublin,31/10/2028
+03050,Regular,UM02,John Kearns,Birr,Maynooth,31/08/2028
+21032,Regular,525,Island Ferries Teo,Rossaveel,Galway City,15/12/2027
+09152,Regular,918,Halpenny Transport Ltd.,Saint Patricks Church,Willow Grove,31/10/2028
+08171,Regular,916,Halpenny Transport Ltd.,Dundalk,Dundalk,31/10/2028
+95397,Regular,169,Halpenny Transport Ltd.,Blackrock,Dundalk,31/10/2028
+95226,Regular,917,Halpenny Transport Ltd.,Dundalk,Dundalk via Muirhevnamor,31/10/2028
+11007,Regular,IW04,J.J. Kavanagh and Sons Ltd,Mountmellick,SETU Carlow Campus,17/01/2029
+95370,Regular,871b,J.J. Kavanagh and Sons Ltd,Urlingford,Kilkenny,31/10/2028
+95116,Regular,874,J.J. Kavanagh and Sons Ltd,Hacketstown,Carlow,31/10/2028
+96080,Regular,IW02,J.J. Kavanagh and Sons Ltd,Newbridge,Carlow,31/08/2028
+240005,Regular,193 194,Selnec Ltd,Ratoath,Dublin City,01/02/2027
+240008,Specific Targeted,240008,Hidden Dublin Walks Ltd,Winetavern Street,Winetavern Street,28/02/2027
+240015,Specific Targeted,240015,Tour Ireland Your Way Ltd,Dublin City,Dublin City via Ennis,10/04/2027
+07085,Regular,735,Kenneallys Bus Service Ltd,Limerick City,Dublin Airport,31/10/2028
+03119,Regular,736,Kenneallys Bus Service Ltd,Dublin Airport,Waterford,31/10/2028
+03082,Regular,607617627,Kenneallys Bus Service Ltd,Waterford,Kilkenny,31/10/2028
+22193,Regular,GD02,Kenneallys Bus Service Ltd,Waterford,Dublin City,17/09/2028
+05142,Regular,UM14,Kenneallys Bus Service Ltd,Portlaoise,Maynooth University,31/08/2028
+02050,Regular,UM06,Kenneallys Bus Service Ltd,Athy,Maynooth University,31/08/2028
+16078,Regular,UM12,Kenneallys Bus Service Ltd,Carlow,Maynooth University,28/06/2028
+95419,Regular,717,Avalen Limited,Clonmel,Dublin Airport,31/10/2028
+95192,Regular,974,Patrick Gallagher Churchill Ltd,Downings,Letterkenny,31/10/2028
+95059,Regular,449,Westlink Coaches Limited,Drumshanbo,Sligo,31/10/2028
+95263,Regular,NG05,Westlink Coaches Limited,Ballinamore,Galway,31/08/2028
+15148,Regular,GM11,Westlink Coaches Limited,Drumshanbo,GMIT,02/09/2027
+17212,Regular,IW07,Ryan Dunne,Gorey,Carlow College,06/09/2029
+95183,Regular,IW01,Ryan Dunne,Kilkenny,SETU Carlow,31/08/2028
+02009,Regular,488,Farragher International Travel Services Ltd,Kilcurriff,Kilcurriff,31/10/2028
+98136,Regular,484,Farragher International Travel Services Ltd,Glenaneeney,Tuam,31/10/2028
+98137,Regular,441,Farragher International Travel Services Ltd,Corofin,Tuam,31/10/2028
+97003,Regular,NULL,Farragher International Travel Services Ltd,Kilcurriff,Corofin,31/10/2028
+95090,Regular,527,Farragher International Travel Services Ltd,Kilcurriff,Tuam,31/10/2028
+95078,Regular,SI11,Treacy Coaches Limited,Ballina,Sligo,31/08/2028
+95074,Regular,NG01,Treacy Coaches Limited,Galway,Ballina,31/08/2028
+97031,Specific Targeted,97031,Irish City Tours Limited,OConnell Street,OConnell Street via Howth,31/10/2028
+96048,Specific Targeted,96048,Dualway Coaches Ltd,Dublin City,Dublin City,31/10/2028
+07185,Regular,452,Michael McGrath and Thomas McGrath,Glenamoy,Glenamoy,31/10/2028
+07186,Regular,496,Michael McGrath and Thomas McGrath,Glenamoy,Ballina,31/10/2028
+07046,Regular,436,Michael McGrath and Thomas McGrath,Ballina,Ballycastle,31/08/2028
+96095,Regular,499,Michael McGrath and Thomas McGrath,Glenamoy,Ballina,31/10/2028
+95249,Regular,498,Michael McGrath and Thomas McGrath,Glenamoy,Castlebar,31/10/2028
+95248,Regular,497,Michael McGrath and Thomas McGrath,Glenamoy,Glenamoy,31/10/2028
+14125,Regular,945,Michael Corduff,Rossport,Belmullet,20/10/2026
+14126,Regular,946,Michael Corduff,Rossport,Belmullet,20/10/2026
+14127,Regular,947,Michael Corduff,Rossport,Belmullet,20/10/2026
+99072,Specific Targeted,99072,Michael Corduff,Killawalla,Killawalla via Achill Island,31/10/2028
+99073,Specific Targeted,99073,Michael Corduff,Killawalla,Killawalla via Ceide Fields,31/10/2028
+99075,Specific Targeted,99075,Michael Corduff,Killawalla,Killawalla via Kylemore and Galway City,31/10/2028
+18190,Specific Targeted,18190,Michael Corduff,Westport,Westport,11/07/2027
+18152,Specific Targeted,18152,Michael Corduff,Westport,Westport,20/06/2027
+03007,Specific Targeted,03007,John A. Long,Youghal,Youghal,31/10/2028
+96018,Specific Targeted,96018,Lally Coach Hire Limited,Galway,Galway via CoM,31/10/2028
+96063,Specific Targeted,96063,Lally Coach Hire Limited,Spiddal,Spiddal,31/10/2028
+96060,Specific Targeted,96060,Lally Coach Hire Limited,Galway,Galway,31/10/2028
+96061,Regular,524,Lally Coach Hire Limited,Galway City,Rossaveal,31/10/2028
+05153,Regular,UM08,Patrick Slevin and Sons Coach Hire Ltd.,Dundrum,Maynooth University,31/08/2028
+07067,Specific Targeted,07067,Mary Gibbons,Dublin,Newgrange,31/10/2028
+95229,Regular,AI01,Farrellys Coaches Ltd.,Longford,Athlone,31/08/2028
+20040,Regular,712,ComfortDelgro Irish CityLink Limited,Ennis,Dublin Airport,29/11/2026
+10058,Regular,660760761,ComfortDelgro Irish CityLink Limited,Galway,Dublin Airport,31/10/2028
+07068,Regular,923,ComfortDelgro Irish CityLink Limited,Cleggan,Galway,31/10/2028
+06156,Regular,251,ComfortDelgro Irish CityLink Limited,Galway,Cork Airport,31/10/2028
+01087,Regular,763,ComfortDelgro Irish CityLink Limited,Galway,Dublin Airport,31/10/2028
+04051,Regular,900 901 901M 904,Matthews Coach Hire Limited,Dundalk,Dublin,31/10/2028
+07011,Regular,910,Matthews Coach Hire Limited,Grangerath,Dublin,31/10/2028
+13090,Regular,912,Matthews Coach Hire Limited,Grange Rath,Dublin City,21/07/2028
+21010,Regular,884,I.P. Passenger Services Limited,Gorey,Wexford,26/05/2027
+23237,Regular,WI08,I.P. Passenger Services Limited,Gorey,Waterford,07/09/2029
+20031,Regular,UM11,I.P. Passenger Services Limited,Gorey,Maynooth,03/09/2029
+07149,Regular,740,I.P. Passenger Services Limited,Wexford,Dublin Airport,31/10/2028
+07005,Regular,WX1 WX2,I.P. Passenger Services Limited,Wexford,Wexford,31/10/2028
+07009,Regular,877,I.P. Passenger Services Limited,Wexford Town,Wexford Town via Castlebridge,31/10/2028
+07007,Regular,390,I.P. Passenger Services Limited,Wexford,Kilmore Quay,31/10/2028
+16144,Regular,376,I.P. Passenger Services Limited,Wexford,Carlow,09/10/2028
+18245,Regular,340,I.P. Passenger Services Limited,Wexford,Waterford,18/09/2027
+19369,Regular,933,McGinley Coach Travel Limited,Moville,Dublin,31/10/2028
+19368,Regular,932,McGinley Coach Travel Limited,Annagry,Dublin,31/10/2028
+22191,Regular,932A,McGinley Coach Travel Limited,Annagry,Dublin,16/09/2028
+22192,Regular,933A,McGinley Coach Travel Limited,Moville,Dublin City,16/09/2028
+11164,Regular,968,Michael Moran,Westport,Castlebar,31/10/2026
+22196,Regular,970,Michael Moran,Breaffy House Resort,Castlebar Town,19/09/2028
+10184,Regular,UL05,Michael Moran,Westport,Limerick,31/08/2028
+98106,Regular,593,Catherine Madigan,Ballyegna,Newcastlewest,31/10/2028
+03112,Regular,872875,Michael Gray,Kilmuckridge,Wexford,31/10/2028
+98060,Regular,ATH1,Flagline Coaches,Athlone,Athlone,31/10/2028
+98077,Regular,AI02,Pat Naughton Roscommon Coaches Ltd,Roscommon,Athlone,31/08/2028
+22214,Regular,DK05,Francis Finegan,Carrickmacross,Dundalk Institute of Technology,21/12/2028
+11176,Regular,704X,Last Passive Ltd,Cork City,Dublin Airport,24/11/2026
+07219,Regular,702,Last Passive Ltd,Dalkey,Dublin Airport,31/10/2028
+00085,Regular,700,Last Passive Ltd,Leopardstown,Dublin Airport,31/10/2028
+00085,Regular,700X,Last Passive Ltd,Leopardstown,Dublin Airport,31/10/2028
+13116,Regular,UM09,Park Transport International Limited,Athboy,Maynooth University,31/08/2028
+04015,Regular,GM13,Park Transport International Limited,Monaghan,Galway,31/08/2028
+02060,Regular,UM05,Park Transport International Limited,Cavan,Maynooth,31/08/2028
+09080,Regular,UM03,Park Transport International Limited,Dundalk,Maynooth,31/08/2028
+00060,Regular,180,McConnon Travel Limited,Clones,Dublin,31/10/2028
+22183,Regular,GD01,McConnon Travel Limited,Monaghan,Dublin,08/09/2028
+16164,Regular,832,Slieve Bloom Coach Tours Ltd,Portlaoise,Errill,17/11/2028
+16165,Regular,838,Slieve Bloom Coach Tours Ltd,Portlaoise,Kilkenny,17/11/2028
+06063,Regular,837,Slieve Bloom Coach Tours Ltd,Tullamore,Mullingar,31/10/2028
+03077,Regular,831,Slieve Bloom Coach Tours Ltd,Portlaoise,Portlaoise,31/10/2028
+02049,Regular,829,Slieve Bloom Coach Tours Ltd,Portlaoise,Tullamore,31/10/2028
+00026,Regular,830,Slieve Bloom Coach Tours Ltd,Mountmellick,Tullamore,31/10/2028
+06004,Regular,886,Matthew Whelan,Monamolin,Gorey,31/10/2028
+20010,Specific Targeted,20010,Paddywagon Limited,Killarney,Killarney,26/01/2029
+19371,Specific Targeted,19371,Paddywagon Limited,Cobh,Cobh,19/11/2028
+08181,Specific Targeted,08181,Paddywagon Limited,Cork,Cork via CoM,31/10/2028
+08007,Specific Targeted,08007,Paddywagon Limited,Dublin City,Dublin City via COM,31/10/2028
+07211,Specific Targeted,07211,Paddywagon Limited,Dublin City,Dublin City via Blarney,31/10/2028
+04037,Specific Targeted,04037,Paddywagon Limited,Dublin,Kilkenny,31/10/2028
+19358,Specific Targeted,19358,Paddywagon Limited,Dublin Port,Dublin Port via Glendalough,10/10/2028
+13059,Specific Targeted,13059,Paddywagon Limited,Dublin,Cong,12/06/2028
+13060,Specific Targeted,13060,Paddywagon Limited,Dublin,Dublin,12/06/2028
+16042,Specific Targeted,16042,Paddywagon Limited,Cork,Cork,26/05/2028
+16043,Specific Targeted,16043,Paddywagon Limited,Cork,Cork,26/05/2028
+16041,Specific Targeted,16041,Paddywagon Limited,Limerick,Limerick,26/05/2028
+15185,Specific Targeted,15185,Paddywagon Limited,Cobh,Cobh,24/11/2027
+12033,Regular,931,Gallagher Coach Travel Limited,Crolly,Killea,31/10/2028
+03086,Regular,835,K. Buggy Coaches Ltd,Tullamore,Tullamore,31/10/2028
+23245,Specific Targeted,23245,Aran Tours Limited,Dublin City,Dublin City,19/09/2026
+15011,Regular,352,Michael Kelly,Pallasgreen,Dundrum,12/03/2027
+05083,Regular,309,Michael Kelly,Kilduff,Limerick,31/10/2028
+10001,Regular,433,Pat Naughton Roscommon Coaches Ltd,Roscommon,Galway,31/10/2028
+21005,Regular,721,ComfortDelgro Irish CityLink Limited,Castlebar,Dublin Airport,04/05/2027
+18041,Regular,430,ComfortDelgro Irish CityLink Limited,Ballina,Galway,25/04/2027
+12009,Regular,707,ComfortDelgro Irish CityLink Limited,Cork City,Dublin Airport,13/02/2027
+09089,Regular,660760761,ComfortDelgro Irish CityLink Limited,Galway,Dublin Airport,31/10/2028
+240019,Regular,DY03,Iain McGuinness,Ballivor,Dunboyne College of Further Education,12/05/2027
+06109,Regular,VI01,Bailieboro Call a Cab Ltd,Kingscourt,Cavan,31/08/2028
+23260,Regular,730,Dave Long Coach Travel Ltd,Skibbereen,Dublin Airport,19/12/2026
+20029,Regular,229,Dave Long Coach Travel Ltd,Bantry,Cork City,10/08/2029
+19351,Regular,230,Dave Long Coach Travel Ltd,Skibbereen,Cork City,14/10/2028
+240022,Regular,KL04,Blueline Coaches Ltd.,Tyrrelstown,Keelings Flowers Food Central,25/04/2027
+240024,Regular,UL18,Kelly Executive Coach and Bus Hire Ltd.,Tipperary,Limerick University,30/04/2027
+21012,Regular,228,Dave Long Coach Travel Ltd,Kinsale,Cork City,14/07/2027
+16080,Specific Targeted,16080,Citi Bus Limited,Dublin,Dublin,27/06/2028
+14004,Regular,TT02,Kennedy Coaches Ltd,Manor West,MTU Kerry,15/01/2029
+23252,Regular,VI05,Christopher McNamee,Oldcastle,Cavan Institute,24/10/2026
+12028,Specific Targeted,12028,Extreme Event Ireland Limited,Dublin City,Dublin City,30/04/2027
+18014,Specific Targeted,18014,Extreme Event Ireland Limited,Dublin City,Dublin City,08/03/2027
+15008,Specific Targeted,15008,Extreme Event Ireland Limited,Dublin City,Dublin City,10/02/2027
+11138,Specific Targeted,11138,Extreme Event Ireland Limited,College Green,College Green,04/09/2029
+11074,Specific Targeted,11074,Extreme Event Ireland Limited,Dublin City,Dublin City,25/05/2029
+09076,Specific Targeted,09076,Extreme Event Ireland Limited,Dublin City,Dublin City,31/10/2028
+23009,Specific Targeted,23009,En Espanol Limited,Dublin City,Dublin City,13/04/2029
+21023,Specific Targeted,21023,En Espanol Limited,Dublin,Dublin via Cliffs of Moher,22/09/2027
+09123,Specific Targeted,09123,Brendan Conwell,Claremorris,Knock,31/10/2028
+10025,Specific Targeted,10025,Rural Sightseeing Tours Ltd.,Dublin,Castle Street Dublin,31/10/2028
+10026,Specific Targeted,10026,Rural Sightseeing Tours Ltd.,Dublin City,Dublin City via Wicklow,31/10/2028
+10094,Specific Targeted,10094,OConnor Autotours,Killarney,Killarney,31/10/2028
+10095,Specific Targeted,10095,OConnor Autotours,Killarney,Killarney,31/05/2028
+10093,Specific Targeted,10093,OConnor Autotours,Killarney,Killarney,31/05/2028
+12014,Specific Targeted,12014,Around Ireland Day Tours Ltd ta Wild Rover,Dublin City,Cliffs of Moher,28/02/2027
+23255,Specific Targeted,23255,Around Ireland Day Tours Ltd ta Wild Rover,Dublin City,Cliffs of Moher,02/11/2026
+10129,Specific Targeted,10129,Around Ireland Day Tours Ltd ta Wild Rover,Dublin City,Kilkenny,31/03/2028
+10151,Regular,964,Bus Feda Teoranta,Crolly,Galway,31/10/2028
+22051,Regular,MB01,Patrick Allen,Ballymore,Moate,02/06/2028
+15012,Regular,UC04,BGM Coaches Ltd,Mooncoin,Cork City,12/03/2027
+16005,Regular,WI05,BGM Coaches Ltd,Clonmel Limerick,Waterford,07/02/2028
+18259,Regular,UM15,BGM Coaches Ltd,Carrick on Suir,Maynooth University,09/10/2027
+15149,Regular,UC05,BGM Coaches Ltd,Waterford City,Cork City,03/09/2027
+15081,Regular,UL19,BGM Coaches Ltd,Waterford,Limerick,04/06/2027
+11030,Regular,2,Bus Eireann- Irish Bus,Dublin Airport,Wexford,28/03/2027
+11021,Regular,40,Bus Eireann- Irish Bus,Waterford,Tralee,16/02/2027
+11013,Regular,13,Bus Eireann- Irish Bus,Tralee,Limerick,25/01/2027
+11011,Regular,100x,Bus Eireann- Irish Bus,Dublin City,Dundalk,25/01/2027
+11010,Regular,22,Bus Eireann- Irish Bus,Dublin,Ballina,18/01/2027
+12109,Regular,64,Bus Eireann- Irish Bus,Galway,Letterkenny,27/11/2028
+12074,Regular,32 X32,Bus Eireann- Irish Bus,Dublin City,Letterkenny,05/09/2028
+12018,Regular,30 X30,Bus Eireann- Irish Bus,Dublin City,Donegal,27/03/2028
+22002,Regular,14,Bus Eireann- Irish Bus,Killarney,Limerick,20/01/2028
+12004,Regular,23,Bus Eireann- Irish Bus,Dublin,Sligo,19/01/2028
+12005,Regular,51,Bus Eireann- Irish Bus,Cork,Galway,19/01/2028
+12005,Regular,X51,Bus Eireann- Irish Bus,Cork,Galway,19/01/2028
+21006,Specific Targeted,21006,Dublin Bus,Dublin,Dublin,17/03/2027
+12015,Specific Targeted,12015,Dublin Bus,OConnell Street,OConnell Street,04/03/2028
+12100,Specific Targeted,12100,Curran Coaches,Carrick,Sliabh Liag,19/11/2027
+12012,Specific Targeted,12012,Galway Sightseeing Tour Co Ltd,Galway,Cliffs of Moher,26/02/2027
+11168,Specific Targeted,11168,Galway Sightseeing Tour Co Ltd,Galway,Galway,15/11/2026
+11173,Specific Targeted,11173,Galway Sightseeing Tour Co Ltd,Galway,Galway,15/11/2026
+17165,Specific Targeted,17165,Galway Sightseeing Tour Co Ltd,Galway,Galway,05/07/2029
+14040,Specific Targeted,14040,Galway Sightseeing Tour Co Ltd,Galway City,Doolin,15/05/2029
+10018,Specific Targeted,10018,Galway Sightseeing Tour Co Ltd,Dublin,Galway,31/10/2028
+17053,Regular,870,Express Bus Ltd,OConnell Street Upper,Damastown IBM,03/05/2029
+17054,Regular,836,Express Bus Ltd,OConnell Street Upper,Blanchardstown,03/05/2029
+19032,Regular,786,Express Bus Ltd,Hilton Dublin Airport,Dublin Airport,04/04/2028
+12064,Regular,860,Express Bus Ltd,Dublin,Park West,21/08/2027
+12101,Regular,DK07,EMC Coaches Limited,Monaghan,Dundalk Institute of Technology,21/11/2027
+12103,Regular,930,Martin Leydon Coaches Limited,Swanlinbar,Cavan,06/12/2027
+20002,Specific Targeted,20002,Hilltoptreks,Dublin City,Dublin City,08/01/2029
+19302,Specific Targeted,19302,Hilltoptreks,Dublin,Dublin,14/08/2028
+17227,Regular,KY03,Gleneagle Hotel,The Gleneagle Hotel,The Gleneagle Hotel,26/09/2026
+95186,Regular,290A,David Culloty,Tralee,Tralee via Blennerville,31/10/2028
+95187,Regular,290B,David Culloty,Tralee,Tralee via Manor West,31/10/2028
+14087,Regular,956,Hugh McGonagle Jnr and Denis McGonagle,Cockhill,Bridgend,08/07/2029
+19355,Regular,951,Hugh McGonagle Jnr and Denis McGonagle,Malin Town,Letterkenny,09/10/2028
+14066,Regular,KY01,PCE Coaches Limited,Killarney,Killarney,16/06/2029
+15135,Specific Targeted,15135,PCE Coaches Limited,Killarney,Killarney,04/08/2027
+14073,Specific Targeted,14073,Spirit Of Ireland Executive Travel Ltd,Galway,Galway,26/06/2029
+14074,Specific Targeted,14074,Spirit Of Ireland Executive Travel Ltd,Galway,Galway,26/06/2029
+14075,Specific Targeted,14075,Spirit Of Ireland Executive Travel Ltd,Galway,Merchant Road,26/06/2029
+19094,Specific Targeted,19094,Spirit Of Ireland Executive Travel Ltd,Limerick,Cliffs of Moher,27/05/2028
+22148,Specific Targeted,22148,Sheridan City Tours Ltd,Kilkenny Castle,Kilkenny Castle,19/07/2028
+04049,Regular,920,Galway Bus Limited,Loughrea,Galway City,31/10/2028
+04047,Specific Targeted,04047,Galway Bus Limited,Galway City,Galway City,16/03/2028
+13028,Regular,191,James Carolan,Stamullen,Eden Quay,08/05/2028
+15154,Specific Targeted,15154,Meadow Tours Limited,Dublin City,Dublin City,13/09/2027
+15144,Regular,VI02,Michael O Reilly,Granard,Cavan,31/08/2027
+98118,Regular,327,Foley Minibus Hire,Tankardstown,Kilmallock,31/10/2028
+96141,Regular,325,Foley Minibus Hire,Effin,Charleville,31/10/2028
+07184,Regular,DK03,Royal Breffni Tours Ltd,Trim,Dundalk,31/08/2028
+02046,Regular,DK04,Royal Breffni Tours Ltd,Bailieborough,Dundalk,31/08/2028
+96143,Regular,DK02,Royal Breffni Tours Ltd,Moynalty,Dundalk,31/08/2028
+19379,Specific Targeted,19379,Vintage Tea Tours Limited,Saint Stephens Green North,Saint Stephens Green North,15/12/2028
+20009,Regular,741,Selnec Ltd,Dublin Airport,Dublin Airport,23/01/2029
+240070,Specific Targeted,240070,Extreme Event Ireland Limited,Dublin City,Glendalough,26/05/2027
+240071,Specific Targeted,240071,Tour Ireland Your Way Ltd,Dublin City,Dublin City via Galway City and Doolin,28/05/2027
+11149,Regular,300,West Coast Coaches,Dublin,Tralee,15/09/2029
+14104,Regular,600,West Coast Coaches,Cork City,Dublin City,26/08/2029
+07182,Regular,726,West Coast Coaches,Portlaoise,Dublin Airport,31/10/2028
+16115,Specific Targeted,16115,Kyanitedale Ltd,Oconnell Street,Glendalough,28/07/2028
+16085,Specific Targeted,16085,Kyanitedale Ltd,Dublin City,Dublin City,05/07/2028
+15107,Regular,750,West Coast Coaches,Dundrum,Dublin Airport,09/07/2027
+14006,Specific Targeted,14006,Irish City Tours Limited,Oconnell Street,OConnell Street,28/01/2029
+03092,Specific Targeted,03092,Irish City Tours Limited,O Connell Street Upper,O Connell Street Upper,31/10/2028
+96014,Specific Targeted,96014,Irish City Tours Limited,OConnell Street Upper,OConnell Street Upper,31/10/2028
+96015,Specific Targeted,RedRoute1,Irish City Tours Limited,Parnell Square North,Bachelors Walk,31/10/2028
+13123,Specific Targeted,13123,Irish City Tours Limited,College Green,Guinness Storehouse,11/09/2028
+16054,Specific Targeted,16054,Irish City Tours Limited,Sandymount,Ballsbridge,09/06/2028
+18222,Specific Targeted,18222,Finn Tours South Limited,Dublin,Dublin,22/08/2027
+18213,Specific Targeted,18213,Finn Tours South Limited,Dublin,Dublin,13/08/2027
+240080,Specific Targeted,240080,Sliabh Liag Tours Limited,Carrick,Sliabh Liag,29/05/2027
+97093,Regular,231,Noralene Harrington,Ardgroom,Cork City,31/10/2028
+23212,Regular,723,Flight Link Limited,Ennis,Dublin Airport,16/08/2029
+23010,Regular,722,Flight Link Limited,Killarney,Dublin Airport,25/04/2029
+19001,Regular,VI04,Seamus Reilly,Crosskeys,Cavan,02/01/2028
+21016,Regular,511,Joe Moroney Coach Hire,Rathfarnham,Mount Anville,12/08/2027
+19297,Regular,976,McGonagle Bus and Coach Limited PMcG,Cockhill,Bridgend,08/08/2028
+19320,Regular,OF01,Patrick Keenan,Carlingford,O Fiaich Institute of Further Education Dundalk,26/08/2028
+19319,Regular,DF01,Patrick Keenan,Carlingford,DIFE Drogheda,26/08/2028
+14068,Specific Targeted,14068,Extreme Event Ireland Limited,Dublin,Dublin,19/06/2029
+09122,Specific Targeted,09122,Collins Coaches Limited,Dublin City,Dublin City,31/10/2028
+98113,Regular,980,Collins Coaches Limited,Carrickmacross,Dublin City,31/10/2028
+19040,Regular,980A 980B,Collins Coaches Limited,Carrickmacross,Dublin,11/04/2028
+20027,Regular,AI05,Walshs Executive Travel Ltd,Edenderry,Athlone,02/07/2029
+19359,Regular,965,Mangan Travel Limited,Meenlaragh,Letterkenny,31/10/2028
+22162,Specific Targeted,22162,Tour Ireland Your Way Ltd,Georges Quay,Georges Quay,14/08/2028
+20004,Regular,782,National Express Bus and Coach Service Limited,Dublin Airport,Dublin Airport,09/01/2029
+20006,Regular,784,National Express Bus and Coach Service Limited,Dublin City Charlotte Way,Dublin Airport,09/01/2029
+23005,Regular,KL03,Blueline Coaches Ltd.,Santry,Keelings Retail UC,14/03/2029
+19333,Regular,KL01,Blueline Coaches Ltd.,Smithfield,Keelings Retail UC,12/09/2028
+22027,Regular,853,Blueline Coaches Ltd.,Dublin Port,Heuston Station,21/04/2028
+21022,Regular,BI01,Technological University Dublin,TU Dublin Blanchardstown,TU Dublin Blanchardstown,18/10/2027
+06154,Regular,437,Eugene Deffely,Tourmakeady,Castlebar,31/10/2028
+21015,Specific Targeted,21015,Comlacht Pobail Shliabh Liag Ctr,Sliabh Liag Visitor Centre,Sliabh Liag Cliffs,07/07/2027
+13030,Regular,879,Gorey Buslinks and Coach Hire Limited,Gorey,Gorey,15/05/2028
+22007,Regular,809,Kirstie McDonagh,Glasan Student Village,Galway city,29/03/2028
+95401,Regular,181,William Doyle,Glendalough,Saint Stephens Green,31/10/2028
+22151,Specific Targeted,22151,Viking Splash Tours Limited,Dublin City,Dublin City,21/07/2028
+22209,Regular,DY02,McCaffrey Coaches Limited,Enfield,Dunboyne College of Further Education,05/12/2028
+16152,Regular,BR01,Kildare Wicklow ETB,Gorey,Bray Institute of Further Education,31/10/2028
+15009,Regular,555,Exclusive Irish Transport Services Ltd,Dublin,Doolin Pier,02/03/2027
+23256,Regular,NI01,EMC Coaches Limited,Carrickmacross,Monaghan Institute,16/11/2026
+240265,Regular,240265,Cronins Coaches Limited,Lucan,The High School Rathgar,29/07/2027
+240320,Specific Targeted,240320,Butlers Buses,Cobh,Cobh via Blarney,22/08/2027
+240336,Regular,IW08,PJ Martley Limited,Mountmellick,Carlow,25/11/2027
+240338,Specific Targeted,240338,Butlers Buses,Cobh,Cobh via Blarney and Charles Fort and Kinsale,01/12/2027
+240339,Regular,DK08,Michael McGill,Ardee,Dundalk Institute of Technology,02/12/2027
+240340,Regular,224,Dave Long Coach Travel Ltd,Skibbereen,Cork Airport,04/12/2027
+240341,Specific Targeted,240341,Dublin Bus,O Connell Street Upper,O Connell Street Upper,09/12/2027
+240342,Specific Targeted,240342,The Emerald Hub Limited,Wexford,Wexford,09/12/2027
+250004,Specific Targeted,21017,Malahide Trolley Services Ltd.,Malahide Station,Malahide Station,26/02/2028
+250008,Specific Targeted,250008,Killybegs Information Centre CLG,Killybegs Information Centre,Sliabh Liag View Point,03/03/2028
+250010,Regular,964,Bus Feda Teoranta,Crolly,Galway City,29/04/2028
+250013,Specific Targeted,250013,Dingle Open Top Tour Bus Limited,Dingle Marina,Dingle Marina via Slea Head,20/03/2028
+250020,Specific Targeted,250020,Bus Feda Teoranta,Killybegs Harbour,Killybegs Harbour,22/04/2028
+250022,Regular,250022,Bus Eireann- Irish Bus,Dunmore East,Waterford City,07/04/2028
+250036,Specific Targeted,250036,Bus Eireann- Irish Bus,Dublin City,Cliffs of Moher,12/05/2028
+250090,Regular,827,Slieve Bloom Coach Tours Ltd,Mountmellick,Portlaoise,16/06/2028
+250220,Specific Targeted,250220,Rabbies Ireland Ltd,Killarney,Killarney via Ring of Kerry,25/07/2028
+250221,Specific Targeted,250221,Rabbies Ireland Ltd,Killarney,Killarney via Dingle,25/07/2028
+250242,Specific Targeted,250242,Dublin Bus,Dublin City,Dublin City,15/09/2028
+250243,Regular,DY01,McCaffrey Coaches Limited,Kells,Dunboyne College of Further Education,11/09/2028
+250246,Regular,250246,Sharon Condon,Tuam,Galway City,04/12/2028
+250250,Regular,740X,I.P. Passenger Services Limited,Wexford,Dublin Airport,31/10/2028
+250251,Specific Targeted,250251,En Espanol Limited,Dublin City,Dublin City via Glendalough,06/11/2028
+250253,Specific Targeted,250253,Deros Coach Tours Ltd,Killarney,Killarney,25/11/2028
+260001,Specific Targeted,260001,Murphys Chauffeur Services Limited,Macroom,Killarney,01/03/2029
+260002,Specific Targeted,260002,Lally Coach Hire Limited,Galway City,Galway City via Cong,09/03/2029
+260003,Specific Targeted,260003,Lally Coach Hire Limited,Galway City,Galway City via Inisheer,09/03/2029
+260004,Regular,724,Flight Link Limited,Tralee,Dublin Airport,05/03/2029
+260005,Regular,787,Express Bus Ltd,Ballymun,Dublin Airport,09/03/2029
+260006,Specific Targeted,260006,Lally Coach Hire Limited,Galway City,Cliffs of Moher and Ailwee,31/03/2029
+260007,Specific Targeted,260007,Lally Coach Hire Limited,Galway,Galway via Cliffs of Moher,31/03/2029
+260017,Specific Targeted,260017,Paddywagon Limited,Cork City,Cork City via Blarney Kinsale and Cobh,11/06/2028
+260023,Specific Targeted,-,West Coast Coaches,Dublin City,Dublin City,23/06/2028
+260032,Specific Targeted,-,Paddywagon Limited,Galway City,Galway City Via Cliffs of Moher,26/07/2029
+260038,Specific Targeted,-,Kenneallys Bus Service Ltd,Dunmore East,Waterford,10/08/2029
+260040,Regular,424N,Kirstie McDonagh,Lettermullen,Eyre Square,12/08/2029
+260049,Regular,-,Galway Aviation Services Ltd,Galway City,Connemara Airport,30/08/2029

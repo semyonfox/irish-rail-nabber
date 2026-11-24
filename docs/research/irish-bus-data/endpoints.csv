@@ -1,0 +1,9 @@
+operator,method,url,verification,refresh_evidence,limitations
+Swords Express,GET,https://www.swordsexpress.com/app/themes/swordsexpress/resources/assets//scripts/latlong.php,JSON sampled four times,GPS advances 8–16 seconds; small sample,Fleet batch; route mapping unresolved
+Aircoach,GET,https://www.aircoach.ie/api/track-my-coach-services?_format=json,JSON returned,Static reference data,"Routes, directions, geometry, stops"
+Aircoach,GET,https://www.aircoach.ie/api/track-my-coach-service-timetables?operator=ACAH&service=700&direction=inbound,JSON returned,Frontend polls 10 seconds; GPS cadence unknown,Selected service/direction; timestamp inconsistency
+TM Panel family,POST,https://coachtracker.tmpanel.co.uk/Standard/NewGetJourneyTraking,Published frontend only,Frontend polls 30 seconds,Browser session and anti-forgery state; selected journey
+FutureFleet,POST,https://leap.futurefleet.com/daverest/v1/realtime/liveJourney/map,Published frontend only,Unknown,Operator and journey selection required
+Citylink / BusHub,Unknown,https://api-v3.nextstopapp.co.uk,API origin in published bundle only,Unknown,Endpoint schema and access unverified
+Dublin Express / uTrack,Unknown,https://nx.origin.utrack.com/api,API origin in published config only,Unknown,Endpoint schema and access unverified
+Translink NI,Unknown,https://vpos.translinkniplanner.co.uk,Independent documentation lead only,Unknown,Not validated

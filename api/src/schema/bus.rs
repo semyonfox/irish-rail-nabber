@@ -1,4 +1,4 @@
-use async_graphql::{Context, Error, Object, Result};
+use async_graphql::{Context, Error, Object, Result, SimpleObject};
 use sqlx::PgPool;
 use std::sync::Arc;
 
@@ -25,10 +25,18 @@ const BUS_SHAPE_POINTS_PER_SHAPE: i64 = 500;
 const BUS_SCHEDULED_ROUTE_SHAPE_LIMIT: (i32, i32) = (1, 40);
 const BUS_SCHEDULED_SHAPE_POINTS_PER_SHAPE: i64 = 300;
 
+#[derive(Clone, SimpleObject)]
+pub struct BusRouteMap {
+    pub feed_version_id: i64,
+    pub route_id: String,
+    pub shapes: Vec<BusRouteShape>,
+    pub stops: Vec<BusStop>,
+}
+
 #[derive(Default)]
 pub struct BusQuery;
 
-fn validate_identifier(value: String, name: &str) -> Result<String> {
+pub(super) fn validate_identifier(value: String, name: &str) -> Result<String> {
     let value = value.trim();
     if value.is_empty() {
         return Err(Error::new(format!("{name} must not be empty")));
@@ -41,7 +49,7 @@ fn validate_identifier(value: String, name: &str) -> Result<String> {
     Ok(value.to_owned())
 }
 
-fn search_pattern(search: Option<String>) -> Result<Option<String>> {
+pub(super) fn search_pattern(search: Option<String>) -> Result<Option<String>> {
     let Some(search) = search else {
         return Ok(None);
     };
@@ -127,6 +135,64 @@ async fn evict_empty_scheduled_shapes(
 
 #[Object]
 impl BusQuery {
+    /// Static geometry and every scheduled stop, including route variants in both directions.
+    #[graphql(complexity = 150)]
+    async fn bus_route_map(
+        &self,
+        ctx: &Context<'_>,
+        route_id: String,
+        feed_version_id: Option<i64>,
+    ) -> Result<Option<BusRouteMap>> {
+        let route_id = validate_identifier(route_id, "routeId")?;
+        if feed_version_id.is_some_and(|id| id < 1) {
+            return Err(Error::new("feedVersionId must be positive"));
+        }
+        let key = format!("{feed_version_id:?}:{route_id:?}");
+        let pool = ctx.data::<PgPool>()?.clone();
+        let result = ctx.data::<QueryCache>()?.bus_route_map.try_get_with(key, async move {
+            let mut tx = pool.begin().await?;
+            sqlx::query("SET LOCAL statement_timeout = '10s'").execute(&mut *tx).await?;
+            let versions = sqlx::query_scalar::<_, i64>(
+                "SELECT r.feed_version_id FROM bus_routes r
+                 JOIN transit_feed_versions f ON f.id = r.feed_version_id
+                 WHERE r.route_id = $1 AND (($2::bigint IS NULL AND f.is_active) OR r.feed_version_id = $2)
+                 ORDER BY r.feed_version_id DESC LIMIT 2"
+            ).bind(&route_id).bind(feed_version_id).fetch_all(&mut *tx).await?;
+            if versions.len() > 1 {
+                return Err(sqlx::Error::Protocol("Choose a schedule version for this route".into()));
+            }
+            let Some(&version) = versions.first() else { return Ok(Arc::new(None)); };
+            let rows = sqlx::query_as::<_, BusShapePointRow>(
+                "WITH shapes AS (
+                    SELECT DISTINCT shape_id FROM bus_trips
+                    WHERE feed_version_id = $1 AND route_id = $2 AND shape_id IS NOT NULL
+                 ), points AS (
+                    SELECT p.*, ROW_NUMBER() OVER (PARTITION BY p.shape_id ORDER BY shape_pt_sequence) AS n,
+                           COUNT(*) OVER (PARTITION BY p.shape_id) AS total
+                    FROM shapes s JOIN bus_shape_points p ON p.shape_id = s.shape_id AND p.feed_version_id = $1
+                 )
+                 SELECT r.route_id, r.route_short_name, r.route_color, p.shape_id,
+                        p.shape_pt_lat AS latitude, p.shape_pt_lon AS longitude, p.shape_pt_sequence
+                 FROM points p JOIN bus_routes r ON r.feed_version_id = $1 AND r.route_id = $2
+                 WHERE p.n = 1 OR p.n = p.total OR MOD(p.n - 1, GREATEST(1, CEIL((p.total - 1)::numeric / 999)::bigint)) = 0
+                 ORDER BY p.shape_id, p.shape_pt_sequence"
+            ).bind(version).bind(&route_id).fetch_all(&mut *tx).await?;
+            let stops = sqlx::query_as::<_, BusStopRow>(
+                "SELECT DISTINCT s.stop_id, s.stop_code, s.stop_name, s.stop_lat AS latitude, s.stop_lon AS longitude
+                 FROM bus_trips t JOIN bus_stop_times st ON st.feed_version_id = t.feed_version_id AND st.trip_id = t.trip_id
+                 JOIN bus_stops s ON s.feed_version_id = st.feed_version_id AND s.stop_id = st.stop_id
+                 WHERE t.feed_version_id = $1 AND t.route_id = $2
+                 ORDER BY s.stop_name, s.stop_id"
+            ).bind(version).bind(&route_id).fetch_all(&mut *tx).await?;
+            tx.commit().await?;
+            Ok::<_, sqlx::Error>(Arc::new(Some(BusRouteMap {
+                feed_version_id: version, route_id, shapes: group_bus_route_shapes(rows),
+                stops: stops.into_iter().map(BusStop::from).collect(),
+            })))
+        }).await.map_err(|e| Error::new(e.to_string()))?;
+        Ok((*result).clone())
+    }
+
     #[graphql(complexity = 10)]
     async fn bus_realtime_status(&self, ctx: &Context<'_>) -> Result<BusRealtimeStatus> {
         let pool = ctx.data::<PgPool>()?;
@@ -233,8 +299,28 @@ impl BusQuery {
         let pool = pool.clone();
 
         let result = cache.bus_stop_boards.try_get_with(cache_key, async move {
+            let mut tx = pool.begin().await?;
+            sqlx::query("SET LOCAL statement_timeout = '10s'").execute(&mut *tx).await?;
+            // Keep concurrent stop boards out of Docker's small shared-memory pool.
+            sqlx::query("SET LOCAL max_parallel_workers_per_gather = 0").execute(&mut *tx).await?;
             let rows = sqlx::query_as::<_, BusDepartureRow>(
-            "WITH latest AS (
+            "WITH candidates AS MATERIALIZED (
+                SELECT update.*
+                FROM transit_feed_versions feed
+                JOIN bus_stop_updates update ON update.feed_version_id = feed.id
+                WHERE feed.is_active AND update.stop_id = $1
+
+                UNION ALL
+
+                SELECT update.*
+                FROM transit_feed_versions feed
+                JOIN bus_stop_times identified_stop ON identified_stop.feed_version_id = feed.id
+                JOIN bus_stop_updates update
+                  ON update.feed_version_id = identified_stop.feed_version_id
+                 AND update.trip_id = identified_stop.trip_id
+                 AND update.stop_sequence = identified_stop.stop_sequence
+                WHERE feed.is_active AND identified_stop.stop_id = $1 AND update.stop_id IS NULL
+             ), latest AS (
                 SELECT DISTINCT ON (
                     update.feed_version_id,
                     update.trip_instance_key,
@@ -248,20 +334,13 @@ impl BusQuery {
                 )
                     update.*,
                     freshness.last_seen_at AS trip_last_seen_at
-                FROM bus_stop_updates update
-                JOIN transit_feed_versions feed ON feed.id = update.feed_version_id
+                FROM candidates update
                 JOIN bus_trip_update_freshness freshness
                     ON freshness.feed_version_id = update.feed_version_id
                    AND freshness.trip_instance_key = update.trip_instance_key
-                LEFT JOIN bus_stop_times identified_stop
-                    ON identified_stop.feed_version_id = update.feed_version_id
-                   AND identified_stop.trip_id = update.trip_id
-                   AND identified_stop.stop_sequence = update.stop_sequence
                 LEFT JOIN fetch_schedules poll_schedule
                     ON poll_schedule.endpoint = 'nta_realtime'
-                WHERE feed.is_active
-                  AND COALESCE(update.stop_id, identified_stop.stop_id) = $1
-                  AND UPPER(freshness.schedule_relationship) NOT IN (
+                WHERE UPPER(freshness.schedule_relationship) NOT IN (
                         'CANCELED', 'CANCELLED', 'DELETED'
                   )
                   AND freshness.last_seen_at > NOW() - make_interval(
@@ -398,9 +477,10 @@ impl BusQuery {
         )
         .bind(stop_id)
         .bind(i64::from(limit))
-            .fetch_all(&pool)
+            .fetch_all(&mut *tx)
             .await?;
 
+            tx.commit().await?;
             Ok::<_, sqlx::Error>(Arc::new(
                 rows.into_iter().map(BusDeparture::from).collect(),
             ))
@@ -798,120 +878,28 @@ impl BusQuery {
             .bus_route_delays
             .try_get_with(cache_key, async move {
                 let mut transaction = pool.begin().await?;
-                // The national history can exceed Docker's shared-memory limit
-                // in a parallel hash join. Keep this setting local to this query.
-                sqlx::query("SET LOCAL enable_parallel_hash = off")
+                // Bound cold queries while Timescale catches up on materialization.
+                sqlx::query("SET LOCAL statement_timeout = '15s'")
                     .execute(&mut *transaction)
                     .await?;
                 let rows = sqlx::query_as::<_, BusRouteDelayRow>(
-                    "WITH candidates AS (
-                SELECT
-                    update.id,
-                    update.feed_version_id,
-                    update.trip_instance_key,
-                    update.entity_id,
-                    update.trip_id,
-                    update.service_date,
-                    update.stop_id,
-                    update.stop_sequence,
-                    COALESCE(update.route_id, trip.route_id) AS route_id,
-                    COALESCE(
-                        update.departure_delay_seconds,
-                        update.arrival_delay_seconds
-                    ) AS delay_seconds,
-                    update.last_seen_at AS state_changed_at,
-                    freshness.last_seen_at AS fetched_at
-                FROM bus_stop_updates update
-                JOIN bus_trip_update_freshness freshness
-                    ON freshness.feed_version_id = update.feed_version_id
-                   AND freshness.trip_instance_key = update.trip_instance_key
-                LEFT JOIN bus_trips trip
-                    ON trip.feed_version_id = update.feed_version_id
-                   AND trip.trip_id = update.trip_id
-                WHERE freshness.last_seen_at > NOW() - make_interval(hours => $1)
-                  AND UPPER(freshness.schedule_relationship) NOT IN (
-                        'CANCELED', 'CANCELLED', 'DELETED'
-                  )
-                  AND COALESCE(
-                        update.departure_delay_seconds,
-                        update.arrival_delay_seconds
-                      ) IS NOT NULL
-             ), latest AS (
-                SELECT DISTINCT ON (
-                    feed_version_id,
-                    trip_instance_key,
-                    CASE
-                        WHEN stop_sequence IS NOT NULL
-                        THEN 'sequence:' || stop_sequence::text
-                        WHEN stop_id IS NOT NULL
-                        THEN 'stop_id:' || stop_id
-                        ELSE 'unknown'
-                    END
-                )
-                    feed_version_id,
-                    route_id,
-                    delay_seconds,
-                    fetched_at,
-                    state_changed_at
-                FROM candidates
-                WHERE route_id IS NOT NULL
-                ORDER BY
-                    feed_version_id,
-                    trip_instance_key,
-                    CASE
-                        WHEN stop_sequence IS NOT NULL
-                        THEN 'sequence:' || stop_sequence::text
-                        WHEN stop_id IS NOT NULL
-                        THEN 'stop_id:' || stop_id
-                        ELSE 'unknown'
-                    END,
-                    state_changed_at DESC,
-                    id DESC
-             ), aggregated AS (
-                SELECT
-                    feed_version_id,
-                    route_id,
-                    AVG(delay_seconds)::float8 AS avg_delay_seconds,
-                    (
-                        COUNT(*) FILTER (WHERE delay_seconds <= 300)
-                        * 100.0
-                        / NULLIF(COUNT(*), 0)
-                    )::float8 AS on_time_pct,
-                    COUNT(*)::int8 AS sample_count,
-                    MAX(fetched_at) AS last_updated
-                FROM latest
-                GROUP BY feed_version_id, route_id
-             )
-             SELECT
-                aggregated.route_id,
-                metadata.route_short_name,
-                metadata.route_long_name,
-                metadata.operator_name,
-                aggregated.avg_delay_seconds,
-                aggregated.on_time_pct,
-                aggregated.sample_count,
-                aggregated.last_updated
-             FROM aggregated
-             LEFT JOIN LATERAL (
-                SELECT
-                    NULLIF(BTRIM(route.route_short_name), '') AS route_short_name,
-                    NULLIF(BTRIM(route.route_long_name), '') AS route_long_name,
-                    NULLIF(BTRIM(agency.agency_name), '') AS operator_name
-                FROM bus_routes route
-                JOIN transit_feed_versions feed
-                    ON feed.id = route.feed_version_id
-                LEFT JOIN bus_agencies agency
-                    ON agency.feed_version_id = route.feed_version_id
-                   AND agency.agency_id = route.agency_id
-                WHERE route.feed_version_id = aggregated.feed_version_id
-                  AND route.route_id = aggregated.route_id
-                LIMIT 1
-             ) metadata ON TRUE
-             ORDER BY
-                aggregated.avg_delay_seconds DESC,
-                aggregated.sample_count DESC,
-                aggregated.route_id
-             LIMIT $2",
+                    "WITH aggregated AS (
+                        SELECT feed_version_id, route_id,
+                            (SUM(delay_sum)::float8 / SUM(sample_count)) AS avg_delay_seconds,
+                            (100.0 * SUM(on_time_count) / SUM(sample_count))::float8 AS on_time_pct,
+                            SUM(sample_count)::bigint AS sample_count,
+                            MAX(last_updated) AS last_updated
+                        FROM bus_hourly_delays
+                        WHERE bucket >= time_bucket(INTERVAL '1 hour', NOW() - make_interval(hours => $1))
+                        GROUP BY feed_version_id, route_id
+                    ) SELECT a.feed_version_id, a.route_id, r.route_short_name, r.route_long_name,
+                             agency.agency_name AS operator_name, a.avg_delay_seconds,
+                             a.on_time_pct, a.sample_count, a.last_updated
+                      FROM aggregated a
+                      LEFT JOIN bus_routes r ON r.feed_version_id = a.feed_version_id AND r.route_id = a.route_id
+                      LEFT JOIN bus_agencies agency ON agency.feed_version_id = r.feed_version_id AND agency.agency_id = r.agency_id
+                      ORDER BY a.avg_delay_seconds DESC, a.sample_count DESC, a.feed_version_id, a.route_id
+                      LIMIT $2",
                 )
                 .bind(hours)
                 .bind(i64::from(limit))

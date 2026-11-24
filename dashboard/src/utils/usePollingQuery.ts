@@ -15,7 +15,7 @@ export function usePollingQuery<
   const [result, reexecute] = useQuery<Data, Variables>({
     query: opts.query,
     variables: opts.variables as Variables,
-    requestPolicy: "cache-first",
+    requestPolicy: "cache-and-network",
     pause: opts.pause,
   });
 

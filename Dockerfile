@@ -12,6 +12,7 @@ RUN pip install --no-cache-dir -v -r requirements.txt
 COPY schema.sql .
 COPY daemon.py .
 COPY bus_daemon.py .
+COPY import_bus_performance.py .
 COPY migrations/ ./migrations/
 COPY docker-entrypoint.sh .
 RUN chmod +x docker-entrypoint.sh

@@ -1,0 +1,1071 @@
+{
+  "checked_utc": "2026-09-14",
+  "scope": "103 bus agency records in NTA GTFS_All active feed version 3; shared websites deduplicated; public homepage plus api hostname and /api/ root only. HTTP 200 is not proof of an API.",
+  "websites": [
+    {
+      "host": "www.aircoach.ie",
+      "homepage": "https://www.aircoach.ie/",
+      "homepage_status": 302,
+      "final_homepage": "https://www.aircoach.ie/",
+      "api_host": "api.aircoach.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "allensbushire.ie",
+      "homepage": "https://allensbushire.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://allensbushire.ie/",
+      "api_host": "api.allensbushire.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "ardcavan.com",
+      "homepage": "https://ardcavan.com/",
+      "homepage_status": 200,
+      "final_homepage": "https://ardcavan.com/",
+      "api_host": "api.ardcavan.com",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "www.ashbourneconnect.ie",
+      "homepage": "https://www.ashbourneconnect.ie",
+      "homepage_status": 200,
+      "final_homepage": "https://ashbourneconnect.ie/",
+      "api_host": "api.ashbourneconnect.ie",
+      "api_dns": "resolves",
+      "api_host_status": "URLError",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": [
+        "https://ashbourneconnect.ie/tracker/"
+      ]
+    },
+    {
+      "host": "www.goreycoachandbus.com",
+      "homepage": "http://www.goreycoachandbus.com/",
+      "homepage_status": "URLError",
+      "final_homepage": "http://www.goreycoachandbus.com/",
+      "api_host": "api.goreycoachandbus.com",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": "URLError",
+      "api_path_type": "",
+      "discovered_links": []
+    },
+    {
+      "host": "www.transportforireland.ie",
+      "homepage": "https://www.transportforireland.ie",
+      "homepage_status": 200,
+      "final_homepage": "https://www.transportforireland.ie",
+      "api_host": "api.transportforireland.ie",
+      "api_dns": "resolves",
+      "api_host_status": 404,
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": [
+        "https://www.transportforireland.ie/wp-content/uploads/2019/10/tfi-real-time-information.svg"
+      ]
+    },
+    {
+      "host": "www.carolancoachhire.ie",
+      "homepage": "http://www.carolancoachhire.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://www.carolancoachhire.ie/",
+      "api_host": "api.carolancoachhire.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": "TimeoutError",
+      "api_path_type": "",
+      "discovered_links": []
+    },
+    {
+      "host": "barrowbus.palisis.com",
+      "homepage": "https://barrowbus.palisis.com/",
+      "homepage_status": 403,
+      "final_homepage": "https://barrowbus.palisis.com/",
+      "api_host": "api.barrowbus.palisis.com",
+      "api_dns": "resolves",
+      "api_host_status": "URLError",
+      "api_path_status": 403,
+      "api_path_type": "text/html",
+      "discovered_links": []
+    },
+    {
+      "host": "www.bernardkavanaghcoaches.com",
+      "homepage": "http://www.bernardkavanaghcoaches.com",
+      "homepage_status": 200,
+      "final_homepage": "https://www.bernardkavanaghcoaches.com/",
+      "api_host": "api.bernardkavanaghcoaches.com",
+      "api_dns": "resolves",
+      "api_host_status": "URLError",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "burkesbus.ie",
+      "homepage": "https://burkesbus.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://burkesbus.ie/",
+      "api_host": "api.burkesbus.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": [
+        "https://bustracker.tmpanel.co.uk/BurkesBus"
+      ]
+    },
+    {
+      "host": "www.cliffsofmoher.ie",
+      "homepage": "https://www.cliffsofmoher.ie/burren-and-cliffs-of-moher-explorer/",
+      "homepage_status": 200,
+      "final_homepage": "https://www.cliffsofmoher.ie/burren-and-cliffs-of-moher-explorer/",
+      "api_host": "api.cliffsofmoher.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 200,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": [
+        "https://www.cliffsofmoher.ie/wp-includes/js/dist/api-fetch.min.js"
+      ]
+    },
+    {
+      "host": "busfeda.ie",
+      "homepage": "https://busfeda.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://busfeda.ie/",
+      "api_host": "api.busfeda.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": [
+        "https://challenges.cloudflare.com/turnstile/v0/api.js"
+      ]
+    },
+    {
+      "host": "www.dublinbus.ie",
+      "homepage": "https://www.dublinbus.ie/",
+      "homepage_status": 403,
+      "final_homepage": "https://www.dublinbus.ie/",
+      "api_host": "api.dublinbus.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 403,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "buseireann.ie",
+      "homepage": "https://buseireann.ie",
+      "homepage_status": 200,
+      "final_homepage": "https://buseireann.ie",
+      "api_host": "api.buseireann.ie",
+      "api_dns": "resolves",
+      "api_host_status": 403,
+      "api_path_status": 200,
+      "api_path_type": "text/html;charset=utf-8",
+      "discovered_links": []
+    },
+    {
+      "host": "www.buseireann.ie",
+      "homepage": "https://www.buseireann.ie",
+      "homepage_status": 200,
+      "final_homepage": "https://www.buseireann.ie",
+      "api_host": "api.buseireann.ie",
+      "api_dns": "resolves",
+      "api_host_status": 403,
+      "api_path_status": 200,
+      "api_path_type": "text/html;charset=utf-8",
+      "discovered_links": []
+    },
+    {
+      "host": "roscommoncoaches.ie",
+      "homepage": "https://roscommoncoaches.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://roscommoncoaches.ie/",
+      "api_host": "api.roscommoncoaches.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html;charset=utf-8",
+      "discovered_links": []
+    },
+    {
+      "host": "www.citydirect.ie",
+      "homepage": "https://www.citydirect.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://citydirect.ie/",
+      "api_host": "api.citydirect.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html;charset=utf-8",
+      "discovered_links": []
+    },
+    {
+      "host": "www.citylink.ie",
+      "homepage": "https://www.citylink.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://www.citylink.ie/",
+      "api_host": "api.citylink.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=utf-8",
+      "discovered_links": [
+        "https://www.citylink.ie/track-my-bus/",
+        "https://www.citylink.ie/tutorial-bus-tracker/"
+      ]
+    },
+    {
+      "host": "collinscoaches.ie",
+      "homepage": "https://collinscoaches.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://collinscoaches.ie/",
+      "api_host": "api.collinscoaches.ie",
+      "api_dns": "resolves",
+      "api_host_status": 200,
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": [
+        "https://leap.futurefleet.com/track-journey/"
+      ]
+    },
+    {
+      "host": "cordufftravel.ie",
+      "homepage": "https://cordufftravel.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://cordufftravel.ie/",
+      "api_host": "api.cordufftravel.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "www.barryscoaches.com",
+      "homepage": "http://www.barryscoaches.com/",
+      "homepage_status": 200,
+      "final_homepage": "http://www.barryscoaches.com/",
+      "api_host": "api.barryscoaches.com",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "www.dohertyscoaches.com",
+      "homepage": "https://www.dohertyscoaches.com/",
+      "homepage_status": 200,
+      "final_homepage": "https://www.dohertyscoaches.com/",
+      "api_host": "api.dohertyscoaches.com",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 500,
+      "api_path_type": "text/html; charset=iso-8859-1",
+      "discovered_links": []
+    },
+    {
+      "host": "www.dublincoach.ie",
+      "homepage": "https://www.dublincoach.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://www.dublincoach.ie/",
+      "api_host": "api.dublincoach.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": [
+        "https://coachtracker.tmpanel.co.uk/DublinCoach"
+      ]
+    },
+    {
+      "host": "www.dublinexpress.ie",
+      "homepage": "https://www.dublinexpress.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://www.dublinexpress.ie/",
+      "api_host": "api.dublinexpress.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=utf-8",
+      "discovered_links": [
+        "https://coachtracker.dublinexpress.ie",
+        "https://coachtracker.dublinexpress.ie/"
+      ]
+    },
+    {
+      "host": "dunnescoaches.com",
+      "homepage": "https://dunnescoaches.com/",
+      "homepage_status": 200,
+      "final_homepage": "https://dunnescoaches.com/",
+      "api_host": "api.dunnescoaches.com",
+      "api_dns": "resolves",
+      "api_host_status": "URLError",
+      "api_path_status": 404,
+      "api_path_type": "",
+      "discovered_links": []
+    },
+    {
+      "host": "mcenteecoachhire.ie",
+      "homepage": "https://mcenteecoachhire.ie/",
+      "homepage_status": "URLError",
+      "final_homepage": "https://mcenteecoachhire.ie/",
+      "api_host": "api.mcenteecoachhire.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": "URLError",
+      "api_path_type": "",
+      "discovered_links": []
+    },
+    {
+      "host": "expressbus.ie",
+      "homepage": "https://expressbus.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://expressbus.ie/",
+      "api_host": "api.expressbus.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "www.farrellyscoaches.com",
+      "homepage": "https://www.farrellyscoaches.com/",
+      "homepage_status": 404,
+      "final_homepage": "https://www.farrellyscoaches.com/",
+      "api_host": "api.farrellyscoaches.com",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "www.flightlink.ie",
+      "homepage": "https://www.flightlink.ie",
+      "homepage_status": 200,
+      "final_homepage": "https://www.flightlink.ie",
+      "api_host": "api.flightlink.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=utf-8",
+      "discovered_links": [
+        "https://coachtracker.tmpanel.co.uk/Flightlink"
+      ]
+    },
+    {
+      "host": "www.gleneaglehotel.com",
+      "homepage": "https://www.gleneaglehotel.com/",
+      "homepage_status": 200,
+      "final_homepage": "https://www.gleneaglekillarney.ie/",
+      "api_host": "api.gleneaglehotel.com",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html",
+      "discovered_links": []
+    },
+    {
+      "host": "www.nationalparks.ie",
+      "homepage": "https://www.nationalparks.ie/glenveagh/things-to-do/#bus",
+      "homepage_status": 200,
+      "final_homepage": "https://www.nationalparks.ie/glenveagh/things-to-do/#bus",
+      "api_host": "api.nationalparks.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "www.goaheadireland.ie",
+      "homepage": "https://www.goaheadireland.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://www.goaheadireland.ie/",
+      "api_host": "api.goaheadireland.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html",
+      "discovered_links": [
+        "https://api.reciteme.com/asset/js"
+      ]
+    },
+    {
+      "host": "www.goreybuslinks.ie",
+      "homepage": "http://www.goreybuslinks.ie/",
+      "homepage_status": "URLError",
+      "final_homepage": "http://www.goreybuslinks.ie/",
+      "api_host": "api.goreybuslinks.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": "URLError",
+      "api_path_type": "",
+      "discovered_links": []
+    },
+    {
+      "host": "www.halpennytravel.com",
+      "homepage": "https://www.halpennytravel.com/",
+      "homepage_status": 200,
+      "final_homepage": "https://www.halpennytravel.com/",
+      "api_host": "api.halpennytravel.com",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": [
+        "https://www.halpennytravel.com/wp-content/plugins/mailchimp-for-woocommerce/blocks/build/pixel-tracking.js",
+        "https://www.halpennytravel.com/wp-content/plugins/mailchimp-for-woocommerce/public/js/mailchimp-woocommerce-pixel-tracking.js"
+      ]
+    },
+    {
+      "host": "www.harringtonsardgroom.com",
+      "homepage": "https://www.harringtonsardgroom.com/bus-service",
+      "homepage_status": 200,
+      "final_homepage": "https://www.harringtonsardgroom.com/bus-service",
+      "api_host": "api.harringtonsardgroom.com",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html;charset=utf-8",
+      "discovered_links": []
+    },
+    {
+      "host": "www.healybus.com",
+      "homepage": "http://www.healybus.com/",
+      "homepage_status": 200,
+      "final_homepage": "http://www.healybus.com/",
+      "api_host": "api.healybus.com",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "www.aranislandferries.com",
+      "homepage": "https://www.aranislandferries.com/",
+      "homepage_status": 200,
+      "final_homepage": "https://www.aranislandferries.com/",
+      "api_host": "api.aranislandferries.com",
+      "api_dns": "resolves",
+      "api_host_status": 200,
+      "api_path_status": 403,
+      "api_path_type": "text/html; charset=iso-8859-1",
+      "discovered_links": []
+    },
+    {
+      "host": "jjkavanagh.ie",
+      "homepage": "https://jjkavanagh.ie/#",
+      "homepage_status": 200,
+      "final_homepage": "https://jjkavanagh.ie/",
+      "api_host": "api.jjkavanagh.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": [
+        "https://tickets.jjkavanagh.ie/trackTrip"
+      ]
+    },
+    {
+      "host": "www.johnmcginley.com",
+      "homepage": "http://www.johnmcginley.com/",
+      "homepage_status": 200,
+      "final_homepage": "https://johnmcginley.com/",
+      "api_host": "api.johnmcginley.com",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "www.kbuggycoaches.com",
+      "homepage": "https://www.kbuggycoaches.com/",
+      "homepage_status": 200,
+      "final_homepage": "https://www.kbuggycoaches.com/",
+      "api_host": "api.kbuggycoaches.com",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "kearnstransport.com",
+      "homepage": "https://kearnstransport.com/",
+      "homepage_status": 200,
+      "final_homepage": "https://kearnstransport.com/",
+      "api_host": "api.kearnstransport.com",
+      "api_dns": "resolves",
+      "api_host_status": 200,
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": [
+        "https://coachtracker.tmpanel.co.uk/kearns"
+      ]
+    },
+    {
+      "host": "www.kellytravel.ie",
+      "homepage": "http://www.kellytravel.ie/",
+      "homepage_status": 200,
+      "final_homepage": "http://www.kellytravel.ie/",
+      "api_host": "api.kellytravel.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "kennedycoaches.com",
+      "homepage": "https://kennedycoaches.com/",
+      "homepage_status": 200,
+      "final_homepage": "https://kennedycoaches.com/",
+      "api_host": "api.kennedycoaches.com",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html",
+      "discovered_links": []
+    },
+    {
+      "host": "leydonscoaches.com",
+      "homepage": "https://leydonscoaches.com/",
+      "homepage_status": 200,
+      "final_homepage": "https://leydonscoaches.com/",
+      "api_host": "api.leydonscoaches.com",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "www.mangantours.ie",
+      "homepage": "https://www.mangantours.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://www.mangantours.ie/",
+      "api_host": "api.mangantours.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=utf-8",
+      "discovered_links": []
+    },
+    {
+      "host": "martleys.com",
+      "homepage": "https://martleys.com/",
+      "homepage_status": 200,
+      "final_homepage": "https://martleys.com/",
+      "api_host": "api.martleys.com",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": [
+        "https://martleys.com/wp-content/plugins/user-activity-tracking-and-log/assets/js/moove_activity_frontend.js"
+      ]
+    },
+    {
+      "host": "www.matthews.ie",
+      "homepage": "https://www.matthews.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://www.matthews.ie/",
+      "api_host": "api.matthews.ie",
+      "api_dns": "resolves",
+      "api_host_status": "URLError",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": [
+        "https://www.matthews.ie/wp-content/plugins/wp-consent-api/assets/js/wp-consent-api.min.js"
+      ]
+    },
+    {
+      "host": "www.mccaffreycoaches.com",
+      "homepage": "http://www.mccaffreycoaches.com/",
+      "homepage_status": 200,
+      "final_homepage": "http://www.mccaffreycoaches.com/",
+      "api_host": "api.mccaffreycoaches.com",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=iso-8859-1",
+      "discovered_links": []
+    },
+    {
+      "host": "www.mcconnonsbuses.com",
+      "homepage": "http://www.mcconnonsbuses.com/",
+      "homepage_status": 200,
+      "final_homepage": "https://www.mcconnonsbuses.com/",
+      "api_host": "api.mcconnonsbuses.com",
+      "api_dns": "resolves",
+      "api_host_status": "URLError",
+      "api_path_status": 404,
+      "api_path_type": "text/html",
+      "discovered_links": []
+    },
+    {
+      "host": "www.mcgeehancoaches.com",
+      "homepage": "http://www.mcgeehancoaches.com/",
+      "homepage_status": 200,
+      "final_homepage": "https://www.mcgeehancoaches.com/",
+      "api_host": "api.mcgeehancoaches.com",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html",
+      "discovered_links": []
+    },
+    {
+      "host": "www.mcgilltravel.wordpress.com",
+      "homepage": "https://www.mcgilltravel.wordpress.com",
+      "homepage_status": "URLError",
+      "final_homepage": "https://www.mcgilltravel.wordpress.com",
+      "api_host": "api.mcgilltravel.wordpress.com",
+      "api_dns": "resolves",
+      "api_host_status": "URLError",
+      "api_path_status": "URLError",
+      "api_path_type": "",
+      "discovered_links": []
+    },
+    {
+      "host": "www.mcgonaglebushire.com",
+      "homepage": "https://www.mcgonaglebushire.com/",
+      "homepage_status": 200,
+      "final_homepage": "https://www.mcgonaglebushire.com/",
+      "api_host": "api.mcgonaglebushire.com",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "mcgonaglebus.ie",
+      "homepage": "https://mcgonaglebus.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://mcgonaglebus.ie/",
+      "api_host": "api.mcgonaglebus.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "mcgrathcoaches.com",
+      "homepage": "https://mcgrathcoaches.com/",
+      "homepage_status": 200,
+      "final_homepage": "https://mcgrathcoaches.com/",
+      "api_host": "api.mcgrathcoaches.com",
+      "api_dns": "resolves",
+      "api_host_status": "URLError",
+      "api_path_status": 500,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "www.michaelgraycoaches.ie",
+      "homepage": "https://www.michaelgraycoaches.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://www.michaelgraycoaches.ie/",
+      "api_host": "api.michaelgraycoaches.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=utf-8",
+      "discovered_links": []
+    },
+    {
+      "host": "www.nolancoaches.ie",
+      "homepage": "https://www.nolancoaches.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://www.nolancoaches.ie/",
+      "api_host": "api.nolancoaches.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": [
+        "https://siteassets.parastorage.com/pages/pages/thunderbolt",
+        "https://www.nolancoaches.ie/real-time-tracking"
+      ]
+    },
+    {
+      "host": "www.jocgroup.com",
+      "homepage": "http://www.jocgroup.com",
+      "homepage_status": 200,
+      "final_homepage": "https://ocallaghancoaches.com/",
+      "api_host": "api.jocgroup.com",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": [
+        "https://tracker.metricool.com/resources/be.js"
+      ]
+    },
+    {
+      "host": "www.patrickgallaghertravel.com",
+      "homepage": "https://www.patrickgallaghertravel.com/patrick-gallagher-bus-timetables/",
+      "homepage_status": 200,
+      "final_homepage": "https://www.patrickgallaghertravel.com/patrick-gallagher-bus-timetables/",
+      "api_host": "api.patrickgallaghertravel.com",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "piltowncoaches.com",
+      "homepage": "http://piltowncoaches.com/",
+      "homepage_status": 200,
+      "final_homepage": "https://piltowncoaches.com/",
+      "api_host": "api.piltowncoaches.com",
+      "api_dns": "resolves",
+      "api_host_status": "URLError",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "www.royalbreffnitours.com",
+      "homepage": "https://www.royalbreffnitours.com/",
+      "homepage_status": 200,
+      "final_homepage": "https://www.royalbreffnitours.com/",
+      "api_host": "api.royalbreffnitours.com",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": [
+        "https://siteassets.parastorage.com/pages/pages/thunderbolt"
+      ]
+    },
+    {
+      "host": "slevinscoaches.com",
+      "homepage": "http://slevinscoaches.com/",
+      "homepage_status": 200,
+      "final_homepage": "http://slevinscoaches.com/",
+      "api_host": "api.slevinscoaches.com",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=iso-8859-1",
+      "discovered_links": []
+    },
+    {
+      "host": "www.slievebloomcoaches.ie",
+      "homepage": "http://www.slievebloomcoaches.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://slievebloomcoaches.com/",
+      "api_host": "api.slievebloomcoaches.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 200,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": [
+        "https://leap.futurefleet.com/track-journey/",
+        "https://slievebloomcoaches.com/wp-content/uploads/2024/08/Real-Time-Tracking-1.png"
+      ]
+    },
+    {
+      "host": "www.glendaloughbus.com",
+      "homepage": "http://www.glendaloughbus.com/",
+      "homepage_status": 200,
+      "final_homepage": "https://www.glendaloughbus.com/",
+      "api_host": "api.glendaloughbus.com",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html",
+      "discovered_links": [
+        "https://leap.futurefleet.com/track-journey/"
+      ]
+    },
+    {
+      "host": "www.streamlinecoaches.ie",
+      "homepage": "https://www.streamlinecoaches.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://www.streamlinecoaches.ie/",
+      "api_host": "api.streamlinecoaches.ie",
+      "api_dns": "resolves",
+      "api_host_status": "URLError",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "www.swordsexpress.com",
+      "homepage": "https://www.swordsexpress.com/",
+      "homepage_status": 200,
+      "final_homepage": "https://www.swordsexpress.com/",
+      "api_host": "api.swordsexpress.com",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 403,
+      "api_path_type": "text/html; charset=iso-8859-1",
+      "discovered_links": [
+        "https://www.swordsexpress.com/api/gps-script.js"
+      ]
+    },
+    {
+      "host": "www.locallinkckw.ie",
+      "homepage": "https://www.locallinkckw.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://www.locallinkckw.ie/",
+      "api_host": "api.locallinkckw.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "www.locallinkcm.ie",
+      "homepage": "https://www.locallinkcm.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://www.locallinkcm.ie/",
+      "api_host": "api.locallinkcm.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "locallinkcork.ie",
+      "homepage": "https://locallinkcork.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://locallinkcork.ie/",
+      "api_host": "api.locallinkcork.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "locallinkdsl.ie",
+      "homepage": "https://locallinkdsl.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://locallinkdsl.ie/",
+      "api_host": "api.locallinkdsl.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "www.locallinkgalway.ie",
+      "homepage": "https://www.locallinkgalway.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://www.locallinkgalway.ie/",
+      "api_host": "api.locallinkgalway.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": [
+        "https://siteassets.parastorage.com/pages/pages/thunderbolt"
+      ]
+    },
+    {
+      "host": "www.locallinkkerry.ie",
+      "homepage": "https://www.locallinkkerry.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://www.locallinkkerry.ie/",
+      "api_host": "api.locallinkkerry.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "locallinkkildaresouthdublin.ie",
+      "homepage": "https://locallinkkildaresouthdublin.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://locallinkkildaresouthdublin.ie/",
+      "api_host": "api.locallinkkildaresouthdublin.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "locallinklaoisoffaly.ie",
+      "homepage": "https://locallinklaoisoffaly.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://locallinklaoisoffaly.ie/",
+      "api_host": "api.locallinklaoisoffaly.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "www.locallinklc.ie",
+      "homepage": "https://www.locallinklc.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://www.locallinklc.ie/",
+      "api_host": "api.locallinklc.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "locallinklwr.ie",
+      "homepage": "https://locallinklwr.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://locallinklwr.ie/",
+      "api_host": "api.locallinklwr.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=utf-8",
+      "discovered_links": []
+    },
+    {
+      "host": "www.locallinklmf.ie",
+      "homepage": "https://www.locallinklmf.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://locallinklmf.ie/",
+      "api_host": "api.locallinklmf.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": "TimeoutError",
+      "api_path_type": "",
+      "discovered_links": []
+    },
+    {
+      "host": "www.locallinkmayo.ie",
+      "homepage": "https://www.locallinkmayo.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://locallinkmayo.ie/",
+      "api_host": "api.locallinkmayo.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "locallinktipperary.ie",
+      "homepage": "https://locallinktipperary.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://locallinktipperary.ie/",
+      "api_host": "api.locallinktipperary.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "www.locallinkwaterford.ie",
+      "homepage": "https://www.locallinkwaterford.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://www.locallinkwaterford.ie/",
+      "api_host": "api.locallinkwaterford.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "locallinkwexford.ie",
+      "homepage": "https://locallinkwexford.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://locallinkwexford.ie/",
+      "api_host": "api.locallinkwexford.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "www.tudublin.ie",
+      "homepage": "https://www.tudublin.ie/explore/our-campuses/blanchardstown/transportparking/",
+      "homepage_status": 200,
+      "final_homepage": "https://www.tudublin.ie/explore/our-campuses/blanchardstown/transportparking/",
+      "api_host": "api.tudublin.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "westcorkconnect.ie",
+      "homepage": "https://westcorkconnect.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://westcorkconnect.ie/",
+      "api_host": "api.westcorkconnect.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": [
+        "https://coachtracker.tmpanel.co.uk/WestCork"
+      ]
+    },
+    {
+      "host": "www.westlinkcoaches.ie",
+      "homepage": "http://www.westlinkcoaches.ie/",
+      "homepage_status": 200,
+      "final_homepage": "https://www.westlinkcoaches.ie/",
+      "api_host": "api.westlinkcoaches.ie",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": []
+    },
+    {
+      "host": "www.wexfordbus.com",
+      "homepage": "https://www.wexfordbus.com/",
+      "homepage_status": 200,
+      "final_homepage": "https://www.wexfordbus.com/",
+      "api_host": "api.wexfordbus.com",
+      "api_dns": "no DNS answer",
+      "api_host_status": "",
+      "api_path_status": 404,
+      "api_path_type": "text/html; charset=UTF-8",
+      "discovered_links": [
+        "https://tracking.wexfordbus.com/",
+        "https://tracking.wexfordbus.com/Standard",
+        "https://www.wexfordbus.com/content/uploads/2021/10/live-bus-tracker@2x.png"
+      ]
+    }
+  ]
+}

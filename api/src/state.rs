@@ -3,6 +3,10 @@ use std::{sync::Arc, time::Duration};
 use moka::future::Cache;
 use sqlx::PgPool;
 
+use crate::schema::bus_history::{
+    BusHistoryPoint, BusJourney, BusRoute, BusRouteStopDelay, BusStopStats,
+};
+use crate::schema::bus_published::{BusPublishedDataset, BusPublishedPage};
 use crate::schema::types::{
     BusDeparture, BusRealtimeStatus, BusRouteDelay, BusRouteShape, BusStop, BusVehicle,
     DelayHistoryPoint, NetworkSummary, RouteReliability, StationDelayStats,
@@ -11,6 +15,14 @@ use crate::schema::AppSchema;
 
 #[derive(Clone)]
 pub struct QueryCache {
+    pub bus_stop_stats: Cache<String, Arc<Vec<BusStopStats>>>,
+    pub bus_journeys: Cache<String, Arc<Vec<BusJourney>>>,
+    pub bus_journey_stops: Cache<String, Arc<Vec<BusRouteStopDelay>>>,
+    pub bus_published_dataset: Cache<(), Arc<Option<BusPublishedDataset>>>,
+    pub bus_published_performance: Cache<String, Arc<BusPublishedPage>>,
+    pub bus_routes: Cache<String, Arc<Vec<BusRoute>>>,
+    pub bus_delay_history: Cache<String, Arc<Vec<BusHistoryPoint>>>,
+    pub bus_route_stop_delays: Cache<String, Arc<Vec<BusRouteStopDelay>>>,
     pub delay_history: Cache<String, Arc<Vec<DelayHistoryPoint>>>,
     pub station_delay_stats: Cache<String, Arc<Vec<StationDelayStats>>>,
     pub network_summary: Cache<(), Arc<NetworkSummary>>,
@@ -20,6 +32,7 @@ pub struct QueryCache {
     pub bus_route_delays: Cache<String, Arc<Vec<BusRouteDelay>>>,
     pub bus_vehicles: Cache<String, Arc<Vec<BusVehicle>>>,
     pub bus_live_route_shapes: Cache<i32, Arc<Vec<BusRouteShape>>>,
+    pub bus_route_map: Cache<String, Arc<Option<crate::schema::bus::BusRouteMap>>>,
     pub bus_scheduled_route_shapes: Cache<String, Arc<Vec<BusRouteShape>>>,
     pub bus_realtime_status: Cache<(), Arc<BusRealtimeStatus>>,
 }
@@ -27,6 +40,14 @@ pub struct QueryCache {
 impl QueryCache {
     pub fn new() -> Self {
         Self {
+            bus_stop_stats: cache(Duration::from_secs(60), 256),
+            bus_journeys: cache(Duration::from_secs(60), 256),
+            bus_journey_stops: cache(Duration::from_secs(60), 256),
+            bus_published_dataset: cache(Duration::from_secs(300), 1),
+            bus_published_performance: cache(Duration::from_secs(900), 128),
+            bus_routes: cache(Duration::from_secs(900), 256),
+            bus_delay_history: cache(Duration::from_secs(60), 256),
+            bus_route_stop_delays: cache(Duration::from_secs(20), 256),
             delay_history: cache(Duration::from_secs(300), 256),
             station_delay_stats: cache(Duration::from_secs(60), 32),
             network_summary: cache(Duration::from_secs(10), 1),
@@ -36,6 +57,7 @@ impl QueryCache {
             bus_route_delays: cache(Duration::from_secs(60), 128),
             bus_vehicles: cache(Duration::from_secs(30), 128),
             bus_live_route_shapes: cache(Duration::from_secs(30), 8),
+            bus_route_map: cache(Duration::from_secs(900), 128),
             bus_scheduled_route_shapes: cache(Duration::from_secs(900), 256),
             bus_realtime_status: cache(Duration::from_secs(15), 1),
         }

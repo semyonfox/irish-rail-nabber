@@ -7,6 +7,7 @@ import unittest
 import zipfile
 from datetime import date, datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from bus_daemon import (
@@ -18,6 +19,8 @@ from bus_daemon import (
     ActiveBusIds,
     FeedFormatError,
     NtaBusDaemon,
+    NtaRateLimitError,
+    retry_after_seconds,
     StaticImportResult,
     _iter_bus_shape_points,
     _iter_bus_stop_times,
@@ -77,6 +80,8 @@ class _RecordingConnection:
 
     async def execute(self, statement, parameters=()) -> _ExecuteResult:
         self.execute_calls.append((statement, tuple(parameters)))
+        if "EXTRACT(EPOCH FROM (next_fetch - clock_timestamp()))" in statement:
+            return _ExecuteResult(rows=[(60.001,)])
         if "RETURNING last_fetched" in statement:
             return _ExecuteResult(rows=[(datetime.now(tz=timezone.utc),)])
         return _ExecuteResult()
@@ -645,6 +650,12 @@ class StopUpdatePersistenceTests(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertEqual(len(state_calls), 3)
         self.assertEqual(len(freshness_calls), 4)
+        observations = [call for call in pool.calls if "bus_stop_observations" in call[0]]
+        self.assertEqual(len(observations), 4)
+        self.assertEqual(len(observations[0][1][0]), 19)
+        self.assertEqual(observations[0][1], observations[1][1])
+        self.assertEqual(observations[0][1], observations[3][1])
+        self.assertNotEqual(observations[0][1], observations[2][1])
         self.assertIn("last_seen_at = EXCLUDED.last_seen_at", state_calls[0][0])
         self.assertEqual(len(state_calls[0][1][0]), 18)
         self.assertEqual(len(freshness_calls[0][1][0]), 5)
@@ -683,7 +694,10 @@ class VehiclePositionPersistenceTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(counts, (1, 0, 1, 1))
-        self.assertEqual(len(pool.calls), 4)
+        self.assertEqual(len(pool.calls), 8)
+        archive_calls = [call for call in pool.calls if "bus_vehicle_observations" in call[0]]
+        self.assertEqual(len(archive_calls), 4)
+        self.assertEqual(archive_calls[0][1], archive_calls[1][1])
         self.assertTrue(all(len(call[1][0]) == 25 for call in pool.calls))
         self.assertIn("last_seen_at = EXCLUDED.last_seen_at", pool.calls[0][0])
         self.assertIn("IS DISTINCT FROM", pool.calls[0][0])
@@ -766,6 +780,7 @@ class RealtimePollingTests(unittest.IsolatedAsyncioTestCase):
         reservation_statement, reservation_parameters = pool.execute_calls[0]
         self.assertIn("ON CONFLICT (endpoint)", reservation_statement)
         self.assertEqual(reservation_parameters[0], "nta_realtime")
+        self.assertEqual(reservation_parameters[2], 60.001)
         self.assertEqual(
             pool.execute_calls[1][1], ("nta_trip_updates", "nta_vehicles")
         )
@@ -775,7 +790,7 @@ class RealtimePollingTests(unittest.IsolatedAsyncioTestCase):
             async def execute(self, statement, parameters=()):
                 if "SELECT endpoint" in statement and "fetch_history" in statement:
                     self.execute_calls.append((statement, tuple(parameters)))
-                    return _ExecuteResult(rows=[("nta_vehicles",)])
+                    return _ExecuteResult(rows=[("nta_vehicles", "failed")])
                 return await super().execute(statement, parameters)
 
         daemon = NtaBusDaemon("unused", api_key="key")
@@ -797,6 +812,7 @@ class RealtimePollingTests(unittest.IsolatedAsyncioTestCase):
         daemon._fetch_realtime_payload = AsyncMock(
             return_value=self._trip_updates_payload()
         )
+        daemon._archive_realtime_payload = AsyncMock()
         daemon._insert_trip_updates = AsyncMock(return_value=1)
         daemon._upsert_vehicle_positions = AsyncMock()
         daemon._prune_realtime_history_if_due = AsyncMock(return_value=(0, 0, 0))
@@ -815,6 +831,34 @@ class RealtimePollingTests(unittest.IsolatedAsyncioTestCase):
             "success",
         ))
 
+    async def test_poll_keeps_its_feed_version_when_a_new_schedule_activates(self):
+        daemon = NtaBusDaemon("unused", api_key="key")
+        active_version = 2
+
+        async def version():
+            return active_version
+
+        async def bus_ids(feed_version):
+            return ActiveBusIds(feed_version, frozenset({"route"}), {"trip": "route"})
+
+        async def fetch(_url):
+            nonlocal active_version
+            active_version = 3
+            return self._trip_updates_payload()
+
+        daemon._active_feed_version_id = version
+        daemon._load_active_bus_ids = bus_ids
+        daemon._reserve_realtime_request = AsyncMock(return_value="trip_updates")
+        daemon._fetch_realtime_payload = fetch
+        daemon._archive_realtime_payload = AsyncMock()
+        daemon._insert_trip_updates = AsyncMock(return_value=1)
+        daemon._prune_realtime_history_if_due = AsyncMock(return_value=(0, 0, 0))
+        daemon.record_fetch = AsyncMock()
+        await daemon.poll_realtime()
+        await daemon.poll_realtime()
+        self.assertEqual([call.args[0] for call in daemon._archive_realtime_payload.await_args_list], [2, 3])
+        self.assertEqual([call.args[0] for call in daemon._insert_trip_updates.await_args_list], [2, 3])
+
     async def test_vehicles_poll_does_not_touch_trip_updates(self) -> None:
         daemon = NtaBusDaemon("unused", api_key="key")
         daemon._active_feed_version_id = AsyncMock(return_value=1)
@@ -823,6 +867,7 @@ class RealtimePollingTests(unittest.IsolatedAsyncioTestCase):
         daemon._fetch_realtime_payload = AsyncMock(
             return_value=self._vehicles_payload()
         )
+        daemon._archive_realtime_payload = AsyncMock()
         daemon._insert_trip_updates = AsyncMock()
         daemon._upsert_vehicle_positions = AsyncMock(return_value=1)
         daemon._prune_realtime_history_if_due = AsyncMock(return_value=(0, 0, 0))
@@ -847,6 +892,7 @@ class RealtimePollingTests(unittest.IsolatedAsyncioTestCase):
         daemon._fetch_realtime_payload = AsyncMock(
             side_effect=RuntimeError("GTFS-Realtime returned HTTP 503")
         )
+        daemon._archive_realtime_payload = AsyncMock()
         daemon._insert_trip_updates = AsyncMock()
         daemon._upsert_vehicle_positions = AsyncMock()
         daemon.record_fetch = AsyncMock()
@@ -876,7 +922,7 @@ class DatabaseRetentionTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(pruned, 1)
-        delete_statement, parameters = pool.execute_calls[-1]
+        delete_statement, parameters = next(call for call in pool.execute_calls if "DELETE FROM bus_stop_times" in call[0])
         self.assertIn("DELETE FROM bus_stop_times", delete_statement)
         self.assertIn("id <> %s", delete_statement)
         self.assertEqual(parameters, ("nta_gtfs", 42))
@@ -1081,9 +1127,94 @@ class DatabaseRetentionTests(unittest.IsolatedAsyncioTestCase):
         )
 
 
+class RealtimeTimingTests(unittest.IsolatedAsyncioTestCase):
+    def test_retry_after_accepts_seconds_and_http_dates(self):
+        now = datetime(2026, 9, 14, 12, 0, tzinfo=timezone.utc)
+        self.assertEqual(retry_after_seconds("2", now), 2.0)
+        self.assertEqual(retry_after_seconds("0", now), 0.0)
+        self.assertEqual(retry_after_seconds("Mon, 14 Sep 2026 12:00:03 GMT", now), 3.0)
+        self.assertEqual(retry_after_seconds("Mon, 14 Sep 2026 11:59:00 GMT", now), 0.0)
+        for value in (None, "nonsense", "-1", "NaN", "Infinity"):
+            self.assertIsNone(retry_after_seconds(value, now))
+
+    async def test_http_429_carries_the_retry_after_header_without_reading_body(self):
+        daemon = NtaBusDaemon("unused", api_key="test")
+        daemon.session = SimpleNamespace(get=lambda *_args, **_kwargs: _AsyncContext(
+            SimpleNamespace(status=429, headers={"Retry-After": "5"})
+        ))
+        daemon._read_limited_response = AsyncMock()
+        with patch("bus_daemon.aiohttp", SimpleNamespace(ClientTimeout=lambda **_kwargs: None)):
+            with self.assertRaises(NtaRateLimitError) as caught:
+                await daemon._fetch_realtime_payload("https://example.test/feed")
+        self.assertEqual(caught.exception.retry_after_seconds, 5.0)
+        daemon._read_limited_response.assert_not_awaited()
+
+    async def test_denied_reservation_waits_only_the_remaining_fraction(self):
+        class Connection(_RecordingConnection):
+            async def execute(self, statement, parameters=()):
+                if "RETURNING last_fetched" in statement:
+                    return _ExecuteResult(rows=[])
+                if "EXTRACT(EPOCH" in statement:
+                    return _ExecuteResult(rows=[(0.012,)])
+                return await super().execute(statement, parameters)
+        pool = _RecordingPool()
+        pool.recording_connection = Connection(pool.calls)
+        daemon = NtaBusDaemon("unused")
+        daemon.pool = pool
+        with patch("bus_daemon.time.monotonic", return_value=100.0):
+            self.assertIsNone(await daemon._reserve_realtime_request())
+        self.assertAlmostEqual(daemon._next_realtime_poll_at, 100.012)
+
+    async def test_429_retries_the_same_feed_after_shared_cooldown(self):
+        class Connection(_RecordingConnection):
+            async def execute(self, statement, parameters=()):
+                if "SELECT endpoint, status" in statement:
+                    return _ExecuteResult(rows=[("nta_vehicles", "rate_limited")])
+                return await super().execute(statement, parameters)
+        pool = _RecordingPool()
+        pool.recording_connection = Connection(pool.calls)
+        daemon = NtaBusDaemon("unused", api_key="test")
+        daemon.pool = pool
+        self.assertEqual(await daemon._reserve_realtime_request(), "vehicles")
+        daemon._active_feed_version_id = AsyncMock(return_value=1)
+        daemon._load_active_bus_ids = AsyncMock(return_value=RealtimePollingTests._bus_ids())
+        daemon._reserve_realtime_request = AsyncMock(return_value="vehicles")
+        daemon._fetch_realtime_payload = AsyncMock(side_effect=NtaRateLimitError(120))
+        daemon._defer_rate_limited_request = AsyncMock()
+        daemon.record_fetch = AsyncMock()
+        await daemon.poll_realtime()
+        daemon._fetch_realtime_payload.assert_awaited_once()
+        daemon._defer_rate_limited_request.assert_awaited_once_with(120)
+        self.assertEqual(daemon.record_fetch.await_args.args[:3], ("nta_vehicles", 0, "rate_limited"))
+
+    async def test_cooldown_is_shared_and_never_shortens_existing_reservation(self):
+        daemon = NtaBusDaemon("unused")
+        daemon.pool = _RecordingPool()
+        with patch("bus_daemon.time.monotonic", return_value=100.0):
+            await daemon._defer_rate_limited_request(120)
+        self.assertAlmostEqual(daemon._next_realtime_poll_at, 220.001)
+        statement, parameters = daemon.pool.execute_calls[0]
+        self.assertIn("GREATEST(next_fetch", statement)
+        self.assertEqual(parameters, (120.001, "nta_realtime"))
+
+    async def test_scheduler_uses_the_request_deadline_after_processing(self):
+        daemon = NtaBusDaemon("unused")
+        function = AsyncMock()
+        waits = []
+        async def wait(awaitable, timeout):
+            awaitable.close()
+            waits.append(timeout)
+            daemon._shutdown.set()
+        with patch("bus_daemon.time.monotonic", side_effect=[100.0, 112.0]), patch("bus_daemon.asyncio.wait_for", side_effect=wait):
+            await daemon.schedule_task("realtime", function, 60.001, next_run_at=lambda: 160.001)
+        function.assert_awaited_once()
+        self.assertAlmostEqual(waits[0], 48.001)
+
+
 class ShutdownTests(unittest.IsolatedAsyncioTestCase):
     async def test_realtime_worker_waits_for_the_reservation_margin(self) -> None:
         daemon = NtaBusDaemon("unused", api_key="key", realtime_interval_seconds=60)
+        daemon._active_feed_version_id = AsyncMock(return_value=None)
         daemon.init = AsyncMock()
         daemon.close = AsyncMock()
         daemon._install_signal_handlers = lambda: None
@@ -1109,6 +1240,7 @@ class ShutdownTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_shutdown_cancels_an_active_initial_import_before_close(self) -> None:
         daemon = NtaBusDaemon("unused")
+        daemon._active_feed_version_id = AsyncMock(return_value=None)
         daemon.init = AsyncMock()
         daemon.close = AsyncMock()
         daemon._install_signal_handlers = lambda: None
@@ -1129,6 +1261,41 @@ class ShutdownTests(unittest.IsolatedAsyncioTestCase):
         daemon._shutdown.set()
         await asyncio.wait_for(run_task, timeout=1)
 
+        self.assertTrue(import_cancelled.is_set())
+        daemon.close.assert_awaited_once()
+
+
+    async def test_existing_schedule_keeps_realtime_running_during_a_bulk_refresh(self):
+        daemon = NtaBusDaemon("unused", api_key="key")
+        daemon.init = AsyncMock()
+        daemon.close = AsyncMock()
+        daemon._install_signal_handlers = lambda: None
+        daemon._active_feed_version_id = AsyncMock(return_value=2)
+        import_started = asyncio.Event()
+        import_cancelled = asyncio.Event()
+        realtime_started = asyncio.Event()
+
+        async def blocked_download():
+            import_started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                import_cancelled.set()
+
+        daemon._download_static_feed = blocked_download
+
+        async def worker(name, _function, _interval, **_kwargs):
+            if name != "GTFS-Realtime":
+                return
+            await import_started.wait()
+            # A real poll takes this lock before reserving its upstream request.
+            async with daemon._feed_lock:
+                realtime_started.set()
+                daemon._shutdown.set()
+
+        daemon.schedule_task = worker
+        await asyncio.wait_for(daemon.run(), timeout=2)
+        self.assertTrue(realtime_started.is_set())
         self.assertTrue(import_cancelled.is_set())
         daemon.close.assert_awaited_once()
 
@@ -1322,7 +1489,19 @@ class StaticArchiveTests(unittest.IsolatedAsyncioTestCase):
                 archives = list(Path(directory).glob("*.zip"))
                 self.assertEqual(len(archives), 1)
                 self.assertEqual(archives[0].read_bytes(), payload)
+            self.assertEqual(len(list((Path(directory) / "versions").glob("*.zip"))), 2)
             self.assertEqual(list(Path(directory).glob("*.tmp")), [])
+
+    def test_repeated_schedule_uses_the_same_archived_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            daemon = NtaBusDaemon("unused", archive_directory=directory)
+            payload = b"unchanged schedule"
+            daemon._archive_static_feed(io.BytesIO(payload))
+            daemon._archive_static_feed(io.BytesIO(payload))
+            latest = next(Path(directory).glob("*.zip"))
+            version = next((Path(directory) / "versions").glob("*.zip"))
+            self.assertEqual(latest.stat().st_ino, version.stat().st_ino)
+            self.assertEqual(version.read_bytes(), payload)
 
     async def test_failed_import_keeps_last_successful_archive(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -6,6 +6,7 @@
 !schema.sql
 !daemon.py
 !bus_daemon.py
+!import_bus_performance.py
 !migrations/
 !docker-entrypoint.sh
 !Dockerfile

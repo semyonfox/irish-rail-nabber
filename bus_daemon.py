@@ -13,7 +13,7 @@ Runtime configuration:
 * NTA_TRIP_UPDATES_URL: NTA v2 TripUpdates JSON URL
 * NTA_VEHICLES_URL: NTA v2 Vehicles JSON URL
 * NTA_GTFSR_URL: legacy name for the TripUpdates URL
-* BUS_GTFS_ARCHIVE_DIRECTORY: optional directory for the last imported ZIP
+* BUS_GTFS_ARCHIVE_DIRECTORY: optional directory for versioned imported ZIPs
 * BUS_STATIC_REFRESH_SECONDS: static refresh period, default 86400
 * BUS_REALTIME_INTERVAL_SECONDS: realtime period, clamped to at least 60
 * BUS_REALTIME_RETENTION_DAYS: stop-update history retained, default 7
@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import gzip
 import hashlib
 import io
 import json
@@ -34,9 +35,10 @@ import shutil
 import tempfile
 import time
 import zipfile
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from types import FrameType
 from typing import Any, BinaryIO, cast
@@ -59,7 +61,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 DEFAULT_GTFS_URL = (
-    "https://www.transportforireland.ie/transitData/Data/GTFS_Realtime.zip"
+    "https://www.transportforireland.ie/transitData/Data/GTFS_All.zip"
 )
 DEFAULT_TRIP_UPDATES_URL = "https://api.nationaltransport.ie/gtfsr/v2/gtfsr?format=json"
 DEFAULT_VEHICLES_URL = "https://api.nationaltransport.ie/gtfsr/v2/Vehicles?format=json"
@@ -70,7 +72,7 @@ FEED_SOURCE = "nta_gtfs"
 BUS_ROUTE_TYPES = frozenset({3, 11, 800, *range(200, 210), *range(700, 717)})
 DEFAULT_AGENCY_ID = "__default_agency__"
 MIN_REALTIME_INTERVAL_SECONDS = 60
-RATE_LIMIT_SAFETY_SECONDS = 1
+RATE_LIMIT_SAFETY_SECONDS = 0.001
 DEFAULT_STATIC_REFRESH_SECONDS = 86_400
 DEFAULT_REALTIME_RETENTION_DAYS = 7
 REALTIME_RETENTION_INTERVAL_SECONDS = 86_400
@@ -86,6 +88,28 @@ DatabaseRow = tuple[object, ...]
 
 class FeedFormatError(ValueError):
     """The downloaded GTFS archive cannot be imported safely."""
+
+
+class NtaRateLimitError(RuntimeError):
+    def __init__(self, retry_after_seconds: float | None) -> None:
+        super().__init__("GTFS-Realtime returned HTTP 429")
+        self.retry_after_seconds = retry_after_seconds
+
+
+def retry_after_seconds(value: str | None, now: datetime) -> float | None:
+    if value is None:
+        return None
+    value = value.strip()
+    try:
+        if value.isascii() and value.isdigit():
+            seconds = float(value)
+            return seconds if math.isfinite(seconds) else None
+        deadline = parsedate_to_datetime(value)
+        if deadline.tzinfo is None:
+            deadline = deadline.replace(tzinfo=UTC)
+        return max(0.0, (deadline - now).total_seconds())
+    except (ValueError, TypeError, OverflowError):
+        return None
 
 
 def parse_gtfs_time(value: str | None) -> int | None:
@@ -1326,9 +1350,12 @@ class NtaBusDaemon:
         self.session: Any = None
         self._shutdown = asyncio.Event()
         self._feed_lock = asyncio.Lock()
+        self._static_feed_lock = asyncio.Lock()
         self._previous_update_hashes: dict[tuple[object, ...], str] = {}
         self._previous_vehicle_hashes: dict[tuple[int, str], str] = {}
         self._active_bus_ids_cache: ActiveBusIds | None = None
+        self._next_realtime_poll_at = 0.0
+        self._last_realtime_request_at: float | None = None
 
         if realtime_interval_seconds < MIN_REALTIME_INTERVAL_SECONDS:
             logger.warning(
@@ -1416,7 +1443,7 @@ class NtaBusDaemon:
             logger.warning("could not record bus fetch: %s", fetch_error)
 
     def _archive_static_feed(self, feed_file: BinaryIO) -> None:
-        """Atomically keep the last successfully imported ZIP for this source URL."""
+        """Keep each distinct imported ZIP and an atomic latest copy per source."""
         if self.archive_directory is None:
             return
         self.archive_directory.mkdir(parents=True, exist_ok=True)
@@ -1432,6 +1459,16 @@ class NtaBusDaemon:
                 shutil.copyfileobj(feed_file, output, length=1024 * 1024)
                 output.flush()
                 os.fsync(output.fileno())
+            feed_file.seek(0)
+            content_hash = hashlib.file_digest(feed_file, "sha256").hexdigest()
+            versions = self.archive_directory / "versions"
+            versions.mkdir(exist_ok=True)
+            # A hard link retains the immutable version without duplicating ZIP bytes.
+            try:
+                os.link(temporary_path, versions / f"{content_hash}.zip")
+            except FileExistsError:
+                temporary_path.unlink()
+                os.link(versions / f"{content_hash}.zip", temporary_path)
             os.replace(temporary_path, destination)
         finally:
             feed_file.seek(0)
@@ -1573,7 +1610,14 @@ class NtaBusDaemon:
                )""",
             (FEED_SOURCE, version_id),
         )
-        return max(0, cursor.rowcount)
+        pruned = max(0, cursor.rowcount)
+        # Publish planner statistics with the version switch. Otherwise the first
+        # map queries can use estimates for the retired feed and time out.
+        await connection.execute(
+            "ANALYZE transit_feed_versions, bus_agencies, bus_routes, bus_stops, "
+            "bus_trips, bus_shape_points, bus_stop_times"
+        )
+        return pruned
 
     async def _import_static_feed(
         self,
@@ -1848,7 +1892,9 @@ class NtaBusDaemon:
 
     async def refresh_static_feed(self) -> None:
         started = time.monotonic()
-        async with self._feed_lock:
+        # Each live poll binds an immutable feed version. Route/trip/stop metadata
+        # remains available after activation, so bulk imports need not stop polling.
+        async with self._static_feed_lock:
             feed_file: BinaryIO | None = None
             try:
                 (
@@ -2022,10 +2068,11 @@ class NtaBusDaemon:
                     ),
                 )
                 if await cursor.fetchone() is None:
+                    await self._read_realtime_deadline(connection)
                     return None
 
                 latest_cursor = await connection.execute(
-                    """SELECT endpoint
+                    """SELECT endpoint, status
                        FROM fetch_history
                        WHERE endpoint IN (%s, %s)
                        ORDER BY fetched_at DESC, id DESC
@@ -2033,9 +2080,49 @@ class NtaBusDaemon:
                     ("nta_trip_updates", "nta_vehicles"),
                 )
                 latest = await latest_cursor.fetchone()
+                await self._read_realtime_deadline(connection)
+                if latest is not None and latest[1] == "rate_limited":
+                    return "vehicles" if latest[0] == "nta_vehicles" else "trip_updates"
                 if latest is None or latest[0] == "nta_trip_updates":
                     return "vehicles"
                 return "trip_updates"
+
+    async def _read_realtime_deadline(self, connection: Any) -> None:
+        cursor = await connection.execute(
+            """SELECT CASE WHEN enabled THEN
+                       GREATEST(0.0, EXTRACT(EPOCH FROM (next_fetch - clock_timestamp())))
+                       ELSE %s END
+               FROM fetch_schedules WHERE endpoint = %s""",
+            (self.realtime_interval_seconds + RATE_LIMIT_SAFETY_SECONDS, "nta_realtime"),
+        )
+        row = await cursor.fetchone()
+        remaining = float(row[0]) if row and row[0] is not None else self.realtime_interval_seconds
+        # Use DB-relative time, not a comparison of clocks on two hosts.
+        self._next_realtime_poll_at = time.monotonic() + max(RATE_LIMIT_SAFETY_SECONDS, remaining)
+        if self._last_realtime_request_at is not None:
+            self._next_realtime_poll_at = max(
+                self._next_realtime_poll_at,
+                self._last_realtime_request_at + self.realtime_interval_seconds + RATE_LIMIT_SAFETY_SECONDS,
+            )
+
+    async def _defer_rate_limited_request(self, delay: float | None) -> None:
+        self._next_realtime_poll_at = max(
+            self._next_realtime_poll_at,
+            time.monotonic() + max(0.0, delay or 0.0) + RATE_LIMIT_SAFETY_SECONDS,
+        )
+        local_deadline = self._next_realtime_poll_at
+        async with self.pool.connection() as connection:
+            async with connection.transaction():
+                await connection.execute(
+                    """UPDATE fetch_schedules
+                       SET next_fetch = GREATEST(next_fetch,
+                               clock_timestamp() + (%s * INTERVAL '1 second')),
+                           updated_at = clock_timestamp()
+                       WHERE endpoint = %s""",
+                    (max(0.0, delay or 0.0) + RATE_LIMIT_SAFETY_SECONDS, "nta_realtime"),
+                )
+                await self._read_realtime_deadline(connection)
+                self._next_realtime_poll_at = max(self._next_realtime_poll_at, local_deadline)
 
     async def _fetch_realtime_payload(self, url: str) -> bytes:
         if self.session is None:
@@ -2047,6 +2134,10 @@ class NtaBusDaemon:
         }
         timeout = aiohttp.ClientTimeout(total=30, connect=10, sock_read=20)
         async with self.session.get(url, headers=headers, timeout=timeout) as response:
+            if response.status == 429:
+                raise NtaRateLimitError(retry_after_seconds(
+                    response.headers.get("Retry-After"), datetime.now(tz=UTC)
+                ))
             if response.status != 200:
                 raise RuntimeError(f"GTFS-Realtime returned HTTP {response.status}")
             return await self._read_limited_response(response, MAX_REALTIME_DOWNLOAD_BYTES)
@@ -2082,6 +2173,15 @@ class NtaBusDaemon:
                     EXCLUDED.source_timestamp, bus_stop_updates.source_timestamp
                 )"""
 
+        observation_statement = """INSERT INTO bus_stop_observations
+            (feed_version_id, entity_id, trip_id, route_id, service_date,
+             vehicle_id, trip_instance_key, stop_id, stop_sequence,
+             schedule_relationship, arrival_time, departure_time,
+             arrival_delay_seconds, departure_delay_seconds, update_hash,
+             source_timestamp, fetched_at, last_seen_at, trip_schedule_relationship)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT DO NOTHING"""
+
         freshness_statement = """INSERT INTO bus_trip_update_freshness
             (feed_version_id, trip_instance_key, last_seen_at, source_timestamp,
              schedule_relationship)
@@ -2094,7 +2194,7 @@ class NtaBusDaemon:
                 ),
                 schedule_relationship = EXCLUDED.schedule_relationship"""
 
-        if changed or trip_freshness:
+        if current or trip_freshness:
             async with self.pool.connection() as connection:
                 async with connection.transaction():
                     async with connection.cursor() as cursor:
@@ -2105,12 +2205,58 @@ class NtaBusDaemon:
                         for batch in _chunks(rows, INSERT_BATCH_ROWS):
                             await cursor.executemany(update_statement, batch)
 
+                        relationships = {
+                            trip.trip_instance_key: trip.schedule_relationship
+                            for trip in trip_freshness
+                        }
+                        observation_rows = [
+                            (*update.database_row(feed_version_id, fetched_at),
+                             relationships.get(update.trip_instance_key, "SCHEDULED"))
+                            for update in current.values()
+                        ]
+                        for batch in _chunks(observation_rows, INSERT_BATCH_ROWS):
+                            await cursor.executemany(observation_statement, batch)
+
                         freshness_rows = [
                             trip.database_row(feed_version_id, fetched_at)
                             for trip in trip_freshness
                         ]
                         for batch in _chunks(freshness_rows, INSERT_BATCH_ROWS):
                             await cursor.executemany(freshness_statement, batch)
+                            await cursor.executemany(
+                                """INSERT INTO bus_trip_observations
+                                   (feed_version_id, trip_instance_key, last_seen_at,
+                                    source_timestamp, schedule_relationship)
+                                   VALUES (%s, %s, %s, %s, %s)
+                                   ON CONFLICT DO NOTHING""",
+                                batch,
+                            )
+
+                    await connection.execute(
+                        """INSERT INTO bus_route_poll_stats
+                           (fetched_at, feed_version_id, route_id, sample_count,
+                            delay_sum, max_delay_seconds, on_time_count, early_count, late_count)
+                           SELECT fetched_at, feed_version_id, route_id, COUNT(*),
+                               SUM(COALESCE(departure_delay_seconds, arrival_delay_seconds)),
+                               MAX(COALESCE(departure_delay_seconds, arrival_delay_seconds)),
+                               COUNT(*) FILTER (WHERE COALESCE(departure_delay_seconds, arrival_delay_seconds) BETWEEN -60 AND 300),
+                               COUNT(*) FILTER (WHERE COALESCE(departure_delay_seconds, arrival_delay_seconds) < -60),
+                               COUNT(*) FILTER (WHERE COALESCE(departure_delay_seconds, arrival_delay_seconds) > 300)
+                           FROM bus_stop_observations
+                           WHERE fetched_at = %s AND feed_version_id = %s
+                             AND route_id IS NOT NULL
+                             AND COALESCE(departure_delay_seconds, arrival_delay_seconds) IS NOT NULL
+                             AND trip_schedule_relationship NOT IN ('CANCELED', 'CANCELLED', 'DELETED')
+                             AND COALESCE(schedule_relationship, 'SCHEDULED') NOT IN ('SKIPPED', 'NO_DATA', 'CANCELED', 'CANCELLED', 'DELETED')
+                           GROUP BY fetched_at, feed_version_id, route_id
+                           ON CONFLICT DO NOTHING""",
+                        (fetched_at, feed_version_id),
+                    )
+
+                    await connection.execute(
+                        "SELECT record_bus_delay_histogram(%s, %s)",
+                        (fetched_at, feed_version_id),
+                    )
 
         self._previous_update_hashes = {
             key: update.update_hash for key, update in current.items()
@@ -2174,6 +2320,17 @@ class NtaBusDaemon:
                 update_hash = EXCLUDED.update_hash,
                 last_seen_at = EXCLUDED.last_seen_at"""
 
+        observation_statement = """INSERT INTO bus_vehicle_observations
+            (feed_version_id, vehicle_instance_key, entity_id, vehicle_id,
+             vehicle_label, license_plate, trip_instance_key, trip_id, route_id,
+             service_date, schedule_relationship, latitude, longitude, bearing,
+             speed, current_stop_sequence, stop_id, current_status,
+             congestion_level, occupancy_status, occupancy_percentage,
+             update_hash, source_timestamp, fetched_at, last_seen_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT DO NOTHING"""
+
         async with self.pool.connection() as connection:
             async with connection.transaction():
                 async with connection.cursor() as cursor:
@@ -2183,6 +2340,7 @@ class NtaBusDaemon:
                     ]
                     for batch in _chunks(rows, INSERT_BATCH_ROWS):
                         await cursor.executemany(statement, batch)
+                        await cursor.executemany(observation_statement, batch)
 
                 current_keys = [key[1] for key in current]
                 if current_keys:
@@ -2316,6 +2474,18 @@ class NtaBusDaemon:
                     max(0, vehicle_cursor.rowcount),
                 )
 
+    async def _archive_realtime_payload(
+        self, feed_version_id: int, endpoint: str, payload: bytes, fetched_at: datetime
+    ) -> None:
+        compressed = await asyncio.to_thread(gzip.compress, payload, compresslevel=6, mtime=0)
+        async with self.pool.connection() as connection:
+            await connection.execute(
+                """INSERT INTO bus_realtime_feeds
+                   (fetched_at, feed_version_id, endpoint, payload_gzip)
+                   VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING""",
+                (fetched_at, feed_version_id, endpoint, compressed),
+            )
+
     async def poll_realtime(self) -> None:
         """Poll exactly one NTA realtime feed after the shared reservation."""
 
@@ -2323,6 +2493,7 @@ class NtaBusDaemon:
             return
 
         started = time.monotonic()
+        self._next_realtime_poll_at = started + self.realtime_interval_seconds + RATE_LIMIT_SAFETY_SECONDS
         endpoint = "nta_realtime"
         async with self._feed_lock:
             try:
@@ -2343,8 +2514,16 @@ class NtaBusDaemon:
                     if feed_name == "trip_updates"
                     else self.vehicles_url
                 )
+                self._last_realtime_request_at = time.monotonic()
+                self._next_realtime_poll_at = max(
+                    self._next_realtime_poll_at,
+                    self._last_realtime_request_at + self.realtime_interval_seconds + RATE_LIMIT_SAFETY_SECONDS,
+                )
                 payload = await self._fetch_realtime_payload(url)
                 fetched_at = datetime.now(tz=UTC)
+                # Retain the public body before parsing so future parsers can recover
+                # currently unsupported fields, even if this import fails.
+                await self._archive_realtime_payload(feed_version_id, endpoint, payload, fetched_at)
                 parsed_feed = parse_realtime_feed(payload)
                 if parsed_feed.incrementality != "FULL_DATASET":
                     raise FeedFormatError(
@@ -2401,6 +2580,13 @@ class NtaBusDaemon:
                     kind,
                     changed,
                 )
+            except NtaRateLimitError as error:
+                await self._defer_rate_limited_request(error.retry_after_seconds)
+                logger.warning("NTA rate limited %s; retrying after the shared deadline", feed_name)
+                await self.record_fetch(
+                    endpoint, 0, "rate_limited", error=str(error),
+                    duration_ms=int((time.monotonic() - started) * 1_000),
+                )
             except Exception as error:
                 duration_ms = int((time.monotonic() - started) * 1_000)
                 logger.error("GTFS-Realtime poll failed: %s", error)
@@ -2421,9 +2607,10 @@ class NtaBusDaemon:
         self,
         name: str,
         function: Any,
-        interval_seconds: int,
+        interval_seconds: float,
         *,
         initial_delay: bool = False,
+        next_run_at: Callable[[], float] | None = None,
     ) -> None:
         logger.info("starting %s task every %ss", name, interval_seconds)
         if initial_delay:
@@ -2434,13 +2621,18 @@ class NtaBusDaemon:
                 pass
 
         while not self._shutdown.is_set():
+            started = time.monotonic()
             try:
                 await function()
             except Exception as error:
                 logger.error("%s task failed: %s", name, error)
 
+            deadline = next_run_at() if next_run_at else started + interval_seconds
             try:
-                await asyncio.wait_for(self._shutdown.wait(), timeout=interval_seconds)
+                await asyncio.wait_for(
+                    self._shutdown.wait(),
+                    timeout=max(RATE_LIMIT_SAFETY_SECONDS, deadline - time.monotonic()),
+                )
             except asyncio.TimeoutError:
                 continue
             break
@@ -2452,17 +2644,19 @@ class NtaBusDaemon:
         try:
             await self.init()
             self._install_signal_handlers()
+            has_active_feed = await self._active_feed_version_id() is not None
             startup_task = asyncio.create_task(self.refresh_static_feed())
             shutdown_waiter = asyncio.create_task(self._shutdown.wait())
-            completed, _pending = await asyncio.wait(
-                (startup_task, shutdown_waiter),
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            if shutdown_waiter in completed:
-                return
-
-            await startup_task
-            startup_task = None
+            if not has_active_feed:
+                completed, _pending = await asyncio.wait(
+                    (startup_task, shutdown_waiter),
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if shutdown_waiter in completed:
+                    return
+                await startup_task
+                startup_task = None
+            # On a warm start, collect immediately while the schedule refreshes.
             if self._shutdown.is_set():
                 return
 
@@ -2486,6 +2680,7 @@ class NtaBusDaemon:
                             self.poll_realtime,
                             self.realtime_interval_seconds
                             + RATE_LIMIT_SAFETY_SECONDS,
+                            next_run_at=lambda: self._next_realtime_poll_at,
                         )
                     )
                 )

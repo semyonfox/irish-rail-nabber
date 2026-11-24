@@ -1,6 +1,8 @@
 pub mod analytics;
 pub(crate) mod bounds;
 pub mod bus;
+pub mod bus_history;
+pub mod bus_published;
 pub mod station;
 pub mod train;
 pub mod types;
@@ -18,7 +20,14 @@ const MAX_QUERY_COMPLEXITY: usize = 1_000;
 const MAX_QUERY_DEPTH: usize = 12;
 
 #[derive(MergedObject, Default)]
-pub struct Query(StationQuery, TrainQuery, AnalyticsQuery, BusQuery);
+pub struct Query(
+    StationQuery,
+    TrainQuery,
+    AnalyticsQuery,
+    BusQuery,
+    bus_history::BusHistoryQuery,
+    bus_published::BusPublishedQuery,
+);
 
 pub type AppSchema = Schema<Query, async_graphql::EmptyMutation, async_graphql::EmptySubscription>;
 

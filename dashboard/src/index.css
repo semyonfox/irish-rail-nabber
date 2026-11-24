@@ -1351,6 +1351,27 @@
     box-shadow: var(--shadow-float);
     backdrop-filter: blur(10px);
   }
+  .bus-vehicle-detail > select {
+    width: 100%;
+    min-height: 44px;
+    margin-top: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--color-line-strong);
+    border-radius: 8px;
+    background-color: var(--color-wash);
+    color: var(--color-ink);
+    color-scheme: inherit;
+    font-size: 16px;
+    cursor: pointer;
+  }
+  .bus-vehicle-detail > select:focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+  }
+  .bus-vehicle-detail > select option {
+    background-color: var(--color-card);
+    color: var(--color-ink);
+  }
   .bus-vehicle-detail > .icon-btn {
     position: absolute;
     top: 10px;

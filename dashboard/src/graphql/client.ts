@@ -20,7 +20,9 @@ export function createClient() {
       for (const [name, value] of Object.entries(await authHeaders())) {
         headers.set(name, value);
       }
-      return fetch(input, { ...init, headers });
+      const timeout = AbortSignal.timeout(30_000);
+      const signal = init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
+      return fetch(input, { ...init, headers, signal });
     },
     preferGetMethod: false,
   });

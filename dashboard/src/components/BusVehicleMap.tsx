@@ -1,4 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
+import { BUS_ROUTE_MAP } from "../graphql/queries";
+import { isBusRouteMapData, type BusStop } from "../utils/busData";
+import { useCachedBusQuery } from "../utils/useCachedBusQuery";
 import * as maplibregl from "maplibre-gl";
 
 import { busMotionPath, busMotionPosition } from "../utils/busMotion";
@@ -30,6 +34,7 @@ import {
   type TransitFeature,
 } from "./transitMap";
 
+const EMPTY_STOPS: BusStop[] = [];
 const ROUTE_SOURCE_ID = "live-bus-routes";
 const ROUTE_CASING_LAYER_ID = "live-bus-routes-casing";
 const ROUTE_LAYER_ID = "live-bus-routes-line";
@@ -67,13 +72,17 @@ function lineFeature(
 
 export default function BusVehicleMap({
   vehicles,
-  routeShapes,
+  routeShapes: overviewShapes,
+  focusedRouteId,
+  feedVersionId,
   realtimeStatus,
   fetching,
   shapesFetching,
   shapeMode,
   shapeFocusKey,
 }: {
+  focusedRouteId?: string;
+  feedVersionId?: number;
   vehicles: BusVehicle[];
   routeShapes: BusRouteShape[];
   realtimeStatus: BusRealtimeStatus | null;
@@ -95,6 +104,31 @@ export default function BusVehicleMap({
     () => vehicles.find((vehicle) => busVehicleKey(vehicle) === selectedKey) ?? null,
     [selectedKey, vehicles],
   );
+
+  const [clickedRouteId, setClickedRouteId] = useState<string | null>(null);
+  const [selectedStopId, setSelectedStopId] = useState<string | null>(null);
+  const selectedRouteId = focusedRouteId ?? selectedVehicle?.routeId ?? clickedRouteId;
+  const geometry = useCachedBusQuery({
+    query: BUS_ROUTE_MAP,
+    variables: { routeId: selectedRouteId ?? "", feedVersionId },
+    validate: isBusRouteMapData,
+    pause: !selectedRouteId,
+    pollInterval: 900_000,
+  });
+  const routeMap = selectedRouteId ? geometry.data?.busRouteMap : null;
+  const stops = routeMap?.stops ?? EMPTY_STOPS;
+  const selectedStop = stops.find((stop) => stop.stopId === selectedStopId);
+  const routeShapes = useMemo(
+    () =>
+      routeMap
+        ? [
+            ...overviewShapes.filter((shape) => shape.routeId !== selectedRouteId),
+            ...routeMap.shapes,
+          ]
+        : overviewShapes,
+    [overviewShapes, routeMap, selectedRouteId],
+  );
+  const focusFitRef = useRef<string | null>(null);
 
   const feedState = busFeedState(realtimeStatus, fetching && realtimeStatus == null);
 
@@ -202,6 +236,42 @@ export default function BusVehicleMap({
               "text-halo-width": 1.5,
             },
           });
+          map.addSource("bus-route-stops", { type: "geojson", data: emptyCollection() });
+          map.addLayer(
+            {
+              id: "bus-route-stops-circle",
+              type: "circle",
+              source: "bus-route-stops",
+              paint: {
+                "circle-radius": ["case", ["get", "selected"], 8, 4.5],
+                "circle-color": ["case", ["get", "selected"], palette.brand, palette.point],
+                "circle-stroke-color": palette.brand,
+                "circle-stroke-width": 2,
+              },
+            },
+            VEHICLE_HALO_LAYER_ID,
+          );
+          map.addLayer(
+            {
+              id: "bus-route-stops-label",
+              type: "symbol",
+              source: "bus-route-stops",
+              minzoom: 13,
+              layout: {
+                "text-field": ["get", "name"],
+                "text-font": LABEL_FONT,
+                "text-size": 11,
+                "text-offset": [0, 1],
+                "text-anchor": "top",
+              },
+              paint: {
+                "text-color": palette.label,
+                "text-halo-color": palette.labelHalo,
+                "text-halo-width": 1.5,
+              },
+            },
+            VEHICLE_HALO_LAYER_ID,
+          );
           setMapReady(true);
         } catch (error) {
           setMapReady(false);
@@ -229,6 +299,15 @@ export default function BusVehicleMap({
     const next = transitMapPalette(theme);
 
     applyIrelandMapTheme(map, theme);
+    map.setPaintProperty("bus-route-stops-circle", "circle-color", [
+      "case",
+      ["get", "selected"],
+      next.brand,
+      next.point,
+    ]);
+    map.setPaintProperty("bus-route-stops-circle", "circle-stroke-color", next.brand);
+    map.setPaintProperty("bus-route-stops-label", "text-color", next.label);
+    map.setPaintProperty("bus-route-stops-label", "text-halo-color", next.labelHalo);
     map.setPaintProperty(ROUTE_CASING_LAYER_ID, "line-color", next.casing);
     map.setPaintProperty(ROUTE_LAYER_ID, "line-color", [
       "case",
@@ -258,7 +337,6 @@ export default function BusVehicleMap({
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
 
-    const selectedRouteId = selectedVehicle?.routeId ?? null;
     const features = routeShapes.flatMap((shape) => {
       const coordinates = busShapeCoordinates(shape);
       if (coordinates.length < 2) return [];
@@ -275,7 +353,7 @@ export default function BusVehicleMap({
 
     setSourceData(mapRef.current, ROUTE_SOURCE_ID, featureCollection(features));
 
-    if (vehicles.length > 0 || features.length === 0) return;
+    if (selectedRouteId || vehicles.length > 0 || features.length === 0) return;
     const shapeSignature = routeShapes.map((shape) => shape.shapeId).join(",");
     const fitKey = `${shapeMode}:${shapeFocusKey}:${shapeSignature}`;
     if (lastFitKeyRef.current === fitKey) return;
@@ -290,7 +368,7 @@ export default function BusVehicleMap({
     mapReady,
     palette.bus,
     routeShapes,
-    selectedVehicle?.routeId,
+    selectedRouteId,
     shapeFocusKey,
     shapeMode,
     vehicles.length,
@@ -302,7 +380,11 @@ export default function BusVehicleMap({
 
     const selectVehicle = (event: maplibregl.MapLayerMouseEvent) => {
       const key = event.features?.[0]?.properties?.vehicleKey;
-      if (typeof key === "string") setSelectedKey(key);
+      if (typeof key === "string") {
+        setSelectedKey(key);
+        setSelectedStopId(null);
+        setClickedRouteId(null);
+      }
     };
     const enter = () => {
       map.getCanvas().style.cursor = "pointer";
@@ -365,7 +447,7 @@ export default function BusVehicleMap({
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
 
-    if (vehicles.length === 0 || lastFitKeyRef.current === "vehicles") return;
+    if (selectedRouteId || vehicles.length === 0 || lastFitKeyRef.current === "vehicles") return;
     lastFitKeyRef.current = "vehicles";
     if (vehicles.length === 1) {
       mapRef.current.easeTo({
@@ -384,7 +466,101 @@ export default function BusVehicleMap({
       bounds.extend([vehicle.longitude, vehicle.latitude]);
     }
     mapRef.current.fitBounds(bounds, { padding: 48, maxZoom: 10, duration: 500 });
-  }, [mapReady, selectedKey, vehicles]);
+  }, [mapReady, selectedKey, selectedRouteId, vehicles]);
+
+  useEffect(() => {
+    if (!mapReady || !mapRef.current) return;
+    const map = mapRef.current;
+    const validStops = stops.filter(
+      (stop) =>
+        stop.latitude != null &&
+        stop.longitude != null &&
+        Math.abs(stop.latitude) <= 90 &&
+        Math.abs(stop.longitude) <= 180,
+    );
+    setSourceData(
+      map,
+      "bus-route-stops",
+      featureCollection(
+        validStops.flatMap((stop) =>
+          stop.latitude == null || stop.longitude == null
+            ? []
+            : [
+                pointFeature([stop.longitude, stop.latitude], {
+                  stopId: stop.stopId,
+                  name: stop.stopName || stop.stopCode || stop.stopId,
+                  selected: stop.stopId === selectedStopId,
+                }),
+              ],
+        ),
+      ),
+    );
+    if (!selectedRouteId) {
+      focusFitRef.current = null;
+      return;
+    }
+    if (!routeMap || focusFitRef.current === `${routeMap.feedVersionId}:${selectedRouteId}`) return;
+    const coordinates = routeMap.shapes.flatMap(busShapeCoordinates);
+    for (const stop of validStops) {
+      if (stop.longitude != null && stop.latitude != null)
+        coordinates.push([stop.longitude, stop.latitude]);
+    }
+    if (!coordinates.length) return;
+    focusFitRef.current = `${routeMap.feedVersionId}:${selectedRouteId}`;
+    const bounds = new maplibregl.LngLatBounds(coordinates[0], coordinates[0]);
+    for (const coordinate of coordinates.slice(1)) bounds.extend(coordinate);
+    map.fitBounds(bounds, {
+      padding: { top: 48, right: 48, bottom: 200, left: 48 },
+      maxZoom: 14,
+      duration: 500,
+    });
+  }, [mapReady, routeMap, selectedRouteId, selectedStopId, stops]);
+
+  useEffect(() => {
+    if (!mapReady || !mapRef.current) return;
+    const map = mapRef.current;
+    const selectRoute = (event: maplibregl.MapLayerMouseEvent) => {
+      if (
+        focusedRouteId ||
+        map.queryRenderedFeatures(event.point, {
+          layers: [VEHICLE_LAYER_ID, "bus-route-stops-circle"],
+        }).length
+      )
+        return;
+      const id = event.features?.[0]?.properties?.routeId;
+      if (typeof id === "string") {
+        setSelectedKey(null);
+        setSelectedStopId(null);
+        setClickedRouteId(id);
+      }
+    };
+    const selectStop = (event: maplibregl.MapLayerMouseEvent) => {
+      const id = event.features?.[0]?.properties?.stopId;
+      if (typeof id === "string") {
+        setSelectedStopId(id);
+      }
+    };
+    const enter = () => {
+      map.getCanvas().style.cursor = "pointer";
+    };
+    const leave = () => {
+      map.getCanvas().style.cursor = "";
+    };
+    map.on("click", ROUTE_LAYER_ID, selectRoute);
+    map.on("click", "bus-route-stops-circle", selectStop);
+    for (const layer of [ROUTE_LAYER_ID, "bus-route-stops-circle"]) {
+      map.on("mouseenter", layer, enter);
+      map.on("mouseleave", layer, leave);
+    }
+    return () => {
+      map.off("click", ROUTE_LAYER_ID, selectRoute);
+      map.off("click", "bus-route-stops-circle", selectStop);
+      for (const layer of [ROUTE_LAYER_ID, "bus-route-stops-circle"]) {
+        map.off("mouseenter", layer, enter);
+        map.off("mouseleave", layer, leave);
+      }
+    };
+  }, [mapReady, focusedRouteId]);
 
   const speed = selectedVehicle ? speedKmh(selectedVehicle.speedMetersPerSecond) : null;
   const status = selectedVehicle ? humanizeGtfsValue(selectedVehicle.currentStatus) : null;
@@ -399,25 +575,113 @@ export default function BusVehicleMap({
         aria-label="Bus routes and live positions map"
       />
 
-      {vehicles.length === 0 && routeShapes.length === 0 ? (
+      {vehicles.length === 0 && routeShapes.length === 0 && stops.length === 0 ? (
         <div className="bus-map-empty">
           <Icon name="bus" />
           <strong>
-            {shapesFetching
+            {shapesFetching || (selectedRouteId && geometry.fetching)
               ? "Loading scheduled route paths"
               : feedState.isLive && fetching
                 ? "Loading live vehicle positions"
                 : "Scheduled route paths unavailable"}
           </strong>
           <span>
-            {shapesFetching
+            {shapesFetching || (selectedRouteId && geometry.fetching)
               ? "The map will focus on the selected stop when its routes arrive."
               : "The active GTFS feed has no imported route geometry for this view."}
           </span>
         </div>
       ) : null}
 
-      {selectedVehicle ? (
+      {selectedRouteId && (!selectedVehicle || selectedStop) ? (
+        <aside className="bus-vehicle-detail" aria-label="Selected bus route">
+          {!focusedRouteId && (
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label="Close route details"
+              onClick={() => {
+                setClickedRouteId(null);
+                setSelectedKey(null);
+                setSelectedStopId(null);
+              }}
+            >
+              <Icon name="x" />
+            </button>
+          )}
+          <strong>
+            Route{" "}
+            {routeMap?.shapes[0]?.routeShortName ||
+              selectedVehicle?.routeShortName ||
+              selectedRouteId}
+          </strong>
+          <small>{stops.length} scheduled stops · Both directions and route variants</small>
+          <select
+            aria-label="Choose a route stop"
+            disabled={stops.length === 0}
+            value={selectedStopId ?? ""}
+            onChange={(event) => {
+              const id = event.target.value;
+              setSelectedStopId(id);
+              const stop = stops.find((item) => item.stopId === id);
+              if (stop?.longitude != null && stop.latitude != null)
+                mapRef.current?.easeTo({
+                  center: [stop.longitude, stop.latitude],
+                  zoom: 15,
+                  duration: 500,
+                });
+            }}
+          >
+            <option value="">
+              {stops.length
+                ? "Choose a stop…"
+                : geometry.fetching
+                  ? "Loading stops…"
+                  : "No scheduled stops available"}
+            </option>
+            {stops.map((stop) => (
+              <option key={stop.stopId} value={stop.stopId}>
+                {stop.stopName || stop.stopId}
+                {stop.stopCode ? ` · ${stop.stopCode}` : ""}
+              </option>
+            ))}
+          </select>
+          {selectedStop && routeMap && (
+            <p>
+              <strong>{selectedStop.stopName || selectedStop.stopId}</strong>
+              <br />
+              <Link
+                className="underline"
+                to={`/buses/stops/${routeMap.feedVersionId}/${encodeURIComponent(selectedStop.stopId)}`}
+              >
+                Stop departures and delays →
+              </Link>
+            </p>
+          )}
+          {routeMap && !focusedRouteId && (
+            <Link
+              className="underline"
+              to={`/buses/routes/${routeMap.feedVersionId}/${encodeURIComponent(routeMap.routeId)}`}
+            >
+              Route details and history →
+            </Link>
+          )}
+          {geometry.fetching && !routeMap && <small>Loading route and stops…</small>}
+          {geometry.error && (
+            <small>
+              Route could not refresh.{" "}
+              <button type="button" onClick={geometry.retry}>
+                Retry
+              </button>
+            </small>
+          )}
+          {routeMap && !routeMap.shapes.length && (
+            <small>No path geometry is available for this schedule.</small>
+          )}
+        </aside>
+      ) : null}
+
+      {selectedVehicle && !selectedStop ? (
         <aside className="bus-vehicle-detail" aria-label="Selected bus">
           <button
             type="button"
@@ -443,6 +707,17 @@ export default function BusVehicleMap({
               </small>
             </div>
           </div>
+          {routeMap && (
+            <p>
+              <Link
+                className="underline"
+                to={`/buses/routes/${routeMap.feedVersionId}/${encodeURIComponent(routeMap.routeId)}`}
+              >
+                Route map, {stops.length} stops and history →
+              </Link>
+            </p>
+          )}
+          {geometry.fetching && !routeMap && <small>Loading route and stops…</small>}
           <dl>
             <div>
               <dt>Status</dt>

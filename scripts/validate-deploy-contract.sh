@@ -10,6 +10,10 @@ required_files=(
   docker-entrypoint.sh
   migrations/011_bus_gtfs.sql
   migrations/012_bus_shapes.sql
+  migrations/013_bus_history.sql
+  migrations/014_bus_analysis.sql
+  migrations/015_bus_published_performance.sql
+  import_bus_performance.py
   requirements.txt
   schema.sql
   api/Cargo.toml

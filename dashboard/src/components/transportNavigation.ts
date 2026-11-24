@@ -21,6 +21,8 @@ export const transportLinks: Record<TransportMode, TransportLink[]> = {
   bus: [
     { to: "/buses", label: "Live", icon: "map" },
     { to: "/buses/stops", label: "Stops", icon: "pin" },
+    { to: "/buses/routes", label: "Routes", icon: "bus" },
+    { to: "/buses/history", label: "History", icon: "clock" },
     { to: "/buses/network", label: "Network", icon: "activity" },
   ],
 };
@@ -42,6 +44,9 @@ export function transportModePath(pathname: string, mode: TransportMode): string
   }
   if (pathname === "/analytics" || pathname === "/buses/network") {
     return mode === "bus" ? "/buses/network" : "/analytics";
+  }
+  if (pathname === "/history" || pathname === "/buses/history") {
+    return mode === "bus" ? "/buses/history" : "/history";
   }
   return mode === "bus" ? "/buses" : "/";
 }
