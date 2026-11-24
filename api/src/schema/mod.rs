@@ -3,6 +3,7 @@ pub(crate) mod bounds;
 pub mod bus;
 pub mod bus_history;
 pub mod bus_published;
+mod insights;
 pub mod station;
 pub mod train;
 pub mod types;
@@ -15,6 +16,7 @@ use analytics::AnalyticsQuery;
 use bus::BusQuery;
 use bus_history::BusHistoryQuery;
 use bus_published::BusPublishedQuery;
+use insights::InsightsQuery;
 use station::StationQuery;
 use train::TrainQuery;
 
@@ -37,6 +39,7 @@ pub struct Query(
     BusQuery,
     BusHistoryQuery,
     BusPublishedQuery,
+    InsightsQuery,
 );
 
 pub type AppSchema = Schema<Query, async_graphql::EmptyMutation, async_graphql::EmptySubscription>;

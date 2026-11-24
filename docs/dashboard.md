@@ -14,6 +14,7 @@ React 19 SPA. Built and served with [Vite+](https://viteplus.dev/) under `dashbo
 /history           History         protected (coffee/pro)
 /account           AccountPage     protected (any signed-in user)
 /analytics         Analytics       protected + paid (coffee/pro)
+/insights          Insights        admin only
 /chat              Chat Assistant   protected + paid (uses live tools)
 ```
 

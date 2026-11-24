@@ -149,6 +149,22 @@ async fn delay_history(&self, ctx: &Context<'_>, ...) -> Result<Vec<DelayBucket>
 
 This keeps anonymous queries working while letting individual fields enforce a paywall.
 
+### Admin insights
+
+These fields require the `admin` role:
+
+| Field | Window and limits |
+|---|---|
+| `serviceAlerts` | Up to 90 inclusive Irish dates. Optional source and category filters. Pages contain 25 alerts by default, up to 100, with a maximum of 100 pages. |
+| `serviceAlert` | Latest revision by source (`RAIL` or `BUS`) and alert key, including rail corridor and impact figures when available. |
+| `delayStretches` | Up to 31 inclusive service dates. Ranks directed stretches by positive delay added. Returns 30 rows by default, up to 100. |
+| `railDwellHotspots` | Same window as `delayStretches`, ranked by positive delay added while stopped. Returns 10 rows by default, up to 100. |
+
+Both rankings accept a scheduled departure hour band in Irish time with an exclusive end.
+The minimum trip count defaults to 10. Stretch averages and population standard deviations
+use trip-weighted sums. Schedule overrun is relative to total scheduled time and is null
+when that total is zero. Bus stop pairs are kept separate by static feed version.
+
 ### Numeric query bounds
 
 GraphQL numeric inputs are clamped before SQL binding so direct callers cannot

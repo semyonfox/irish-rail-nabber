@@ -6,9 +6,11 @@ import { authUrl } from "./redirect";
 export default function ProtectedRoute({
   children,
   requirePaid = false,
+  requireAdmin = false,
 }: {
   children: React.ReactNode;
   requirePaid?: boolean;
+  requireAdmin?: boolean;
 }) {
   const { user, signedIn, loading, error, logout, refreshUser } = useAuth();
   const location = useLocation();
@@ -47,6 +49,10 @@ export default function ProtectedRoute({
   if (!user) {
     const returnTo = `${location.pathname}${location.search}${location.hash}`;
     return <Navigate to={authUrl("/login", returnTo)} replace />;
+  }
+
+  if (requireAdmin && user.role !== "admin") {
+    return <Navigate to="/" replace />;
   }
 
   if (requirePaid && !["coffee", "pro", "admin"].includes(user.role)) {
