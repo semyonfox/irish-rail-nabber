@@ -33,6 +33,7 @@ from bus_daemon import (
     parse_realtime_feed,
     parse_trip_updates,
     parse_vehicle_positions,
+    parse_service_alerts,
 )
 
 
@@ -1088,6 +1089,81 @@ class RealtimePollingTests(unittest.IsolatedAsyncioTestCase):
             daemon.record_fetch.await_args.kwargs["error"],
             "GTFS-Realtime returned HTTP 503",
         )
+
+
+class ServiceAlertTests(unittest.TestCase):
+    @staticmethod
+    def _payload(description: str = "Stop 7940 is suspended.") -> dict:
+        return {
+            "header": {"gtfs_realtime_version": "2.0", "incrementality": "FULL_DATASET"},
+            "entity": [
+                {
+                    "id": "alert-1",
+                    "alert": {
+                        "active_period": [{"start": "1787115600", "end": "32472144000"}],
+                        "cause": "UNKNOWN_CAUSE",
+                        "effect": "UNKNOWN_EFFECT",
+                        "header_text": {
+                            "translation": [
+                                {"text": "Dúnadh stad", "language": "ga"},
+                                {"text": "Temporary Stop Closure on Route 80", "language": "en"},
+                            ]
+                        },
+                        "description_text": {"translation": [{"text": description}]},
+                        "informed_entity": [
+                            {"stop_id": "8230DB007940"},
+                            {"agency_id": "7778019", "route_id": "80"},
+                        ],
+                    },
+                },
+                {"id": "no-header", "alert": {"informed_entity": [{"stop_id": "x"}]}},
+                {"id": "trip", "tripUpdate": {"trip": {"tripId": "t"}}},
+            ],
+        }
+
+    def test_nta_alert_is_normalized(self) -> None:
+        (alert,) = parse_service_alerts(json.dumps(self._payload()).encode())
+
+        self.assertEqual(alert.header, "Temporary Stop Closure on Route 80")
+        self.assertEqual(alert.category, "stop_change")
+        self.assertEqual(alert.starts_at, datetime.fromtimestamp(1787115600, tz=timezone.utc))
+        # the year-3000 end NTA uses for open-ended alerts is not a real end
+        self.assertIsNone(alert.ends_at)
+        self.assertEqual(alert.route_ids, ["80"])
+        self.assertEqual(alert.stop_ids, ["8230DB007940"])
+        self.assertEqual(alert.agency_ids, ["7778019"])
+
+    def test_text_edit_keeps_the_same_alert(self) -> None:
+        (first,) = parse_service_alerts(self._payload())
+        (edited,) = parse_service_alerts(self._payload("Stop 7940 reopens Friday."))
+
+        self.assertEqual(first.alert_key, edited.alert_key)
+        self.assertNotEqual(first.content_hash, edited.content_hash)
+
+
+class AlertRotationTests(unittest.IsolatedAsyncioTestCase):
+    async def _select(self, *, alerts_due: bool, alerts_url: str | None) -> str | None:
+        class AlertsDueConnection(_RecordingConnection):
+            async def execute(self, statement, parameters=()):
+                if "endpoint = %s" in statement and "nta_alerts" in parameters:
+                    self.execute_calls.append((statement, tuple(parameters)))
+                    return _ExecuteResult(rows=[(alerts_due,)])
+                return await super().execute(statement, parameters)
+
+        daemon = NtaBusDaemon("unused", api_key="key", alerts_url=alerts_url)
+        connection = AlertsDueConnection([])
+        daemon.pool = AsyncMock()
+        daemon.pool.connection = lambda: _AsyncContext(connection)
+        return await daemon._reserve_realtime_request()
+
+    async def test_due_alerts_take_the_slot(self) -> None:
+        self.assertEqual(await self._select(alerts_due=True, alerts_url="https://a"), "alerts")
+
+    async def test_recent_alerts_leave_the_slot_to_realtime(self) -> None:
+        self.assertEqual(await self._select(alerts_due=False, alerts_url="https://a"), "vehicles")
+
+    async def test_disabled_alerts_never_take_the_slot(self) -> None:
+        self.assertEqual(await self._select(alerts_due=True, alerts_url=None), "vehicles")
 
 
 class _ExpiryConnection(_RecordingConnection):

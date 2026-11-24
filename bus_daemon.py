@@ -13,6 +13,7 @@ Runtime configuration:
 * NTA_TRIP_UPDATES_URL: NTA v2 TripUpdates JSON URL
 * NTA_VEHICLES_URL: NTA v2 Vehicles JSON URL
 * NTA_GTFSR_URL: legacy name for the TripUpdates URL
+* NTA_ALERTS_URL: NTA v2 Alerts JSON URL, polled at most every 10 minutes
 * BUS_GTFS_ARCHIVE_DIRECTORY: optional directory for imported ZIP versions
 * BUS_STATIC_REFRESH_SECONDS: static refresh period, default 86400
 * BUS_REALTIME_INTERVAL_SECONDS: realtime period, clamped to at least 60
@@ -30,6 +31,7 @@ import json
 import logging
 import math
 import os
+import re
 import signal
 import shutil
 import tempfile
@@ -65,6 +67,12 @@ DEFAULT_GTFS_URL = (
 )
 DEFAULT_TRIP_UPDATES_URL = "https://api.nationaltransport.ie/gtfsr/v2/gtfsr?format=json"
 DEFAULT_VEHICLES_URL = "https://api.nationaltransport.ie/gtfsr/v2/Vehicles?format=json"
+DEFAULT_ALERTS_URL = "https://api.nationaltransport.ie/gtfsr/v2/Alerts?format=json"
+# alerts take one slot of the shared one-request-a-minute token. notices are
+# posted by hand, so ten minutes costs trip updates and vehicles very little
+ALERTS_INTERVAL_SECONDS = 600
+# NTA marks open-ended alerts with an end in the year 3000
+OPEN_ENDED_ALERT_AFTER = datetime(2100, 1, 1, tzinfo=timezone.utc)
 # Kept for imports and deployments which still use the old variable name.
 DEFAULT_REALTIME_URL = DEFAULT_TRIP_UPDATES_URL
 FEED_SOURCE = "nta_gtfs"
@@ -86,6 +94,89 @@ STATIC_IMPORT_LOCK = "irish-rail-nabber:nta-static-feed"
 
 UTC = timezone.utc
 DatabaseRow = tuple[object, ...]
+
+# a trip leaves bus_stop_live 30 minutes after its last update, holding the last
+# delay NTA predicted for every stop, which is as close to actual as the feed
+# gets. NTA sends delays without times, so run times come from the timetable
+# plus the delay picked up. each finished trip is folded into stop-to-stop
+# totals in the same statement that deletes it, so nothing rescans the archive
+BUS_SEGMENT_ROLLUP_SQL = """
+WITH finished AS (
+    DELETE FROM bus_stop_live live
+    WHERE NOT EXISTS (
+        SELECT 1 FROM bus_trip_update_freshness freshness
+        WHERE freshness.feed_version_id = live.feed_version_id
+          AND freshness.trip_instance_key = live.trip_instance_key
+          AND freshness.last_seen_at >= NOW() - INTERVAL '30 minutes'
+    )
+    RETURNING live.feed_version_id, live.trip_instance_key, live.trip_id,
+              live.route_id, live.service_date, live.stop_id, live.stop_sequence,
+              live.schedule_relationship, live.arrival_delay_seconds,
+              live.departure_delay_seconds
+), legs AS (
+    SELECT f.feed_version_id, f.route_id, f.service_date,
+           f.stop_id AS from_stop_id,
+           lead(f.stop_id) OVER trip AS to_stop_id,
+           lead(f.stop_sequence) OVER trip - f.stop_sequence AS step,
+           COALESCE(st.departure_seconds, st.arrival_seconds) AS left_scheduled,
+           lead(COALESCE(st.arrival_seconds, st.departure_seconds)) OVER trip
+               AS reached_scheduled,
+           COALESCE(f.departure_delay_seconds, f.arrival_delay_seconds) AS left_delay,
+           lead(COALESCE(f.arrival_delay_seconds, f.departure_delay_seconds)) OVER trip
+               AS reached_delay
+    FROM finished f
+    JOIN bus_stop_times st
+      ON st.feed_version_id = f.feed_version_id
+     AND st.trip_id = f.trip_id
+     AND st.stop_sequence = f.stop_sequence
+    WHERE f.stop_id IS NOT NULL
+      AND COALESCE(f.schedule_relationship, 'SCHEDULED') = 'SCHEDULED'
+    WINDOW trip AS (PARTITION BY f.feed_version_id, f.trip_instance_key
+                    ORDER BY f.stop_sequence)
+), clean AS (
+    SELECT feed_version_id, route_id, service_date, from_stop_id, to_stop_id,
+           -- GTFS times run past 24:00 for trips after midnight
+           (left_scheduled / 3600 % 24)::smallint AS hour_local,
+           reached_delay - left_delay AS gain,
+           reached_scheduled - left_scheduled AS scheduled_run
+    FROM legs
+    WHERE step = 1
+      AND service_date IS NOT NULL
+      AND left_delay IS NOT NULL AND reached_delay IS NOT NULL
+      AND left_scheduled IS NOT NULL AND reached_scheduled IS NOT NULL
+), rolled AS (
+    INSERT INTO bus_segment_delay_hourly AS segment (
+        service_date, hour_local, feed_version_id, from_stop_id, to_stop_id,
+        trips, gain_sum_s, gain_pos_sum_s, gain_sq_sum, max_gain_s,
+        run_sum_s, sched_run_sum_s, route_ids
+    )
+    SELECT service_date, hour_local, feed_version_id, from_stop_id, to_stop_id,
+           count(*), sum(gain), sum(GREATEST(gain, 0)), sum(gain::bigint * gain),
+           max(gain), sum(scheduled_run + gain), sum(scheduled_run),
+           array_agg(DISTINCT route_id) FILTER (WHERE route_id IS NOT NULL)
+    FROM clean
+    -- a 30 minute jump between neighbouring stops, or a bus arriving before it
+    -- left, is a prediction reset rather than traffic
+    WHERE abs(gain) <= 1800
+      AND scheduled_run BETWEEN 0 AND 7200
+      AND scheduled_run + gain >= 0
+    GROUP BY 1, 2, 3, 4, 5
+    ON CONFLICT (service_date, hour_local, feed_version_id, from_stop_id, to_stop_id)
+    DO UPDATE SET
+        trips = segment.trips + EXCLUDED.trips,
+        gain_sum_s = segment.gain_sum_s + EXCLUDED.gain_sum_s,
+        gain_pos_sum_s = segment.gain_pos_sum_s + EXCLUDED.gain_pos_sum_s,
+        gain_sq_sum = segment.gain_sq_sum + EXCLUDED.gain_sq_sum,
+        max_gain_s = GREATEST(segment.max_gain_s, EXCLUDED.max_gain_s),
+        run_sum_s = segment.run_sum_s + EXCLUDED.run_sum_s,
+        sched_run_sum_s = segment.sched_run_sum_s + EXCLUDED.sched_run_sum_s,
+        route_ids = ARRAY(
+            SELECT DISTINCT unnest(segment.route_ids || EXCLUDED.route_ids) ORDER BY 1
+        )
+    RETURNING 1
+)
+SELECT (SELECT count(*) FROM finished), (SELECT count(*) FROM rolled)
+"""
 
 
 class FeedFormatError(ValueError):
@@ -822,6 +913,171 @@ def parse_vehicle_positions(
     return list(parse_realtime_feed(payload).vehicle_positions)
 
 
+# first match wins, header is checked before description. NTA leaves cause and
+# effect as UNKNOWN on every alert, so the text is all there is to go on
+_BUS_ALERT_CATEGORY_RULES = (
+    (
+        "disruption",
+        re.compile(
+            r"cancel|suspend|withdrawn|not (?:be )?(?:served|serving|operat)"
+            r"|unable to serve|no services?\b",
+            re.I,
+        ),
+    ),
+    ("diversion", re.compile(r"divert|diversion", re.I)),
+    (
+        "stop_change",
+        re.compile(
+            r"stop (?:closure|change|relocat|move)|temporary stop|terminus change"
+            r"|change of stop",
+            re.I,
+        ),
+    ),
+    ("delay", re.compile(r"delay|reduced (?:frequency|service)|reliability", re.I)),
+    ("works", re.compile(r"\bworks\b|roadworks|road closure|road closed", re.I)),
+    (
+        "timetable",
+        re.compile(r"revised times|timetable|new .*service|pilot|frequency", re.I),
+    ),
+)
+
+
+def classify_bus_alert(header: str, description: str) -> str:
+    for text in (header, description):
+        for category, pattern in _BUS_ALERT_CATEGORY_RULES:
+            if pattern.search(text):
+                return category
+    return "other"
+
+
+def _translated_text(value: object) -> str:
+    """first English translation of a GTFS-RT TranslatedString, else the first"""
+
+    translations = [
+        item for item in map(_as_mapping, _as_items(_get(_as_mapping(value), "translation")))
+        if item is not None
+    ]
+    for item in translations:
+        if (_optional_text(_get(item, "language")) or "en").lower().startswith("en"):
+            return _optional_text(_get(item, "text")) or ""
+    return _optional_text(_get(translations[0], "text")) or "" if translations else ""
+
+
+@dataclass(frozen=True)
+class ParsedServiceAlert:
+    alert_key: str
+    entity_id: str | None
+    header: str
+    description: str
+    url: str | None
+    cause: str | None
+    effect: str | None
+    severity: str | None
+    category: str
+    starts_at: datetime | None
+    ends_at: datetime | None
+    active_periods: str
+    agency_ids: list[str]
+    route_ids: list[str]
+    stop_ids: list[str]
+    informed_entities: str
+    content_hash: str
+
+
+def parse_service_alerts(
+    payload: Mapping[str, Any] | str | bytes | bytearray,
+) -> list[ParsedServiceAlert]:
+    """Normalize GTFS-Realtime Alert entities. Bad entities are skipped."""
+
+    decoded = json.loads(payload) if isinstance(payload, (str, bytes, bytearray)) else payload
+    if not isinstance(decoded, Mapping):
+        raise ValueError("GTFS-Realtime response must be a JSON object")
+
+    alerts: dict[str, ParsedServiceAlert] = {}
+    for raw_entity in _as_items(_get(decoded, "entity", "entities")):
+        entity = _as_mapping(raw_entity)
+        alert = _as_mapping(_get(entity, "alert"))
+        if alert is None or _is_true(_get(entity, "isDeleted")):
+            continue
+        header = _translated_text(_get(alert, "headerText"))
+        if not header:
+            continue
+        description = _translated_text(_get(alert, "descriptionText"))
+
+        periods = []
+        for raw_period in _as_items(_get(alert, "activePeriod")):
+            period = _as_mapping(raw_period)
+            start = _parse_timestamp(_get(period, "start"))
+            end = _parse_timestamp(_get(period, "end"))
+            if end is not None and end >= OPEN_ENDED_ALERT_AFTER:
+                end = None
+            periods.append((start, end))
+        starts = [start for start, _end in periods if start is not None]
+        open_ended = not periods or any(end is None for _start, end in periods)
+        ends = [end for _start, end in periods if end is not None]
+
+        entities = []
+        for raw_informed in _as_items(_get(alert, "informedEntity")):
+            informed = _as_mapping(raw_informed)
+            if informed is None:
+                continue
+            trip = _as_mapping(_get(informed, "trip"))
+            entities.append(
+                {
+                    key: value
+                    for key, value in (
+                        ("agency_id", _optional_text(_get(informed, "agencyId"))),
+                        ("route_id", _optional_text(_get(informed, "routeId"))
+                         or _optional_text(_get(trip, "routeId"))),
+                        ("route_type", _optional_int(_get(informed, "routeType"))),
+                        ("stop_id", _optional_text(_get(informed, "stopId"))),
+                        ("trip_id", _optional_text(_get(trip, "tripId"))),
+                    )
+                    if value is not None
+                }
+            )
+        entities.sort(key=lambda item: json.dumps(item, sort_keys=True))
+        agency_ids = sorted({e["agency_id"] for e in entities if "agency_id" in e})
+        route_ids = sorted({e["route_id"] for e in entities if "route_id" in e})
+        stop_ids = sorted({e["stop_id"] for e in entities if "stop_id" in e})
+        starts_at = min(starts) if starts else None
+        periods_json = json.dumps(
+            [[s.isoformat() if s else None, e.isoformat() if e else None] for s, e in periods]
+        )
+        entities_json = json.dumps(entities, sort_keys=True)
+        parsed = ParsedServiceAlert(
+            # identity survives text and stop-list edits so a revision updates in place
+            alert_key=_stable_payload_hash(
+                {"header": header, "starts_at": starts_at, "agencies": agency_ids}
+            ),
+            entity_id=_optional_text(_get(entity, "id")),
+            header=header,
+            description=description,
+            url=_translated_text(_get(alert, "url")) or None,
+            cause=_enum_text(_get(alert, "cause")),
+            effect=_enum_text(_get(alert, "effect")),
+            severity=_enum_text(_get(alert, "severityLevel")),
+            category=classify_bus_alert(header, description),
+            starts_at=starts_at,
+            ends_at=None if open_ended else max(ends),
+            active_periods=periods_json,
+            agency_ids=agency_ids,
+            route_ids=route_ids,
+            stop_ids=stop_ids,
+            informed_entities=entities_json,
+            content_hash=_stable_payload_hash(
+                {
+                    "header": header,
+                    "description": description,
+                    "periods": periods_json,
+                    "entities": entities_json,
+                }
+            ),
+        )
+        alerts[parsed.alert_key] = parsed
+    return list(alerts.values())
+
+
 _DYNAMIC_TRIP_RELATIONSHIPS = frozenset(
     {
         "ADDED",
@@ -1377,6 +1633,7 @@ class NtaBusDaemon:
         gtfs_url: str = DEFAULT_GTFS_URL,
         trip_updates_url: str = DEFAULT_TRIP_UPDATES_URL,
         vehicles_url: str = DEFAULT_VEHICLES_URL,
+        alerts_url: str | None = DEFAULT_ALERTS_URL,
         static_refresh_seconds: int = DEFAULT_STATIC_REFRESH_SECONDS,
         realtime_interval_seconds: int = MIN_REALTIME_INTERVAL_SECONDS,
         write_legacy_stop_updates: bool = False,
@@ -1391,6 +1648,7 @@ class NtaBusDaemon:
         self.realtime_url = trip_updates_url
         self.trip_updates_url = trip_updates_url
         self.vehicles_url = vehicles_url
+        self.alerts_url = alerts_url
         self.static_refresh_seconds = max(60, static_refresh_seconds)
         self.realtime_interval_seconds = max(
             MIN_REALTIME_INTERVAL_SECONDS, realtime_interval_seconds
@@ -2119,6 +2377,19 @@ class NtaBusDaemon:
                     ("nta_trip_updates", "nta_vehicles"),
                 )
                 latest = await latest_cursor.fetchone()
+                if self.alerts_url:
+                    # failed attempts count too, so a broken alerts feed
+                    # can't take every slot from trip updates and vehicles
+                    alerts_cursor = await connection.execute(
+                        """SELECT max(fetched_at) IS NULL
+                                  OR max(fetched_at) < NOW() - %s * INTERVAL '1 second'
+                           FROM fetch_history
+                           WHERE endpoint = %s""",
+                        (ALERTS_INTERVAL_SECONDS, "nta_alerts"),
+                    )
+                    alerts_due = await alerts_cursor.fetchone()
+                    if alerts_due is not None and alerts_due[0]:
+                        return "alerts"
                 if latest is None or latest[0] == "nta_trip_updates":
                     return "vehicles"
                 return "trip_updates"
@@ -2484,6 +2755,79 @@ class NtaBusDaemon:
         }
         return len(changed_positions)
 
+    async def _upsert_service_alerts(
+        self, feed_version_id: int, alerts: Sequence[ParsedServiceAlert]
+    ) -> int:
+        """Store every live alert and bump last_seen. Returns rows written."""
+
+        if not alerts:
+            return 0
+        async with self.pool.connection() as connection:
+            async with connection.transaction():
+                cursor = await connection.execute(
+                    """WITH incoming AS (
+                           SELECT * FROM jsonb_to_recordset(%s::jsonb) AS row(
+                               alert_key text, entity_id text, header text,
+                               description text, url text, cause text, effect text,
+                               severity text, category text, starts_at timestamptz,
+                               ends_at timestamptz, active_periods jsonb,
+                               agency_ids text[], route_ids text[], stop_ids text[],
+                               informed_entities jsonb, content_hash text)
+                       )
+                       INSERT INTO bus_service_alerts AS alert (
+                           alert_key, feed_version_id, entity_id, header, description,
+                           url, cause, effect, severity, category, starts_at, ends_at,
+                           active_periods, agency_ids, route_ids, stop_ids,
+                           informed_entities, content_hash
+                       )
+                       SELECT alert_key, %s, entity_id, header, description, url,
+                              cause, effect, severity, category, starts_at, ends_at,
+                              active_periods, agency_ids, route_ids, stop_ids,
+                              informed_entities, content_hash
+                       FROM incoming
+                       ON CONFLICT (alert_key) DO UPDATE SET
+                           last_seen = NOW(),
+                           feed_version_id = EXCLUDED.feed_version_id,
+                           entity_id = EXCLUDED.entity_id,
+                           description = EXCLUDED.description,
+                           url = EXCLUDED.url,
+                           cause = EXCLUDED.cause,
+                           effect = EXCLUDED.effect,
+                           severity = EXCLUDED.severity,
+                           category = EXCLUDED.category,
+                           ends_at = EXCLUDED.ends_at,
+                           active_periods = EXCLUDED.active_periods,
+                           agency_ids = EXCLUDED.agency_ids,
+                           route_ids = EXCLUDED.route_ids,
+                           stop_ids = EXCLUDED.stop_ids,
+                           informed_entities = EXCLUDED.informed_entities,
+                           content_hash = EXCLUDED.content_hash,
+                           revisions = alert.revisions
+                               + (alert.content_hash <> EXCLUDED.content_hash)::int""",
+                    (
+                        json.dumps(
+                            [
+                                {
+                                    **{
+                                        field: getattr(alert, field)
+                                        for field in ParsedServiceAlert.__dataclass_fields__
+                                        if field not in ("active_periods", "informed_entities")
+                                    },
+                                    "starts_at": alert.starts_at.isoformat()
+                                    if alert.starts_at else None,
+                                    "ends_at": alert.ends_at.isoformat()
+                                    if alert.ends_at else None,
+                                    "active_periods": json.loads(alert.active_periods),
+                                    "informed_entities": json.loads(alert.informed_entities),
+                                }
+                                for alert in alerts
+                            ]
+                        ),
+                        feed_version_id,
+                    ),
+                )
+                return cursor.rowcount
+
     async def poll_realtime(self) -> None:
         """Poll exactly one NTA realtime feed after the shared reservation."""
 
@@ -2506,6 +2850,18 @@ class NtaBusDaemon:
                     return
 
                 endpoint = f"nta_{feed_name}"
+                if feed_name == "alerts" and self.alerts_url:
+                    payload = await self._fetch_realtime_payload(self.alerts_url)
+                    alerts = parse_service_alerts(payload)
+                    stored = await self._upsert_service_alerts(feed_version_id, alerts)
+                    await self.record_fetch(
+                        endpoint,
+                        stored,
+                        "success",
+                        duration_ms=int((time.monotonic() - started) * 1_000),
+                    )
+                    logger.info("GTFS-Realtime alerts: %s live", stored)
+                    return
                 url = (
                     self.trip_updates_url
                     if feed_name == "trip_updates"
@@ -2580,15 +2936,8 @@ class NtaBusDaemon:
                 )
                 if (await legacy.fetchone())[0]:
                     return
-                live = await connection.execute(
-                    """DELETE FROM bus_stop_live live
-                       WHERE NOT EXISTS (
-                           SELECT 1 FROM bus_trip_update_freshness freshness
-                           WHERE freshness.feed_version_id = live.feed_version_id
-                             AND freshness.trip_instance_key = live.trip_instance_key
-                             AND freshness.last_seen_at >= NOW() - INTERVAL '30 minutes'
-                       )"""
-                )
+                live = await connection.execute(BUS_SEGMENT_ROLLUP_SQL)
+                finished_stops, rolled_segments = await live.fetchone() or (0, 0)
 
             samples = trips = 0
             deadline = time.monotonic() + EXPIRY_RUN_SECONDS
@@ -2660,10 +3009,12 @@ class NtaBusDaemon:
                 if candidates < EXPIRY_BATCH_TRIPS or time.monotonic() > deadline:
                     break
 
-            if live.rowcount or samples or trips:
+            if finished_stops or samples or trips:
                 logger.info(
-                    "expired %s live bus states, %s delay samples, %s trip freshness rows",
-                    live.rowcount,
+                    "expired %s live bus states into %s segment-hours, "
+                    "%s delay samples, %s trip freshness rows",
+                    finished_stops,
+                    rolled_segments,
                     samples,
                     trips,
                 )
@@ -2802,6 +3153,15 @@ def _vehicles_url_from_environment() -> str:
     return os.getenv("NTA_VEHICLES_URL") or DEFAULT_VEHICLES_URL
 
 
+def _alerts_url_from_environment() -> str | None:
+    """empty NTA_ALERTS_URL turns alert polling off"""
+
+    value = os.getenv("NTA_ALERTS_URL")
+    if value is None:
+        return DEFAULT_ALERTS_URL
+    return value.strip() or None
+
+
 def _realtime_url_from_environment() -> str:
     """Backward-compatible alias for the TripUpdates URL setting."""
 
@@ -2816,6 +3176,7 @@ async def main() -> None:
         gtfs_url=os.getenv("NTA_GTFS_URL", DEFAULT_GTFS_URL),
         trip_updates_url=_trip_updates_url_from_environment(),
         vehicles_url=_vehicles_url_from_environment(),
+        alerts_url=_alerts_url_from_environment(),
         static_refresh_seconds=_positive_int_environment(
             "BUS_STATIC_REFRESH_SECONDS", DEFAULT_STATIC_REFRESH_SECONDS
         ),

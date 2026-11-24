@@ -28,6 +28,9 @@ Benchmarked April 2026. Earlier 3s intervals were ~75% wasted.
 | Train movements (`getTrainMovementsXML`) | 60s | event-driven; changes only on arrival/departure |
 | Station reference (`getAllStationsXML`) | 24h | static |
 | HACON enriched feed (`getHaconTrainsXML`) | 10s | same cadence, richer fields per train |
+| Customer notices (`connect.irishrail.ie/realtime/messages`) | 120s | notices are posted by hand, 20 or so live at once |
+| Alert impact matching | 15 min | only alerts that ended more than 2h ago, once each |
+| Rail segment rollup | 1h | one service day at a time from 04:00 the next morning, backfilling 3 older days per run |
 
 ## Deduplication
 
@@ -133,6 +136,42 @@ hacon_snapshots (
     scheduled_departure   TIMESTAMPTZ
 )  -- hypertable by fetched_at
 ```
+
+### Customer notices
+
+```sql
+rail_service_alerts (
+    alert_key       TEXT PRIMARY KEY,  -- md5(head, start, location codes)
+    head, body      TEXT,
+    category        TEXT,              -- delay, disruption, works, accessibility, capacity, booking, other
+    starts_at       TIMESTAMPTZ,       -- upstream sends Europe/Dublin local time
+    ends_at         TIMESTAMPTZ,
+    location_codes  TEXT[],            -- endpoints only, e.g. {GSTNS,MHIDE}
+    products        TEXT[],            -- Train, DART, Bus
+    event_stops     JSONB,
+    revisions       INT,               -- bumped when the body or window is edited
+    first_seen      TIMESTAMPTZ,       -- when we first saw it, not when it was posted
+    last_seen       TIMESTAMPTZ,       -- before ends_at means it was withdrawn early
+    corridor_codes  TEXT[],            -- every stop between the endpoints
+    impact_*, baseline_avg_late, pre_avg_late, pre_baseline_avg_late
+)
+```
+
+The feed keeps no history, so this table is the only record of a notice once it drops off.
+
+Impact matching runs for `delay`, `disruption` and `works` alerts once they are over (the earlier of `ends_at` and `last_seen`, capped at 24h) and the trailing hourly rollups have settled. The corridor is every stop between the named endpoints on trains that called at all of them that day, from `train_movements`. Delays come from `delay_history_hourly` for the corridor stations:
+
+- `impact_avg_late`: the alert window, starting at the hour the alert began
+- `baseline_avg_late`: the same window on the same weekday over the previous 4 weeks
+- `pre_avg_late` and `pre_baseline_avg_late`: the 2 hours before the alert, today and on those weekdays
+
+If `pre_avg_late` is well above `pre_baseline_avg_late`, delays were already building before Irish Rail posted the notice. Averages are weighted by board prediction count, so they read lower than per-train worst lateness.
+
+### Segment delay
+
+`rail_segment_delay_hourly` holds delay picked up between consecutive station calls of each train (timing points skipped), per service date, scheduled departure hour and station pair. `rail_dwell_delay_hourly` holds delay picked up while standing at a station. Both use the last state of each call in `train_movements` and wrap times across midnight. The columns are sums, the same as the bus table in [buses.md](buses.md#segment-delay). Express trains produce pairs like Connolly to Drogheda alongside the stopping pairs. Calls without actual times are skipped, which drops the Park West to Heuston leg entirely.
+
+`rail_segment_rollup_days` records which days are done. The hourly task works newest first and backfills up to 400 days, three a run.
 
 ### Audit
 
