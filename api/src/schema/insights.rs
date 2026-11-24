@@ -1,6 +1,6 @@
 use async_graphql::{Context, Enum, Error, InputObject, Object, Result, SimpleObject};
 use chrono::NaiveDate;
-use sqlx::{FromRow, PgPool};
+use sqlx::{FromRow, PgPool, Postgres, Transaction};
 
 use super::{bounds::clamp_i32, bus::validate_identifier};
 use crate::models::AuthUser;
@@ -47,6 +47,7 @@ struct ServiceAlert {
     location_codes: Vec<String>,
     corridor_codes: Option<Vec<String>>,
     impact_events: Option<i64>,
+    impact_window_end: Option<String>,
     impact_avg_late: Option<f64>,
     baseline_avg_late: Option<f64>,
     pre_avg_late: Option<f64>,
@@ -64,7 +65,6 @@ struct ServiceAlertPage {
 
 #[derive(SimpleObject, FromRow)]
 struct DelayStretch {
-    feed_version_id: Option<i64>,
     from_id: String,
     to_id: String,
     from_name: String,
@@ -74,9 +74,13 @@ struct DelayStretch {
     to_lat: Option<f64>,
     to_lon: Option<f64>,
     trips: i64,
+    net_delay_minutes: f64,
     added_minutes: f64,
     avg_gain_minutes: f64,
     stddev_minutes: f64,
+    median_gain_lower_s: Option<i32>,
+    median_gain_upper_s: Option<i32>,
+    outlier_driven: bool,
     overrun_pct: Option<f64>,
     routes: Vec<String>,
 }
@@ -86,6 +90,7 @@ struct DwellHotspot {
     station_code: String,
     station_name: String,
     trips: i64,
+    net_delay_minutes: f64,
     added_minutes: f64,
     avg_gain_minutes: f64,
     overrun_pct: Option<f64>,
@@ -155,6 +160,24 @@ fn query_error(error: sqlx::Error) -> Error {
     Error::new("Insights data unavailable")
 }
 
+async fn insights_transaction(pool: &PgPool) -> Result<Transaction<'static, Postgres>> {
+    let mut tx = pool.begin().await.map_err(query_error)?;
+    sqlx::query("SET LOCAL statement_timeout = '5s'")
+        .execute(&mut *tx)
+        .await
+        .map_err(query_error)?;
+    // parallel queries can exhaust shared memory in the database container
+    sqlx::query("SET LOCAL max_parallel_workers_per_gather = 0")
+        .execute(&mut *tx)
+        .await
+        .map_err(query_error)?;
+    sqlx::query("SET LOCAL plan_cache_mode = force_custom_plan")
+        .execute(&mut *tx)
+        .await
+        .map_err(query_error)?;
+    Ok(tx)
+}
+
 #[derive(Default)]
 pub struct InsightsQuery;
 
@@ -178,6 +201,7 @@ impl InsightsQuery {
             .transpose()?;
         let limit = i64::from(clamp_i32(limit.unwrap_or(25), 1, 100));
         let page = clamp_i32(page.unwrap_or(1), 1, MAX_ALERT_PAGE);
+        let mut tx = insights_transaction(pool).await?;
         let mut alerts = sqlx::query_as::<_, ServiceAlert>(ALERTS_SQL)
             .bind(mode.map(InsightsMode::sql))
             .bind(category)
@@ -186,10 +210,10 @@ impl InsightsQuery {
             .bind(to)
             .bind(limit + 1)
             .bind((i64::from(page) - 1) * limit)
-            .persistent(false)
-            .fetch_all(pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(query_error)?;
+        tx.commit().await.map_err(query_error)?;
         let has_next_page = alerts.len() > limit as usize && page < MAX_ALERT_PAGE;
         alerts.truncate(limit as usize);
         Ok(ServiceAlertPage {
@@ -207,7 +231,8 @@ impl InsightsQuery {
     ) -> Result<Option<ServiceAlert>> {
         let pool = admin_pool(ctx)?;
         let key = validate_identifier(alert_key, "alertKey")?;
-        sqlx::query_as(ALERTS_SQL)
+        let mut tx = insights_transaction(pool).await?;
+        let alert = sqlx::query_as(ALERTS_SQL)
             .bind(mode.sql())
             .bind(None::<String>)
             .bind(key)
@@ -215,13 +240,14 @@ impl InsightsQuery {
             .bind(None::<NaiveDate>)
             .bind(1_i64)
             .bind(0_i64)
-            .persistent(false)
-            .fetch_optional(pool)
+            .fetch_optional(&mut *tx)
             .await
-            .map_err(query_error)
+            .map_err(query_error)?;
+        tx.commit().await.map_err(query_error)?;
+        Ok(alert)
     }
 
-    /// Directed stretches ranked by total positive delay gain.
+    /// Directed stretches ranked by net delay.
     #[graphql(complexity = "100 + child_complexity * 10")]
     async fn delay_stretches(
         &self,
@@ -235,7 +261,8 @@ impl InsightsQuery {
         let pool = admin_pool(ctx)?;
         let (from, to) = dates(range, RANKING_DAYS)?;
         let (start, end) = hours(hour_band)?;
-        sqlx::query_as(STRETCHES_SQL)
+        let mut tx = insights_transaction(pool).await?;
+        let stretches = sqlx::query_as(STRETCHES_SQL)
             .bind(mode.sql())
             .bind(from)
             .bind(to)
@@ -243,13 +270,14 @@ impl InsightsQuery {
             .bind(end)
             .bind(i64::from(clamp_i32(min_trips.unwrap_or(10), 1, 100_000)))
             .bind(i64::from(clamp_i32(limit.unwrap_or(30), 1, 100)))
-            .persistent(false)
-            .fetch_all(pool)
+            .fetch_all(&mut *tx)
             .await
-            .map_err(query_error)
+            .map_err(query_error)?;
+        tx.commit().await.map_err(query_error)?;
+        Ok(stretches)
     }
 
-    /// Rail stations ranked by total positive delay gain while stopped.
+    /// Rail stations ranked by net delay while stopped.
     #[graphql(complexity = "50 + child_complexity * 10")]
     async fn rail_dwell_hotspots(
         &self,
@@ -262,16 +290,19 @@ impl InsightsQuery {
         let pool = admin_pool(ctx)?;
         let (from, to) = dates(range, RANKING_DAYS)?;
         let (start, end) = hours(hour_band)?;
-        sqlx::query_as(DWELL_SQL)
+        let mut tx = insights_transaction(pool).await?;
+        let hotspots = sqlx::query_as(DWELL_SQL)
             .bind(from)
             .bind(to)
             .bind(start)
             .bind(end)
             .bind(i64::from(clamp_i32(min_trips.unwrap_or(10), 1, 100_000)))
             .bind(i64::from(clamp_i32(limit.unwrap_or(10), 1, 100)))
-            .fetch_all(pool)
+            .fetch_all(&mut *tx)
             .await
-            .map_err(query_error)
+            .map_err(query_error)?;
+        tx.commit().await.map_err(query_error)?;
+        Ok(hotspots)
     }
 }
 

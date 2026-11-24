@@ -16,9 +16,9 @@ const SOURCE = "delay-stretches";
 const CASING = "delay-stretch-casing";
 const LINE = "delay-stretch-line";
 const bands = [
-  { label: "Under 60 min", light: "#08746d", dark: "#4ad4c2" },
-  { label: "60 to under 300 min", light: "#ad6200", dark: "#f9ae48" },
-  { label: "300 min or more", light: "#bd294b", dark: "#ff6f90" },
+  { label: "Under 5 min/day", threshold: 0, light: "#08746d", dark: "#4ad4c2" },
+  { label: "5 to under 30 min/day", threshold: 5, light: "#ad6200", dark: "#f9ae48" },
+  { label: "30 min/day or more", threshold: 30, light: "#bd294b", dark: "#ff6f90" },
 ];
 
 function endpoint(lat: number | null, lon: number | null): [number, number] | null {
@@ -26,21 +26,27 @@ function endpoint(lat: number | null, lon: number | null): [number, number] | nu
   return [lon, lat];
 }
 
-function plotLines(stretches: DelayStretch[]) {
+function plotLines(stretches: DelayStretch[], days: number) {
   return stretches.flatMap((stretch) => {
     const from = endpoint(stretch.fromLat, stretch.fromLon);
     const to = endpoint(stretch.toLat, stretch.toLon);
     if (!from || !to || (from[0] === to[0] && from[1] === to[1])) return [];
-    return [{ from, to, minutes: stretch.addedMinutes }];
+    return [{ from, to, minutesPerDay: stretch.netDelayMinutes / days }];
   });
 }
 
-export default function DelayStretchMap({ stretches }: { stretches: DelayStretch[] }) {
+export default function DelayStretchMap({
+  stretches,
+  days,
+}: {
+  stretches: DelayStretch[];
+  days: number;
+}) {
   const { theme } = useTheme();
   const [initialTheme] = useState(theme);
   const [readyMap, setReadyMap] = useState<maplibregl.Map | null>(null);
   const [mapError, setMapError] = useState(false);
-  const lines = useMemo(() => plotLines(stretches), [stretches]);
+  const lines = useMemo(() => plotLines(stretches, days), [stretches, days]);
 
   const attachMap = useCallback(
     (container: HTMLDivElement | null) => {
@@ -83,11 +89,11 @@ export default function DelayStretchMap({ stretches }: { stretches: DelayStretch
     readyMap.setPaintProperty(CASING, "line-color", transitMapPalette(theme).casing);
     readyMap.setPaintProperty(LINE, "line-color", [
       "step",
-      ["get", "minutes"],
+      ["get", "minutesPerDay"],
       bands[0][theme],
-      60,
+      bands[1].threshold,
       bands[1][theme],
-      300,
+      bands[2].threshold,
       bands[2][theme],
     ]);
   }, [readyMap, theme]);
@@ -96,12 +102,12 @@ export default function DelayStretchMap({ stretches }: { stretches: DelayStretch
     if (!readyMap) return;
     const bounds = new maplibregl.LngLatBounds();
     const features = lines
-      .map(({ from, to, minutes }) => {
+      .map(({ from, to, minutesPerDay }) => {
         bounds.extend(from).extend(to);
         return {
           type: "Feature" as const,
           geometry: { type: "LineString" as const, coordinates: [from, to] },
-          properties: { minutes },
+          properties: { minutesPerDay },
         };
       })
       .reverse();
@@ -114,7 +120,7 @@ export default function DelayStretchMap({ stretches }: { stretches: DelayStretch
       <div className="card-head">
         <div>
           <h2 id="insights-map-heading" className="card-title">
-            Where delay is added
+            Net delay per day
           </h2>
           <p className="card-desc">Straight lines connect the stops in each ranked stretch.</p>
         </div>

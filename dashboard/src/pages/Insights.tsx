@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "urql";
 
 import BusAttribution from "../components/BusAttribution";
@@ -14,6 +14,7 @@ import {
   readDwell,
   readStretches,
   statusLabels,
+  type AlertSummary,
   type InsightsMode,
   type InsightsRange,
 } from "../graphql/insights";
@@ -42,6 +43,7 @@ const categories = [
   "works",
   "other",
 ];
+const impactCategories = new Set(["delay", "disruption", "works"]);
 const bands = [
   { label: "All day", start: 0, end: 24 },
   { label: "AM peak · 07:00–10:00", start: 7, end: 10 },
@@ -62,6 +64,32 @@ function validRange(range: InsightsRange, maxDays: number) {
     days >= 0 &&
     days < maxDays
   );
+}
+
+function useSettledFilters(key: string) {
+  const [settled, setSettled] = useState(key);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSettled(key), 350);
+    return () => window.clearTimeout(timer);
+  }, [key]);
+  return key === settled;
+}
+
+function medianBucket(lower: number | null, upper: number | null) {
+  if (lower === null) return upper === null ? "—" : `Under ${upper} s`;
+  if (upper === null) return `${lower} s or more`;
+  return `${lower} to <${upper} s`;
+}
+
+function impactWindowLabel(alert: AlertSummary, end: string) {
+  if (
+    alert.startsAt &&
+    Date.parse(end) - Date.parse(alert.startsAt) === DAY &&
+    (!alert.endsAt || Date.parse(end) < Date.parse(alert.endsAt))
+  ) {
+    return "First 24 h of notice";
+  }
+  return `During notice (until ${noticeTime.format(new Date(end))})`;
 }
 
 function valueWithUnit(value: number | null, unit: string) {
@@ -122,7 +150,8 @@ function InsightsError({ onRetry }: { onRetry: () => void }) {
   );
 }
 
-function AlertDetails({ mode, alertKey }: { mode: InsightsMode; alertKey: string }) {
+function AlertDetails({ alert }: { alert: AlertSummary }) {
+  const { mode, alertKey, category } = alert;
   const [{ data, fetching, error }, reload] = useQuery<unknown>({
     query: SERVICE_ALERT,
     variables: { mode, alertKey },
@@ -159,7 +188,10 @@ function AlertDetails({ mode, alertKey }: { mode: InsightsMode; alertKey: string
       {mode === "RAIL" ? (
         <section className="min-w-0 rounded-xl bg-wash p-4">
           <h3 className="font-semibold">Average lateness against baseline</h3>
-          {detail.impactAvgLate === null && detail.preAvgLate === null ? (
+          {!impactCategories.has(category) ? (
+            <p className="mt-2 text-sm text-ink-2">Impact is not measured for this category.</p>
+          ) : detail.impactWindowEnd === null ||
+            (detail.impactAvgLate === null && detail.preAvgLate === null) ? (
             <p className="mt-2 text-sm text-ink-2">
               No impact comparison available for this notice yet.
             </p>
@@ -182,14 +214,14 @@ function AlertDetails({ mode, alertKey }: { mode: InsightsMode; alertKey: string
                 <tbody>
                   <tr>
                     <th scope="row" className="py-2 pr-2 font-medium">
-                      During notice
+                      {impactWindowLabel(alert, detail.impactWindowEnd)}
                     </th>
                     <td className="text-right">{valueWithUnit(detail.impactAvgLate, " min")}</td>
                     <td className="text-right">{valueWithUnit(detail.baselineAvgLate, " min")}</td>
                   </tr>
                   <tr>
                     <th scope="row" className="py-2 pr-2 font-medium">
-                      2 hours before
+                      2 hours before stated start
                     </th>
                     <td className="text-right">{valueWithUnit(detail.preAvgLate, " min")}</td>
                     <td className="text-right">
@@ -199,11 +231,12 @@ function AlertDetails({ mode, alertKey }: { mode: InsightsMode; alertKey: string
                 </tbody>
               </table>
               <p className="mt-2 max-w-[68ch] text-sm text-ink-2">
-                Baseline uses the same hours on the previous four matching weekdays. The earlier
-                window shows whether lateness was already building up.
+                Averages cover all trains at the corridor stations. Each poll of a train on a
+                station board counts as one reading. Baseline uses the same hours on the previous
+                four matching weekdays.
                 {detail.impactEvents === null
                   ? null
-                  : ` ${numberFormat.format(detail.impactEvents)} predictions during the notice.`}
+                  : ` ${numberFormat.format(detail.impactEvents)} board readings in the measured notice window.`}
               </p>
             </>
           )}
@@ -220,10 +253,11 @@ function Alerts() {
   const [page, setPage] = useState(1);
   const [expanded, setExpanded] = useState("");
   const valid = validRange(range, 90);
+  const settled = useSettledFilters(JSON.stringify([range, mode, category, page]));
   const [{ data, fetching, error }, reload] = useQuery<unknown>({
     query: SERVICE_ALERTS,
     variables: { range, mode, category: category || undefined, page },
-    pause: !valid,
+    pause: !valid || !settled,
     requestPolicy: "network-only",
   });
   const result = readAlerts(data);
@@ -280,7 +314,7 @@ function Alerts() {
       </div>
       {!valid ? (
         <RangeMessage maxDays={90} />
-      ) : fetching ? (
+      ) : !settled || fetching ? (
         <Empty>Loading notices…</Empty>
       ) : error || !result ? (
         <InsightsError onRetry={() => reload()} />
@@ -342,7 +376,7 @@ function Alerts() {
                     </span>
                   </span>
                 </button>
-                {open ? <AlertDetails mode={alert.mode} alertKey={alert.alertKey} /> : null}
+                {open ? <AlertDetails alert={alert} /> : null}
               </article>
             );
           })}
@@ -389,19 +423,21 @@ function Stretches() {
   const [band, setBand] = useState(0);
   const [minimum, setMinimum] = useState(10);
   const valid = validRange(range, 31);
+  const days = (Date.parse(range.to) - Date.parse(range.from)) / DAY + 1;
+  const settled = useSettledFilters(JSON.stringify([range, mode, band, minimum]));
   const { start, end } = bands[band] ?? bands[0];
   const variables = { range, hourBand: { start, end }, minTrips: minimum };
   const [{ data, fetching, error }, reload] = useQuery<unknown>({
     query: DELAY_STRETCHES,
     variables: { ...variables, mode },
-    pause: !valid,
+    pause: !valid || !settled,
     requestPolicy: "network-only",
   });
   const [{ data: dwellData, fetching: dwellFetching, error: dwellError }, reloadDwell] =
     useQuery<unknown>({
       query: RAIL_DWELL_HOTSPOTS,
       variables,
-      pause: !valid || mode !== "RAIL",
+      pause: !valid || !settled || mode !== "RAIL",
       requestPolicy: "network-only",
     });
   const stretches = useMemo(() => readStretches(data), [data]);
@@ -449,7 +485,7 @@ function Stretches() {
         <RangeMessage maxDays={31} />
       ) : (
         <>
-          {fetching ? (
+          {!settled || fetching ? (
             <Empty>Loading stretches…</Empty>
           ) : error || !stretches ? (
             <InsightsError onRetry={() => reload()} />
@@ -457,7 +493,7 @@ function Stretches() {
             <Empty>No stretches match these filters.</Empty>
           ) : (
             <>
-              <DelayStretchMap stretches={stretches} />
+              <DelayStretchMap stretches={stretches} days={days} />
               <section
                 className="card min-w-0 overflow-hidden"
                 aria-labelledby="insights-stretch-heading"
@@ -481,13 +517,16 @@ function Stretches() {
                           Trips
                         </th>
                         <th scope="col" className="num">
+                          Net delay
+                        </th>
+                        <th scope="col" className="num">
                           Delay added
                         </th>
                         <th scope="col" className="num">
                           Avg gain
                         </th>
                         <th scope="col" className="num">
-                          Std dev
+                          {mode === "BUS" ? "Median gain bucket" : "Std dev"}
                         </th>
                         <th scope="col" className="num">
                           Overrun
@@ -497,22 +536,26 @@ function Stretches() {
                     </thead>
                     <tbody>
                       {stretches.map((stretch) => (
-                        <tr
-                          key={JSON.stringify([
-                            stretch.feedVersionId,
-                            stretch.fromId,
-                            stretch.toId,
-                          ])}
-                        >
+                        <tr key={JSON.stringify([stretch.fromId, stretch.toId])}>
                           <td className="min-w-48 font-medium [overflow-wrap:anywhere]">
                             {stretch.fromName} → {stretch.toName}
+                            {stretch.outlierDriven ? (
+                              <span className="block text-xs text-ink-2">
+                                Likely outlier-driven
+                              </span>
+                            ) : null}
                           </td>
                           <td className="num">{numberFormat.format(stretch.trips)}</td>
                           <td className="num font-semibold">
-                            {valueWithUnit(stretch.addedMinutes, " min")}
+                            {valueWithUnit(stretch.netDelayMinutes, " min")}
                           </td>
+                          <td className="num">{valueWithUnit(stretch.addedMinutes, " min")}</td>
                           <td className="num">{valueWithUnit(stretch.avgGainMinutes, " min")}</td>
-                          <td className="num">{valueWithUnit(stretch.stddevMinutes, " min")}</td>
+                          <td className="num">
+                            {mode === "BUS"
+                              ? medianBucket(stretch.medianGainLowerS, stretch.medianGainUpperS)
+                              : valueWithUnit(stretch.stddevMinutes, " min")}
+                          </td>
                           <td className="num">{valueWithUnit(stretch.overrunPct, "%")}</td>
                           {mode === "BUS" ? <td>{stretch.routes.join(", ") || "—"}</td> : null}
                         </tr>
@@ -533,12 +576,10 @@ function Stretches() {
                   <h2 className="card-title" id="insights-dwell-heading">
                     Delay at stations
                   </h2>
-                  <p className="card-desc">
-                    Delay added between arriving at and leaving a station.
-                  </p>
+                  <p className="card-desc">Net delay between arriving at and leaving a station.</p>
                 </div>
               </div>
-              {dwellFetching ? (
+              {!settled || dwellFetching ? (
                 <Empty>Loading station delays…</Empty>
               ) : dwellError || !dwell ? (
                 <InsightsError onRetry={() => reloadDwell()} />
@@ -559,6 +600,9 @@ function Stretches() {
                           Trips
                         </th>
                         <th scope="col" className="num">
+                          Net delay
+                        </th>
+                        <th scope="col" className="num">
                           Delay added
                         </th>
                         <th scope="col" className="num">
@@ -572,13 +616,14 @@ function Stretches() {
                     <tbody>
                       {dwell.map((station) => (
                         <tr key={station.stationCode}>
-                          <td className="font-medium [overflow-wrap:anywhere]">
+                          <td className="min-w-32 font-medium [overflow-wrap:anywhere]">
                             {station.stationName}
                           </td>
                           <td className="num">{numberFormat.format(station.trips)}</td>
                           <td className="num font-semibold">
-                            {valueWithUnit(station.addedMinutes, " min")}
+                            {valueWithUnit(station.netDelayMinutes, " min")}
                           </td>
+                          <td className="num">{valueWithUnit(station.addedMinutes, " min")}</td>
                           <td className="num">{valueWithUnit(station.avgGainMinutes, " min")}</td>
                           <td className="num">{valueWithUnit(station.overrunPct, "%")}</td>
                         </tr>
@@ -593,14 +638,14 @@ function Stretches() {
       )}
       <div className="max-w-[72ch] space-y-2 text-sm text-ink-2">
         <p>
-          Delay added sums only the increases in delay, so busy stretches can rank higher. Average
-          gain includes time recovered, and standard deviation shows how much gain varies across
-          trips. Overrun compares total running time with total timetabled time.
+          Rankings use net delay. Time recovered offsets increases in delay, with a minimum total of
+          zero. Delay added sums just the increases. Overrun compares total running time with total
+          timetabled time.
         </p>
         <p>
           {mode === "BUS"
-            ? "Bus figures use NTA’s last predicted delay at each stop. Stop pairs are ranked separately for each timetable version."
-            : "Rail figures use recorded times at station calls. Express services can span several stops, and today’s totals arrive after the service day."}
+            ? "Bus figures combine NTA predictions across timetable versions. The median gain is shown as a range. A stretch is flagged when the average gain is at least 60 seconds outside that range."
+            : "Rail figures use recorded times at station calls. Standard deviation shows how much gain varies across trains. Express services can span several stops, and today’s totals arrive after the service day."}
         </p>
         {mode === "BUS" ? <BusAttribution /> : null}
       </div>

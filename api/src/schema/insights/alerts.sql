@@ -9,7 +9,8 @@ WITH notices AS (
            CASE WHEN impact_computed_at IS NOT NULL THEN impact_avg_late END AS impact_avg_late,
            CASE WHEN impact_computed_at IS NOT NULL THEN baseline_avg_late END AS baseline_avg_late,
            CASE WHEN impact_computed_at IS NOT NULL THEN pre_avg_late END AS pre_avg_late,
-           CASE WHEN impact_computed_at IS NOT NULL THEN pre_baseline_avg_late END AS pre_baseline_avg_late
+           CASE WHEN impact_computed_at IS NOT NULL THEN pre_baseline_avg_late END AS pre_baseline_avg_late,
+           CASE WHEN impact_computed_at IS NOT NULL THEN impact_window_end END AS impact_window_end
     FROM rail_service_alerts
     WHERE ($1::text IS NULL OR $1 = 'RAIL')
       AND ($2::text IS NULL OR category = $2)
@@ -22,7 +23,7 @@ WITH notices AS (
     SELECT 'BUS', alert_key, header, description, category,
            starts_at, ends_at, first_seen, last_seen, revisions,
            '{}', feed_version_id, route_ids, stop_ids, agency_ids,
-           active_periods, INTERVAL '30 minutes', NULL, NULL, NULL, NULL, NULL, NULL
+           active_periods, INTERVAL '30 minutes', NULL, NULL, NULL, NULL, NULL, NULL, NULL
     FROM bus_service_alerts
     WHERE ($1 IS NULL OR $1 = 'BUS')
       AND ($2 IS NULL OR category = $2)
@@ -55,6 +56,7 @@ SELECT mode, alert_key, title, description, category,
        to_json(ends_at) #>> '{}' AS ends_at,
        to_json(first_seen) #>> '{}' AS first_seen,
        to_json(last_seen) #>> '{}' AS last_seen,
+       to_json(impact_window_end) #>> '{}' AS impact_window_end,
        revisions, location_codes, corridor_codes, impact_events, impact_avg_late,
        baseline_avg_late, pre_avg_late, pre_baseline_avg_late, agency_ids,
        ARRAY(

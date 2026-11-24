@@ -27,6 +27,7 @@ export const SERVICE_ALERT = gql`
       locationCodes
       corridorCodes
       impactEvents
+      impactWindowEnd
       impactAvgLate
       baselineAvgLate
       preAvgLate
@@ -46,7 +47,6 @@ export const DELAY_STRETCHES = gql`
     $minTrips: Int
   ) {
     delayStretches(mode: $mode, range: $range, hourBand: $hourBand, minTrips: $minTrips) {
-      feedVersionId
       fromId
       toId
       fromName
@@ -56,9 +56,13 @@ export const DELAY_STRETCHES = gql`
       toLat
       toLon
       trips
+      netDelayMinutes
       addedMinutes
       avgGainMinutes
       stddevMinutes
+      medianGainLowerS
+      medianGainUpperS
+      outlierDriven
       overrunPct
       routes
     }
@@ -71,6 +75,7 @@ export const RAIL_DWELL_HOTSPOTS = gql`
       stationCode
       stationName
       trips
+      netDelayMinutes
       addedMinutes
       avgGainMinutes
       overrunPct
@@ -89,7 +94,7 @@ export const statusLabels = {
   WITHDRAWN_EARLY: "Withdrawn early",
 };
 
-interface AlertSummary {
+export interface AlertSummary {
   mode: InsightsMode;
   alertKey: string;
   title: string;
@@ -107,6 +112,7 @@ interface AlertDetail {
   locationCodes: string[];
   corridorCodes: string[] | null;
   impactEvents: number | null;
+  impactWindowEnd: string | null;
   impactAvgLate: number | null;
   baselineAvgLate: number | null;
   preAvgLate: number | null;
@@ -118,13 +124,13 @@ interface AlertDetail {
 
 interface DelayRanking {
   trips: number;
+  netDelayMinutes: number;
   addedMinutes: number;
   avgGainMinutes: number;
   overrunPct: number | null;
 }
 
 export interface DelayStretch extends DelayRanking {
-  feedVersionId: number | null;
   fromId: string;
   toId: string;
   fromName: string;
@@ -134,6 +140,9 @@ export interface DelayStretch extends DelayRanking {
   toLat: number | null;
   toLon: number | null;
   stddevMinutes: number;
+  medianGainLowerS: number | null;
+  medianGainUpperS: number | null;
+  outlierDriven: boolean;
   routes: string[];
 }
 
@@ -192,6 +201,7 @@ function isAlertDetail(value: unknown): value is AlertDetail {
     isList(value.locationCodes, isString) &&
     (value.corridorCodes === null || isList(value.corridorCodes, isString)) &&
     (value.impactEvents === null || isNumber(value.impactEvents)) &&
+    (value.impactWindowEnd === null || isDate(value.impactWindowEnd)) &&
     (value.impactAvgLate === null || isNumber(value.impactAvgLate)) &&
     (value.baselineAvgLate === null || isNumber(value.baselineAvgLate)) &&
     (value.preAvgLate === null || isNumber(value.preAvgLate)) &&
@@ -213,6 +223,7 @@ function hasRanking(
 ): value is Record<string, unknown> & DelayRanking {
   return (
     isNumber(value.trips) &&
+    isNumber(value.netDelayMinutes) &&
     isNumber(value.addedMinutes) &&
     isNumber(value.avgGainMinutes) &&
     (value.overrunPct === null || isNumber(value.overrunPct))
@@ -223,7 +234,6 @@ function isStretch(value: unknown): value is DelayStretch {
   return (
     isRecord(value) &&
     hasRanking(value) &&
-    (value.feedVersionId === null || isNumber(value.feedVersionId)) &&
     isString(value.fromId) &&
     isString(value.toId) &&
     isString(value.fromName) &&
@@ -233,6 +243,9 @@ function isStretch(value: unknown): value is DelayStretch {
     (value.toLat === null || isNumber(value.toLat)) &&
     (value.toLon === null || isNumber(value.toLon)) &&
     isNumber(value.stddevMinutes) &&
+    (value.medianGainLowerS === null || isNumber(value.medianGainLowerS)) &&
+    (value.medianGainUpperS === null || isNumber(value.medianGainUpperS)) &&
+    typeof value.outlierDriven === "boolean" &&
     isList(value.routes, isString)
   );
 }

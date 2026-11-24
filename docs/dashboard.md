@@ -20,6 +20,22 @@ React 19 SPA. Built and served with [Vite+](https://viteplus.dev/) under `dashbo
 
 `ProtectedRoute` redirects signed-out visitors to `/login`. Routes marked `requirePaid` accept only `coffee`, `pro`, and `admin` roles and send other signed-in users to `/pricing`. The API repeats the entitlement check on every paid resolver and chat request.
 
+## Insights
+
+Service alerts lists rail and NTA notices by date and category. Rail delay, disruption and
+works notices can show average lateness during the measured window and in the two hours
+before the notice's stated start. The display gives the measured end time or labels a
+window capped at 24 hours. Averages cover all trains at the corridor stations. Every poll
+of a train on a station board counts as one reading.
+
+Delay stretches ranks directed stop pairs by net delay over the selected dates and Irish
+departure hours. Time recovered offsets time added, with a minimum total of zero. The
+Delay added column shows the sum of increases separately. Map colours use net delay per
+selected day, so the same daily total has the same colour for any date range. Bus rows
+combine timetable versions and show the median gain bucket. A row is flagged when its
+mean gain is at least 60 seconds outside that bucket. Rail rows show the mean and standard
+deviation. The rail view also ranks net delay picked up while stopped at stations.
+
 ## Layout
 
 ```
