@@ -39,7 +39,7 @@ pipeline {
         withCredentials([usernamePassword(credentialsId: 'github-pat', usernameVariable: 'GITHUB_USERNAME', passwordVariable: 'GITHUB_TOKEN')]) {
           sh '''
             GITHUB_REPOSITORY=semyonfox/irish-rail-nabber \
-            GITHUB_REQUIRED_CHECKS='Python scripts,Repository hygiene,Dashboard,Rust API' \
+            GITHUB_REQUIRED_CHECKS='Python scripts (3.11),Python scripts (3.15),Repository hygiene,Dashboard,Rust API' \
               /home/semyon/server-stacks/jenkins/scripts/wait-for-github-ci.sh
           '''
         }
