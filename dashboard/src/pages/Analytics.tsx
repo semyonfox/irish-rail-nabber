@@ -110,7 +110,7 @@ export default function Analytics() {
           }
           description={
             showStats && routeEvents > 0
-              ? `${routeEvents.toLocaleString()} train reads in the last 24 hours, ${formatPct(weightedRouteOnTime)} of them within five minutes of schedule.`
+              ? `${routeEvents.toLocaleString()} station updates in the last 24 hours, ${formatPct(weightedRouteOnTime)} of them within five minutes of schedule.`
               : "Live departures and arrivals from every station board in Ireland, refreshed every 15 seconds."
           }
         />
@@ -133,7 +133,7 @@ export default function Analytics() {
             <Kpi
               index={1}
               label="Worst route"
-              value={worstRoute ? `+${worstRoute.avgLateMinutes.toFixed(1)}m` : "-"}
+              value={worstRoute ? `+${worstRoute.avgLateMinutes.toFixed(1)} min` : "-"}
               detail={
                 worstRoute
                   ? `${worstRoute.origin} to ${worstRoute.destination}`
@@ -144,7 +144,7 @@ export default function Analytics() {
             <Kpi
               index={2}
               label="Worst station"
-              value={worstStation ? `+${worstStation.avgLateMinutes.toFixed(1)}m` : "-"}
+              value={worstStation ? `+${worstStation.avgLateMinutes.toFixed(1)} min` : "-"}
               detail={
                 worstStation
                   ? `${worstStation.stationDesc} · ${formatPct(worstStation.onTimePct)} within 5 min`
@@ -155,8 +155,8 @@ export default function Analytics() {
             <Kpi
               index={3}
               label="Average delay"
-              value={`+${weightedRouteDelay.toFixed(1)}m`}
-              detail={`${delayedRoutes} delayed routes · ${delayedStations} pressured stations`}
+              value={`+${weightedRouteDelay.toFixed(1)} min`}
+              detail={`${delayedRoutes} delayed routes · ${delayedStations} stations running late`}
               tone={toKpiTone(weightedRouteDelay)}
             />
             <Kpi
@@ -199,41 +199,51 @@ export default function Analytics() {
                 title="Routes"
                 description="Ranked by delay load: average delay × trains"
               >
-                <div className="overflow-auto">
-                  <table className="data-table responsive-table min-w-[640px]">
-                    <thead>
-                      <tr>
-                        <th>Route</th>
-                        <th>Average</th>
-                        <th className="num">Within 5m</th>
-                        <th className="num">Trains</th>
-                        <th>Delay load</th>
+                <div className="responsive-table-frame overflow-auto">
+                  <table role="table" className="data-table responsive-table min-w-[640px]">
+                    <thead role="rowgroup">
+                      <tr role="row">
+                        <th role="columnheader" scope="col">
+                          Route
+                        </th>
+                        <th role="columnheader" scope="col">
+                          Average
+                        </th>
+                        <th role="columnheader" scope="col" className="num">
+                          Within 5m
+                        </th>
+                        <th role="columnheader" scope="col" className="num">
+                          Trains
+                        </th>
+                        <th role="columnheader" scope="col">
+                          Delay load
+                        </th>
                       </tr>
                     </thead>
-                    <tbody>
+                    <tbody role="rowgroup">
                       {routeImpact.map((route) => (
-                        <tr key={`${route.origin}-${route.destination}`}>
-                          <td data-label="Route">
+                        <tr role="row" key={`${route.origin}-${route.destination}`}>
+                          <td role="cell" data-label="Route">
                             <div className="cell-main">{route.origin}</div>
                             <div className="cell-sub">to {route.destination}</div>
                           </td>
-                          <td data-label="Average">
+                          <td role="cell" data-label="Average">
                             <DelayPill minutes={route.avgLateMinutes} precise />
                           </td>
-                          <td data-label="Within 5m" className="num">
+                          <td role="cell" data-label="Within 5 min" className="num">
                             {formatPct(route.onTimePct)}
                           </td>
-                          <td data-label="Trains" className="num text-muted">
+                          <td role="cell" data-label="Trains" className="num text-muted">
                             {route.trainCount}
                           </td>
-                          <td data-label="Delay load">
+                          <td role="cell" data-label="Delay load">
                             <LoadMeter value={route.impact} max={maxRouteImpact} />
                           </td>
                         </tr>
                       ))}
                       {routes.length === 0 ? (
-                        <tr>
-                          <td colSpan={5} className="py-10 text-center text-muted">
+                        <tr role="row">
+                          <td role="cell" colSpan={5} className="py-10 text-center text-muted">
                             No route reliability data
                           </td>
                         </tr>
@@ -248,43 +258,53 @@ export default function Analytics() {
                 title="Stations"
                 description="Ranked by delay load: average delay × stops"
               >
-                <div className="overflow-auto">
-                  <table className="data-table responsive-table min-w-[640px]">
-                    <thead>
-                      <tr>
-                        <th>Station</th>
-                        <th>Average</th>
-                        <th className="num">Worst</th>
-                        <th className="num">Stops</th>
-                        <th>Delay load</th>
+                <div className="responsive-table-frame overflow-auto">
+                  <table role="table" className="data-table responsive-table min-w-[640px]">
+                    <thead role="rowgroup">
+                      <tr role="row">
+                        <th role="columnheader" scope="col">
+                          Station
+                        </th>
+                        <th role="columnheader" scope="col">
+                          Average
+                        </th>
+                        <th role="columnheader" scope="col" className="num">
+                          Worst
+                        </th>
+                        <th role="columnheader" scope="col" className="num">
+                          Stops
+                        </th>
+                        <th role="columnheader" scope="col">
+                          Delay load
+                        </th>
                       </tr>
                     </thead>
-                    <tbody>
+                    <tbody role="rowgroup">
                       {stationImpact.map((station) => (
-                        <tr key={station.stationCode}>
-                          <td data-label="Station">
+                        <tr role="row" key={station.stationCode}>
+                          <td role="cell" data-label="Station">
                             <div className="cell-main">{station.stationDesc}</div>
                             <div className="cell-sub">
                               {formatPct(station.onTimePct)} within 5 min
                             </div>
                           </td>
-                          <td data-label="Average">
+                          <td role="cell" data-label="Average">
                             <DelayPill minutes={station.avgLateMinutes} precise />
                           </td>
-                          <td data-label="Worst" className="num">
+                          <td role="cell" data-label="Worst" className="num">
                             +{station.maxLateMinutes}m
                           </td>
-                          <td data-label="Stops" className="num text-muted">
+                          <td role="cell" data-label="Stops" className="num text-muted">
                             {station.totalEvents.toLocaleString()}
                           </td>
-                          <td data-label="Delay load">
+                          <td role="cell" data-label="Delay load">
                             <LoadMeter value={station.impact} max={maxStationImpact} />
                           </td>
                         </tr>
                       ))}
                       {stations.length === 0 ? (
-                        <tr>
-                          <td colSpan={5} className="py-10 text-center text-muted">
+                        <tr role="row">
+                          <td role="cell" colSpan={5} className="py-10 text-center text-muted">
                             No station delay data
                           </td>
                         </tr>

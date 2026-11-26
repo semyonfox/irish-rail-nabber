@@ -182,7 +182,7 @@ export default function History() {
               <Kpi
                 index={2}
                 label="Average delay"
-                value={`+${avgDelay.toFixed(1)}m`}
+                value={`+${avgDelay.toFixed(1)} min`}
                 detail={`Weighted by stops, ${selectedRange.label.toLowerCase()}, ${scopeName}`}
                 tone={kpiTone(avgDelay)}
               />
@@ -196,7 +196,7 @@ export default function History() {
               <Kpi
                 index={4}
                 label="Worst 95th percentile"
-                value={peak ? `+${peak.p95LateMinutes.toFixed(1)}m` : "-"}
+                value={peak ? `+${peak.p95LateMinutes.toFixed(1)} min` : "-"}
                 detail={peak ? peak.label : "No observations yet"}
                 tone={peak ? kpiTone(peak.p95LateMinutes) : undefined}
               />

@@ -658,7 +658,7 @@ export default function TrainMap({
     const wide = mapRef.current.getContainer().clientWidth > 900;
     fittedTrainRef.current = selectedTrainCode;
     mapRef.current.fitBounds(bounds, {
-      duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 700,
+      duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 250,
       maxZoom: 10,
       padding: wide
         ? { top: 72, right: 460, bottom: 56, left: 340 }
@@ -667,8 +667,13 @@ export default function TrainMap({
   }, [mapReady, selectedRouteCoordinates, selectedTrainCode]);
 
   return (
-    <div className="relative h-full w-full">
-      <div ref={containerRef} className="h-full w-full" />
+    <div className="train-map relative h-full w-full">
+      <div
+        ref={containerRef}
+        className="h-full w-full"
+        role="region"
+        aria-label="Train positions and stations map"
+      />
       {mapError ? (
         <div className="absolute inset-0 grid place-items-center bg-paper">
           <div className="card px-5 py-4 text-[14px] text-muted">

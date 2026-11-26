@@ -111,6 +111,7 @@ export default function StationRiskChart() {
               }}
             />
             <Bar
+              animationDuration={250}
               dataKey="avgLateMinutes"
               name="Average delay"
               fill={CHART.series1}
@@ -120,7 +121,7 @@ export default function StationRiskChart() {
               <LabelList
                 dataKey="avgLateMinutes"
                 position="right"
-                formatter={(value: unknown) => `${Number(value).toFixed(1)}m`}
+                formatter={(value: unknown) => `${Number(value).toFixed(1)} min`}
                 style={{ fill: CHART.ink2, fontSize: 11.5, fontWeight: 600 }}
               />
             </Bar>

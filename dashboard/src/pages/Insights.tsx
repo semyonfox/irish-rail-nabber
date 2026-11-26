@@ -338,7 +338,7 @@ function Alerts() {
                 <button
                   type="button"
                   aria-expanded={open}
-                  className="grid w-full gap-2 px-4 py-4 text-left hover:bg-wash sm:px-5"
+                  className="grid w-full gap-2 px-4 py-4 text-left hover:bg-wash focus-visible:-outline-offset-2 sm:px-5"
                   onClick={() => setExpanded(open ? "" : key)}
                 >
                   <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -521,67 +521,88 @@ function Stretches() {
                   </h2>
                 </div>
                 <div
-                  className="overflow-x-auto"
+                  className="responsive-table-frame overflow-x-auto"
                   tabIndex={0}
                   role="region"
                   aria-label="Stretch rankings"
                 >
-                  <table className="data-table min-w-[690px] tabular-nums">
-                    <thead>
-                      <tr>
-                        <th scope="col">Stretch</th>
-                        <th scope="col" className="num">
+                  <table
+                    role="table"
+                    className="data-table responsive-table min-w-[690px] tabular-nums"
+                  >
+                    <thead role="rowgroup">
+                      <tr role="row">
+                        <th role="columnheader" scope="col">
+                          Stretch
+                        </th>
+                        <th role="columnheader" scope="col" className="num">
                           Trips
                         </th>
-                        <th scope="col" className="num">
+                        <th role="columnheader" scope="col" className="num">
                           Net delay
                         </th>
-                        <th scope="col" className="num">
+                        <th role="columnheader" scope="col" className="num">
                           Delay added
                         </th>
-                        <th scope="col" className="num">
+                        <th role="columnheader" scope="col" className="num">
                           Avg gain
                         </th>
-                        <th scope="col" className="num">
+                        <th role="columnheader" scope="col" className="num">
                           {mode === "BUS" ? "Median gain bucket" : "Std dev"}
                         </th>
-                        <th scope="col" className="num">
+                        <th role="columnheader" scope="col" className="num">
                           Overrun
                         </th>
                         {mode === "BUS" ? (
                           <>
-                            <th scope="col" className="num">
+                            <th role="columnheader" scope="col" className="num">
                               Trips gaining ≥2 min
                             </th>
-                            <th scope="col">Routes</th>
+                            <th role="columnheader" scope="col">
+                              Routes
+                            </th>
                           </>
                         ) : null}
                       </tr>
                     </thead>
-                    <tbody>
+                    <tbody role="rowgroup">
                       {stretches.map((stretch) => (
-                        <tr key={JSON.stringify([stretch.fromId, stretch.toId])}>
-                          <td className="min-w-48 font-medium [overflow-wrap:anywhere]">
+                        <tr role="row" key={JSON.stringify([stretch.fromId, stretch.toId])}>
+                          <td role="cell" className="min-w-48 font-medium [overflow-wrap:anywhere]">
                             {stretch.fromName} → {stretch.toName}
                           </td>
-                          <td className="num">{numberFormat.format(stretch.trips)}</td>
-                          <td className="num font-semibold">
+                          <td role="cell" data-label="Trips" className="num">
+                            {numberFormat.format(stretch.trips)}
+                          </td>
+                          <td role="cell" data-label="Net delay" className="num font-semibold">
                             {valueWithUnit(stretch.netDelayMinutes, " min")}
                           </td>
-                          <td className="num">{valueWithUnit(stretch.addedMinutes, " min")}</td>
-                          <td className="num">{valueWithUnit(stretch.avgGainMinutes, " min")}</td>
-                          <td className="num">
+                          <td role="cell" data-label="Delay added" className="num">
+                            {valueWithUnit(stretch.addedMinutes, " min")}
+                          </td>
+                          <td role="cell" data-label="Avg gain" className="num">
+                            {valueWithUnit(stretch.avgGainMinutes, " min")}
+                          </td>
+                          <td
+                            role="cell"
+                            data-label={mode === "BUS" ? "Median gain bucket" : "Std dev"}
+                            className="num"
+                          >
                             {mode === "BUS"
                               ? medianBucket(stretch.medianGainLowerS, stretch.medianGainUpperS)
                               : valueWithUnit(stretch.stddevMinutes, " min")}
                           </td>
-                          <td className="num">{valueWithUnit(stretch.overrunPct, "%")}</td>
+                          <td role="cell" data-label="Overrun" className="num">
+                            {valueWithUnit(stretch.overrunPct, "%")}
+                          </td>
                           {mode === "BUS" ? (
                             <>
-                              <td className="num">
+                              <td role="cell" data-label="Trips gaining ≥2 min" className="num">
                                 {valueWithUnit(stretch.gainAtLeastTwoMinutesPct, "%")}
                               </td>
-                              <td>{stretch.routes.join(", ") || "—"}</td>
+                              <td role="cell" data-label="Routes">
+                                {stretch.routes.join(", ") || "—"}
+                              </td>
                             </>
                           ) : null}
                         </tr>
@@ -613,45 +634,58 @@ function Stretches() {
                 <Empty>No stations match these filters.</Empty>
               ) : (
                 <div
-                  className="overflow-x-auto"
+                  className="responsive-table-frame overflow-x-auto"
                   tabIndex={0}
                   role="region"
                   aria-label="Station delay rankings"
                 >
-                  <table className="data-table min-w-[510px] tabular-nums">
-                    <thead>
-                      <tr>
-                        <th scope="col">Station</th>
-                        <th scope="col" className="num">
+                  <table
+                    role="table"
+                    className="data-table responsive-table min-w-[510px] tabular-nums"
+                  >
+                    <thead role="rowgroup">
+                      <tr role="row">
+                        <th role="columnheader" scope="col">
+                          Station
+                        </th>
+                        <th role="columnheader" scope="col" className="num">
                           Trips
                         </th>
-                        <th scope="col" className="num">
+                        <th role="columnheader" scope="col" className="num">
                           Net delay
                         </th>
-                        <th scope="col" className="num">
+                        <th role="columnheader" scope="col" className="num">
                           Delay added
                         </th>
-                        <th scope="col" className="num">
+                        <th role="columnheader" scope="col" className="num">
                           Avg gain
                         </th>
-                        <th scope="col" className="num">
+                        <th role="columnheader" scope="col" className="num">
                           Overrun
                         </th>
                       </tr>
                     </thead>
-                    <tbody>
+                    <tbody role="rowgroup">
                       {dwell.map((station) => (
-                        <tr key={station.stationCode}>
-                          <td className="min-w-32 font-medium [overflow-wrap:anywhere]">
+                        <tr role="row" key={station.stationCode}>
+                          <td role="cell" className="min-w-32 font-medium [overflow-wrap:anywhere]">
                             {station.stationName}
                           </td>
-                          <td className="num">{numberFormat.format(station.trips)}</td>
-                          <td className="num font-semibold">
+                          <td role="cell" data-label="Trips" className="num">
+                            {numberFormat.format(station.trips)}
+                          </td>
+                          <td role="cell" data-label="Net delay" className="num font-semibold">
                             {valueWithUnit(station.netDelayMinutes, " min")}
                           </td>
-                          <td className="num">{valueWithUnit(station.addedMinutes, " min")}</td>
-                          <td className="num">{valueWithUnit(station.avgGainMinutes, " min")}</td>
-                          <td className="num">{valueWithUnit(station.overrunPct, "%")}</td>
+                          <td role="cell" data-label="Delay added" className="num">
+                            {valueWithUnit(station.addedMinutes, " min")}
+                          </td>
+                          <td role="cell" data-label="Avg gain" className="num">
+                            {valueWithUnit(station.avgGainMinutes, " min")}
+                          </td>
+                          <td role="cell" data-label="Overrun" className="num">
+                            {valueWithUnit(station.overrunPct, "%")}
+                          </td>
                         </tr>
                       ))}
                     </tbody>

@@ -78,7 +78,7 @@ export default function StationTable({
         }),
         col.accessor("maxLateMinutes", {
           header: "Worst delay",
-          cell: (info) => `+${info.getValue()}m`,
+          cell: (info) => `+${info.getValue()} min`,
         }),
         col.accessor("onTimePct", {
           header: "Within 5 min",
@@ -189,32 +189,37 @@ export default function StationTable({
         </select>
       </div>
       <div
-        className="overflow-auto"
+        className="responsive-table-frame overflow-auto"
         tabIndex={0}
         role="region"
-        aria-label="Station performance table. Scroll horizontally for more columns."
+        aria-label="Station performance table"
         aria-busy={fetching}
       >
-        <table className="data-table responsive-table min-w-[720px]">
+        <table role="table" className="data-table responsive-table min-w-[720px]">
           <caption className="sr-only">
             Station performance over {loadedHours} hours. Select a station to open departures.
           </caption>
-          <thead>
+          <thead role="rowgroup">
             {table.getHeaderGroups().map((hg) => (
-              <tr key={hg.id}>
+              <tr role="row" key={hg.id}>
                 {hg.headers.map((h) => {
                   const sorted = h.column.getIsSorted();
                   return (
                     <th
+                      role="columnheader"
+                      scope="col"
                       key={h.id}
                       className={h.column.id === "stationDesc" ? "" : "num"}
                       aria-sort={
                         sorted === "asc" ? "ascending" : sorted === "desc" ? "descending" : "none"
                       }
                     >
+                      <span className="sm:hidden">
+                        {flexRender(h.column.columnDef.header, h.getContext())}
+                      </span>
                       <button
                         type="button"
-                        className="sort-btn"
+                        className="sort-btn hidden sm:inline-flex"
                         onClick={h.column.getToggleSortingHandler()}
                       >
                         {flexRender(h.column.columnDef.header, h.getContext())}
@@ -230,16 +235,19 @@ export default function StationTable({
               </tr>
             ))}
           </thead>
-          <tbody>
+          <tbody role="rowgroup">
             {table.getRowModel().rows.map((row) => (
-              <tr key={row.id}>
+              <tr role="row" key={row.id}>
                 {row.getVisibleCells().map((cell) => (
                   <td
+                    role="cell"
                     key={cell.id}
                     data-label={
-                      typeof cell.column.columnDef.header === "string"
-                        ? cell.column.columnDef.header
-                        : cell.column.id
+                      cell.column.id === "stationDesc"
+                        ? undefined
+                        : typeof cell.column.columnDef.header === "string"
+                          ? cell.column.columnDef.header
+                          : cell.column.id
                     }
                     className={cell.column.id === "stationDesc" ? "" : "num"}
                   >
@@ -249,8 +257,8 @@ export default function StationTable({
               </tr>
             ))}
             {table.getRowModel().rows.length === 0 ? (
-              <tr>
-                <td colSpan={columns.length} className="py-12 text-center text-muted">
+              <tr role="row">
+                <td role="cell" colSpan={columns.length} className="py-12 text-center text-muted">
                   {needle
                     ? `No stations match “${search.trim()}” in the loaded results.`
                     : `No station performance records were returned for the ${loadedHours}-hour results.`}

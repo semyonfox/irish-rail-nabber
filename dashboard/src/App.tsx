@@ -62,7 +62,7 @@ export default function App() {
                     <div className="page">
                       <div className="page-inner">
                         <h1 className="page-title">Page not found</h1>
-                        <p>Use Rail or Bus above to return to live transport.</p>
+                        <p>Choose Rail or Bus to return to live transport.</p>
                       </div>
                     </div>
                   }

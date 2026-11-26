@@ -64,6 +64,7 @@ export default function HistoryCharts({ data }: { data: HistoryChartPoint[] }) {
                 cursor={{ stroke: CHART.axis, strokeWidth: 1 }}
               />
               <Line
+                animationDuration={250}
                 type="monotone"
                 dataKey="avgLateMinutes"
                 name="Average delay"
@@ -73,6 +74,7 @@ export default function HistoryCharts({ data }: { data: HistoryChartPoint[] }) {
                 activeDot={activeDot}
               />
               <Line
+                animationDuration={250}
                 type="monotone"
                 dataKey="p95LateMinutes"
                 name="95th percentile"
@@ -90,7 +92,7 @@ export default function HistoryCharts({ data }: { data: HistoryChartPoint[] }) {
               syncId="history"
               margin={{ top: 4, right: 8, left: AXIS_WIDTH, bottom: 0 }}
             >
-              <XAxis dataKey="label" {...axisProps} fontSize={11} minTickGap={32} />
+              <XAxis dataKey="label" {...axisProps} fontSize={12} minTickGap={32} />
               <YAxis hide />
               <Tooltip
                 contentStyle={CHART_TOOLTIP_STYLE}
@@ -98,6 +100,7 @@ export default function HistoryCharts({ data }: { data: HistoryChartPoint[] }) {
                 cursor={{ fill: "var(--chart-cursor)" }}
               />
               <Bar
+                animationDuration={250}
                 dataKey="eventCount"
                 name="Observations"
                 fill={CHART.volume}
@@ -118,7 +121,7 @@ export default function HistoryCharts({ data }: { data: HistoryChartPoint[] }) {
           <ResponsiveContainer width="100%" height={372}>
             <LineChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid stroke={CHART.grid} vertical={false} />
-              <XAxis dataKey="label" {...axisProps} fontSize={11} minTickGap={32} />
+              <XAxis dataKey="label" {...axisProps} fontSize={12} minTickGap={32} />
               <YAxis
                 {...axisProps}
                 domain={[(min: number) => reliabilityFloor(min), 100]}
@@ -131,6 +134,7 @@ export default function HistoryCharts({ data }: { data: HistoryChartPoint[] }) {
                 cursor={{ stroke: CHART.axis, strokeWidth: 1 }}
               />
               <Line
+                animationDuration={250}
                 type="monotone"
                 dataKey="onTimePct"
                 name="Within 5 minutes"

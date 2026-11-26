@@ -82,10 +82,22 @@ export function applyIrelandMapTheme(map: maplibregl.Map, theme: Theme) {
   }
 }
 
-export function createIrelandMap(container: HTMLElement, theme: Theme, customAttribution?: string) {
+export function createIrelandMap(
+  container: HTMLElement,
+  theme: Theme,
+  customAttribution?: string,
+  { inline = false }: { inline?: boolean } = {},
+) {
   const palette = transitMapPalette(theme);
-  return new maplibregl.Map({
+  const narrow = window.matchMedia("(max-width: 900px)").matches;
+  // two-finger pan only where the map sits in a scrolling page. the full-height
+  // live maps only scroll in the stacked layout, inline maps on any touch screen
+  const scrolling = window.matchMedia(
+    inline ? "(pointer: coarse), (max-width: 900px)" : "(max-width: 900px)",
+  );
+  const map = new maplibregl.Map({
     container,
+    cooperativeGestures: scrolling.matches,
     attributionControl: { compact: true, customAttribution },
     style: {
       version: 8,
@@ -121,11 +133,23 @@ export function createIrelandMap(container: HTMLElement, theme: Theme, customAtt
     },
     center: [-7.5, 53.4],
     zoom: 7,
+    bounds: narrow
+      ? [
+          [-10.8, 51.4],
+          [-5.4, 55.5],
+        ]
+      : undefined,
+    fitBoundsOptions: { padding: 16, maxZoom: 7 },
     maxBounds: [
       [-12, 50.5],
       [-4, 56],
     ],
   });
+  const syncGestures = () =>
+    scrolling.matches ? map.cooperativeGestures.enable() : map.cooperativeGestures.disable();
+  scrolling.addEventListener("change", syncGestures);
+  map.once("remove", () => scrolling.removeEventListener("change", syncGestures));
+  return map;
 }
 
 export function emptyCollection(): SourceData {

@@ -19,7 +19,7 @@ export default function AuthShell({
   footer?: ReactNode;
 }) {
   return (
-    <div className="grid h-full overflow-auto lg:grid-cols-[1.05fr_1fr]">
+    <div className="grid h-full grid-cols-[minmax(0,1fr)] overflow-auto lg:grid-cols-[1.05fr_1fr]">
       <aside className="auth-art relative hidden overflow-hidden lg:block">
         <svg
           className="absolute inset-0 h-full w-full"
@@ -76,7 +76,7 @@ export default function AuthShell({
         </div>
       </aside>
 
-      <div className="flex items-center justify-center px-5 py-12">
+      <div className="flex min-w-0 items-center justify-center px-4 py-6 sm:px-5 sm:py-12">
         <div className="rise w-full max-w-sm">
           {hideHeading ? null : (
             <>
