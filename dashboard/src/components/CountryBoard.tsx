@@ -365,51 +365,66 @@ export default function CountryBoard({ limit = 90, minutes = 45, compact = false
             : "No live arrivals or departures"}
         </Empty>
       ) : (
-        <div className="overflow-auto">
-          <table className="data-table responsive-table min-w-[860px]">
-            <thead>
-              <tr>
-                <th>Due</th>
-                <th>Train</th>
-                <th>Station</th>
-                <th>Route</th>
-                <th>Time</th>
-                <th>Delay</th>
-                <th>Status</th>
+        <div className="responsive-table-frame overflow-auto">
+          <table role="table" className="data-table responsive-table min-w-[860px]">
+            <thead role="rowgroup">
+              <tr role="row">
+                <th role="columnheader" scope="col">
+                  Due
+                </th>
+                <th role="columnheader" scope="col">
+                  Train
+                </th>
+                <th role="columnheader" scope="col">
+                  Station
+                </th>
+                <th role="columnheader" scope="col">
+                  Route
+                </th>
+                <th role="columnheader" scope="col">
+                  Time
+                </th>
+                <th role="columnheader" scope="col">
+                  Delay
+                </th>
+                <th role="columnheader" scope="col">
+                  Status
+                </th>
               </tr>
             </thead>
-            <tbody>
+            <tbody role="rowgroup">
               {visibleRows.map((row) => (
                 <tr
+                  role="row"
                   key={`${row.trainCode}-${row.stationCode}-${row.trainDate ?? ""}-${row.fetchedAt}`}
                   data-tone={rowTone(row)}
                 >
-                  <td data-label="Due">
+                  <td role="cell" data-label="Due">
                     <div className="cell-main">{dueLabel(row.dueIn)}</div>
                     <div className="cell-sub">{kindLabel(row)}</div>
                   </td>
-                  <td data-label="Train">
+                  <td role="cell" data-label="Train">
                     <span className="chip">{row.trainCode}</span>
                     <div className="cell-sub">{row.trainType || "Rail"}</div>
                   </td>
-                  <td data-label="Station">
+                  <td role="cell" data-label="Station">
                     <div className="cell-main">{row.stationDesc}</div>
                     <div className="cell-sub">{row.stationCode}</div>
                   </td>
-                  <td data-label="Route" className="max-w-[320px]">
+                  <td role="cell" data-label="Route" className="max-w-[320px]">
                     <div className="break-words font-medium">{routeLabel(row)}</div>
                     <div className="cell-sub break-words">
                       {row.lastLocation ? row.lastLocation : row.direction || "-"}
                     </div>
                   </td>
-                  <td data-label="Time">
+                  <td role="cell" data-label="Time">
                     <div className="font-mono font-semibold">{eventTime(row)}</div>
                     <div className="cell-sub">Sched {scheduledTime(row)}</div>
                   </td>
-                  <td data-label="Delay">
+                  <td role="cell" data-label="Delay">
                     <DelayPill minutes={row.lateMinutes} />
                   </td>
-                  <td data-label="Status" className="text-muted">
+                  <td role="cell" data-label="Status" className="text-muted">
                     {row.status || "-"}
                   </td>
                 </tr>

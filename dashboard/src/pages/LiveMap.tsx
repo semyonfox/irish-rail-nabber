@@ -126,7 +126,7 @@ export default function LiveMap() {
               onRetry={() => retryStations({ requestPolicy: "network-only" })}
             />
           ) : null}
-          <details className="rail-selector" open>
+          <details className="map-selector" open>
             <summary>Find trains and stations</summary>
             <Segmented
               label="Rail list"
@@ -153,7 +153,7 @@ export default function LiveMap() {
                   : `${filteredStations.length} stations shown`}
             </p>
             <div
-              className="rail-selector-list"
+              className="map-selector-list"
               aria-label={listMode === "trains" ? "Rail services" : "Rail stations"}
             >
               {listMode === "trains"
@@ -161,7 +161,7 @@ export default function LiveMap() {
                     <button
                       type="button"
                       key={`${train.trainCode}-${train.trainDate}`}
-                      className="rail-option"
+                      className="map-option"
                       aria-pressed={selectedTrain?.trainCode === train.trainCode}
                       onClick={() => selectTrain(train.trainCode)}
                     >
@@ -176,7 +176,7 @@ export default function LiveMap() {
                     <button
                       type="button"
                       key={station.stationCode}
-                      className="rail-option"
+                      className="map-option"
                       aria-pressed={selectedStation?.stationCode === station.stationCode}
                       onClick={() => {
                         setSelectedStation(station);

@@ -15,7 +15,7 @@ import {
 } from "../utils/busRealtime";
 import { busRoutePath } from "../utils/busHistory";
 import type { BusRouteShape } from "../utils/busShapes";
-import type { BusVehicle } from "../utils/busVehicles";
+import { busVehicleKey, busVehicleRoute, type BusVehicle } from "../utils/busVehicles";
 import { usePollingQuery } from "../utils/usePollingQuery";
 
 interface BusStop {
@@ -128,6 +128,15 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
     return () => clearInterval(timer);
   }, []);
   const [routeSearch, setRouteSearch] = useState("");
+  const [vehicleSearch, setVehicleSearch] = useState("");
+  const [selectedVehicleKey, setSelectedVehicleKey] = useState<string | null>(null);
+  // the page component is shared by every bus view, so drop the selection when
+  // the view changes rather than reopening it on return
+  const [selectionView, setSelectionView] = useState(view);
+  if (selectionView !== view) {
+    setSelectionView(view);
+    setSelectedVehicleKey(null);
+  }
   const expectedHours = view === "network" ? hours : 24;
 
   useEffect(() => {
@@ -215,18 +224,31 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
   );
 
   if (view === "live") {
+    const liveVehicles = feedState.isLive ? vehicles : [];
+    const needle = vehicleSearch.trim().toLowerCase();
+    const matchingVehicles = liveVehicles.filter((vehicle) =>
+      [
+        busVehicleRoute(vehicle),
+        vehicle.headsign,
+        vehicle.routeLongName,
+        // the details sheet falls back to the id, so search must too
+        vehicle.vehicleLabel || vehicle.vehicleId,
+      ].some((value) => value?.toLowerCase().includes(needle)),
+    );
     return (
       <LiveMapShell
         title="Live bus services"
         map={
           <BusVehicleMap
-            vehicles={feedState.isLive ? vehicles : []}
+            vehicles={liveVehicles}
             routeShapes={routeShapes}
             realtimeStatus={sourceStatus}
             fetching={liveFetching}
             shapesFetching={scheduledShapesFetching || liveShapesFetching}
             shapeMode={useLiveRouteShapes ? "live" : "scheduled"}
             shapeFocusKey={selectedStopId ?? "network"}
+            selectedKey={selectedVehicleKey}
+            onSelect={setSelectedVehicleKey}
           />
         }
         summary={
@@ -234,8 +256,8 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
             status={liveError ? "Updates unavailable" : feedState.badge}
             live={feedState.isLive && !liveError}
             count={feedState.isLive ? vehicles.length : "--"}
-            caption="services in live feed"
-            detail={`${feedState.isLive ? vehicles.length : 0} on map`}
+            caption={vehicles.length === 1 ? "bus running" : "buses running"}
+            detail={`${feedState.isLive ? vehicles.length : 0} on the map`}
             stats={[
               {
                 label: "Routes",
@@ -244,6 +266,49 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
               },
             ]}
           >
+            {liveVehicles.length > 0 && (
+              <details className="map-selector">
+                <summary>Find a live bus</summary>
+                <SearchInput
+                  value={vehicleSearch}
+                  onChange={setVehicleSearch}
+                  label="Find a live bus"
+                  placeholder="Route, destination or fleet"
+                />
+                {/* only announce counts the rider asked for, not every poll */}
+                <p className="text-xs text-muted" role={needle ? "status" : undefined}>
+                  {matchingVehicles.length > 20
+                    ? `Showing 20 of ${matchingVehicles.length} buses. Search to narrow the list.`
+                    : `${matchingVehicles.length} ${matchingVehicles.length === 1 ? "bus" : "buses"} found`}
+                </p>
+                {matchingVehicles.length > 0 ? (
+                  <div className="map-selector-list">
+                    {matchingVehicles.slice(0, 20).map((vehicle) => {
+                      const key = busVehicleKey(vehicle);
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          className="map-option"
+                          aria-pressed={selectedVehicleKey === key}
+                          onClick={() => setSelectedVehicleKey(key)}
+                        >
+                          <strong>
+                            {busVehicleRoute(vehicle)} ·{" "}
+                            {vehicle.headsign ||
+                              vehicle.routeLongName ||
+                              "Destination not reported"}
+                          </strong>
+                          {vehicle.vehicleLabel || vehicle.vehicleId ? (
+                            <span>{vehicle.vehicleLabel || vehicle.vehicleId}</span>
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </details>
+            )}
             {liveShapesError && (
               <RequestError
                 bare
@@ -520,29 +585,42 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
               </span>
             </div>
             <div
-              className="overflow-auto"
+              className="responsive-table-frame overflow-auto"
               tabIndex={0}
               role="region"
-              aria-label="Bus route performance table. Scroll horizontally for more columns."
+              aria-label="Bus route performance table"
               aria-busy={liveFetching}
             >
-              <table className="data-table responsive-table min-w-[700px]">
+              <table role="table" className="data-table responsive-table min-w-[700px]">
                 <caption className="sr-only">
                   Up to 100 sampled bus routes over {hours} hours
                 </caption>
-                <thead>
-                  <tr>
-                    <th>Route</th>
-                    <th>Operator</th>
-                    <th className="num">Average delay</th>
-                    <th className="num">Within 5 min</th>
-                    <th className="num">Stop updates</th>
-                    <th>Last update</th>
+                <thead role="rowgroup">
+                  <tr role="row">
+                    <th role="columnheader" scope="col">
+                      Route
+                    </th>
+                    <th role="columnheader" scope="col">
+                      Operator
+                    </th>
+                    <th role="columnheader" scope="col" className="num">
+                      Average delay
+                    </th>
+                    <th role="columnheader" scope="col" className="num">
+                      Within 5 min
+                    </th>
+                    <th role="columnheader" scope="col" className="num">
+                      Stop updates
+                    </th>
+                    <th role="columnheader" scope="col">
+                      Last update
+                    </th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody role="rowgroup">
                   {shownRoutes.map((route) => (
                     <tr
+                      role="row"
                       key={`${route.feedVersionId}:${route.routeId}`}
                       data-tone={
                         route.avgDelaySeconds >= 900
@@ -552,7 +630,7 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
                             : undefined
                       }
                     >
-                      <td data-label="Route">
+                      <td role="cell" data-label="Route">
                         <span className="flex items-center gap-3">
                           <span className="bus-route-chip">
                             {routeLabel(route.routeShortName, route.routeId)}
@@ -565,19 +643,20 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
                           </Link>
                         </span>
                       </td>
-                      <td data-label="Operator" className="text-muted">
+                      <td role="cell" data-label="Operator" className="text-muted">
                         {route.operatorName || "Unknown"}
                       </td>
-                      <td data-label="Average delay" className="num">
+                      <td role="cell" data-label="Average delay" className="num">
                         <DelayPill minutes={route.avgDelaySeconds / 60} precise />
                       </td>
-                      <td data-label="Within 5 min" className="num">
+                      <td role="cell" data-label="Within 5 min" className="num">
                         {route.onTimePct.toFixed(1)}%
                       </td>
-                      <td data-label="Stop updates" className="num text-muted">
+                      <td role="cell" data-label="Stop updates" className="num text-muted">
                         {route.sampleCount.toLocaleString()}
                       </td>
                       <td
+                        role="cell"
                         data-label="Last update"
                         className="text-muted"
                         title={route.lastUpdated ?? undefined}
@@ -587,8 +666,8 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
                     </tr>
                   ))}
                   {!liveFetching && shownRoutes.length === 0 && !liveError ? (
-                    <tr>
-                      <td colSpan={6} className="py-12 text-center text-muted">
+                    <tr role="row">
+                      <td role="cell" colSpan={6} className="py-12 text-center text-muted">
                         {routeNeedle
                           ? "No sampled routes match. Try a different search."
                           : "Route history starts building after the first realtime poll."}

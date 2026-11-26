@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   CartesianGrid,
@@ -23,7 +23,15 @@ import {
 import { CHART, CHART_TOOLTIP_STYLE } from "../utils/format";
 import { usePollingQuery } from "../utils/usePollingQuery";
 
-const PAGE_SIZE = 200;
+// phones stack each record into a tall card, so they page in smaller steps.
+// subscribed so rotating or resizing picks the right size
+const phoneQuery = "(max-width: 639px)";
+function subscribePhone(onChange: () => void) {
+  const query = window.matchMedia(phoneQuery);
+  query.addEventListener("change", onChange);
+  return () => query.removeEventListener("change", onChange);
+}
+const isPhone = () => window.matchMedia(phoneQuery).matches;
 
 const metricOptions: { value: PublishedMetric; label: string; unit: string }[] = [
   { value: "onTimePct", label: "On time", unit: "%" },
@@ -47,7 +55,7 @@ function PublishedRecords({ dataset }: { dataset: BusPublishedDataset }) {
   const yearParam = Number(params.get("year"));
   const year = dataset.years.includes(yearParam) ? yearParam : undefined;
   const offsetParam = Number(params.get("offset"));
-  const offset = Number.isSafeInteger(offsetParam) && offsetParam > 0 ? offsetParam : 0;
+  const requestedOffset = Number.isSafeInteger(offsetParam) && offsetParam > 0 ? offsetParam : 0;
 
   // any filter change starts again from the first page
   const update = (changes: Record<string, string | undefined>) =>
@@ -83,6 +91,14 @@ function PublishedRecords({ dataset }: { dataset: BusPublishedDataset }) {
     return () => clearTimeout(timer);
   }, [input, search, setParams]);
 
+  const oneRoute = operatorName !== undefined && routeShortName !== undefined;
+  // the route trend chart is drawn from this page, so a single route keeps its
+  // whole history (13 periods a year) even on phones
+  const phone = useSyncExternalStore(subscribePhone, isPhone);
+  const pageSize = oneRoute || !phone ? 200 : 25;
+  // a link made at another page size (phone vs desktop, or before a rotation)
+  // snaps to the page that contains it, so pages never overlap
+  const offset = Math.floor(requestedOffset / pageSize) * pageSize;
   const [{ data, fetching, error }, retry] = usePollingQuery<{
     busPublishedPerformance: { totalCount: number; rows: BusPublishedPoint[] };
   }>({
@@ -93,13 +109,12 @@ function PublishedRecords({ dataset }: { dataset: BusPublishedDataset }) {
       operatorName: operatorName ?? null,
       routeShortName: routeShortName ?? null,
       year: year ?? null,
-      limit: PAGE_SIZE,
+      limit: pageSize,
       offset,
     },
   });
   const rows = data?.busPublishedPerformance.rows ?? [];
   const total = data?.busPublishedPerformance.totalCount ?? 0;
-  const oneRoute = operatorName !== undefined && routeShortName !== undefined;
   const metric = chosenMetric ?? defaultPublishedMetric(rows);
   const unit = metricOptions.find((option) => option.value === metric)?.unit ?? "";
   const chart = rows.toReversed().map((row) => ({
@@ -189,10 +204,10 @@ function PublishedRecords({ dataset }: { dataset: BusPublishedDataset }) {
             />
             {chart.some((point) => point.value !== null) ? (
               <ResponsiveContainer width="100%" height={260}>
-                <LineChart data={chart} margin={{ left: 0, right: 20, top: 10, bottom: 0 }}>
+                <LineChart data={chart} margin={{ left: 0, right: 32, top: 10, bottom: 0 }}>
                   <CartesianGrid stroke={CHART.grid} vertical={false} />
-                  <XAxis dataKey="period" stroke={CHART.axis} fontSize={11} minTickGap={35} />
-                  <YAxis stroke={CHART.axis} fontSize={11} unit={unit.trim()} />
+                  <XAxis dataKey="period" stroke={CHART.axis} fontSize={12} minTickGap={35} />
+                  <YAxis stroke={CHART.axis} fontSize={12} unit={unit.trim()} width={48} />
                   <Tooltip
                     contentStyle={CHART_TOOLTIP_STYLE}
                     formatter={(value) => decimal(Number(value), unit)}
@@ -218,29 +233,52 @@ function PublishedRecords({ dataset }: { dataset: BusPublishedDataset }) {
         description="A dash means the NTA did not publish that metric. Excess wait is passenger waiting time beyond the scheduled wait, not a bus's delay."
       >
         {rows.length > 0 ? (
-          <div className="max-h-[42rem] overflow-auto">
-            <table className="data-table min-w-[1100px]">
-              <thead>
-                <tr>
-                  <th>Route / contract</th>
-                  <th>Period</th>
-                  <th className="num">On time</th>
-                  <th className="num">Early</th>
-                  <th className="num">Late</th>
-                  <th className="num">Departures</th>
-                  <th className="num">Excess wait</th>
-                  <th className="num">Planned km</th>
-                  <th className="num">Operated km</th>
-                  <th className="num">Lost km</th>
-                  <th className="num">Deductible lost km</th>
+          <div className="responsive-table-frame max-h-[42rem] overflow-auto">
+            <table role="table" className="data-table responsive-table min-w-[1100px]">
+              <thead role="rowgroup">
+                <tr role="row">
+                  <th role="columnheader" scope="col">
+                    Route / contract
+                  </th>
+                  <th role="columnheader" scope="col">
+                    Period
+                  </th>
+                  <th role="columnheader" scope="col" className="num">
+                    On time
+                  </th>
+                  <th role="columnheader" scope="col" className="num">
+                    Early
+                  </th>
+                  <th role="columnheader" scope="col" className="num">
+                    Late
+                  </th>
+                  <th role="columnheader" scope="col" className="num">
+                    Departures
+                  </th>
+                  <th role="columnheader" scope="col" className="num">
+                    Excess wait
+                  </th>
+                  <th role="columnheader" scope="col" className="num">
+                    Planned km
+                  </th>
+                  <th role="columnheader" scope="col" className="num">
+                    Operated km
+                  </th>
+                  <th role="columnheader" scope="col" className="num">
+                    Lost km
+                  </th>
+                  <th role="columnheader" scope="col" className="num">
+                    Deductible lost km
+                  </th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody role="rowgroup">
                 {rows.map((row) => (
                   <tr
+                    role="row"
                     key={`${row.operatorName}:${row.routeShortName}:${row.reportYear}:${row.reportPeriod}`}
                   >
-                    <td>
+                    <td role="cell">
                       <Link
                         className="cell-main block underline"
                         to={publishedContractPath(row.operatorName, row.routeShortName)}
@@ -249,18 +287,36 @@ function PublishedRecords({ dataset }: { dataset: BusPublishedDataset }) {
                       </Link>
                       <small className="block text-muted">{row.operatorName}</small>
                     </td>
-                    <td className="whitespace-nowrap">
+                    <td role="cell" data-label="Period" className="whitespace-nowrap">
                       {row.reportYear} P{row.reportPeriod}
                     </td>
-                    <td className="num">{decimal(row.onTimePct, "%")}</td>
-                    <td className="num">{decimal(row.earlyPct, "%")}</td>
-                    <td className="num">{decimal(row.latePct, "%")}</td>
-                    <td className="num">{decimal(row.actualDepartures)}</td>
-                    <td className="num">{decimal(row.excessWaitMinutes, " min")}</td>
-                    <td className="num">{decimal(row.plannedKm)}</td>
-                    <td className="num">{decimal(row.actualKm)}</td>
-                    <td className="num">{decimal(row.lostKm)}</td>
-                    <td className="num">{decimal(row.contractualLostKm)}</td>
+                    <td role="cell" data-label="On time" className="num">
+                      {decimal(row.onTimePct, "%")}
+                    </td>
+                    <td role="cell" data-label="Early" className="num">
+                      {decimal(row.earlyPct, "%")}
+                    </td>
+                    <td role="cell" data-label="Late" className="num">
+                      {decimal(row.latePct, "%")}
+                    </td>
+                    <td role="cell" data-label="Departures" className="num">
+                      {decimal(row.actualDepartures)}
+                    </td>
+                    <td role="cell" data-label="Excess wait" className="num">
+                      {decimal(row.excessWaitMinutes, " min")}
+                    </td>
+                    <td role="cell" data-label="Planned km" className="num">
+                      {decimal(row.plannedKm)}
+                    </td>
+                    <td role="cell" data-label="Operated km" className="num">
+                      {decimal(row.actualKm)}
+                    </td>
+                    <td role="cell" data-label="Lost km" className="num">
+                      {decimal(row.lostKm)}
+                    </td>
+                    <td role="cell" data-label="Deductible lost km" className="num">
+                      {decimal(row.contractualLostKm)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -269,24 +325,26 @@ function PublishedRecords({ dataset }: { dataset: BusPublishedDataset }) {
         ) : !fetching && !error ? (
           <Empty>No published records match this selection.</Empty>
         ) : null}
-        {total > PAGE_SIZE && (
-          <div className="card-body flex items-center justify-between gap-3 text-sm">
+        {total > pageSize && (
+          <div className="card-body flex flex-wrap items-center justify-between gap-3 text-sm">
             <button
               type="button"
               className="btn"
               disabled={offset === 0 || fetching}
-              onClick={() => update({ offset: String(Math.max(0, offset - PAGE_SIZE)) })}
+              onClick={() => update({ offset: String(Math.max(0, offset - pageSize)) })}
             >
               Previous
             </button>
             <span>
-              {offset + 1} to {offset + rows.length} of {total.toLocaleString()}
+              {rows.length > 0
+                ? `${offset + 1} to ${offset + rows.length} of ${total.toLocaleString()}`
+                : null}
             </span>
             <button
               type="button"
               className="btn"
-              disabled={offset + PAGE_SIZE >= total || fetching}
-              onClick={() => update({ offset: String(offset + PAGE_SIZE) })}
+              disabled={offset + pageSize >= total || fetching}
+              onClick={() => update({ offset: String(offset + pageSize) })}
             >
               Next
             </button>

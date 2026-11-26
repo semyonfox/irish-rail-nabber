@@ -1,7 +1,7 @@
 export type DelayTone = "ok" | "neutral" | "warn" | "bad" | "muted";
 
 // status ramp: color only when something is wrong.
-// <=5 min counts as running to time (matches the "within 5m" copy).
+// <=5 min counts as running to time (matches the "within 5 min" copy).
 export function delayTone(minutes: number | null | undefined): DelayTone {
   if (minutes == null) return "muted";
   if (minutes <= 0) return "ok";
@@ -32,9 +32,9 @@ export function delayLabel(minutes: number | null | undefined): string {
 export function shortDelay(minutes: number | null | undefined, precise = false): string {
   if (minutes == null || !Number.isFinite(minutes)) return "Unknown";
   if (minutes < 0)
-    return `${precise ? Math.abs(minutes).toFixed(1) : Math.round(Math.abs(minutes))}m early`;
+    return `${precise ? Math.abs(minutes).toFixed(1) : Math.round(Math.abs(minutes))} min early`;
   if (minutes === 0) return "On time";
-  return `+${precise ? minutes.toFixed(1) : Math.round(minutes)}m`;
+  return `+${precise ? minutes.toFixed(1) : Math.round(minutes)} min`;
 }
 
 export function formatTime(time: string | null | undefined): string {

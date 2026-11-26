@@ -23,26 +23,40 @@ export default function BusStopTable({
   showJourney?: boolean;
 }) {
   return (
-    <div className="max-h-[36rem] overflow-auto">
-      <table className="data-table min-w-[760px]">
-        <thead>
-          <tr>
-            <th>Expected</th>
-            {showJourney && <th>Destination / journey</th>}
-            <th>Stop</th>
-            <th>Status</th>
-            <th className="num">Delay</th>
-            <th>Observed</th>
+    <div className="responsive-table-frame max-h-[36rem] overflow-auto">
+      <table role="table" className="data-table responsive-table min-w-[760px]">
+        <thead role="rowgroup">
+          <tr role="row">
+            <th role="columnheader" scope="col">
+              Expected
+            </th>
+            {showJourney && (
+              <th role="columnheader" scope="col">
+                Destination / journey
+              </th>
+            )}
+            <th role="columnheader" scope="col">
+              Stop
+            </th>
+            <th role="columnheader" scope="col">
+              Status
+            </th>
+            <th role="columnheader" scope="col" className="num">
+              Delay
+            </th>
+            <th role="columnheader" scope="col">
+              Observed
+            </th>
           </tr>
         </thead>
-        <tbody>
+        <tbody role="rowgroup">
           {stops.map((stop) => (
-            <tr key={`${stop.tripInstanceKey}:${stop.stopSequence ?? stop.stopId}`}>
-              <td className="whitespace-nowrap">
+            <tr role="row" key={`${stop.tripInstanceKey}:${stop.stopSequence ?? stop.stopId}`}>
+              <td role="cell" data-label="Expected" className="whitespace-nowrap">
                 {stop.expectedTime ? time.format(Date.parse(stop.expectedTime)) : "—"}
               </td>
               {showJourney && (
-                <td>
+                <td role="cell" data-label="Destination / journey">
                   <Link
                     className="cell-main block underline"
                     to={busJourneyPath(feedVersionId, routeId, stop.tripInstanceKey)}
@@ -52,7 +66,7 @@ export default function BusStopTable({
                   <small className="block text-muted">{stop.tripId}</small>
                 </td>
               )}
-              <td>
+              <td role="cell" data-label="Stop">
                 {stop.stopId ? (
                   <Link className="underline" to={busStopPath(feedVersionId, stop.stopId)}>
                     {stop.stopName || stop.stopId}
@@ -61,14 +75,16 @@ export default function BusStopTable({
                   "Unknown stop"
                 )}
               </td>
-              <td>{stop.scheduleRelationship || "SCHEDULED"}</td>
-              <td className="num">
+              <td role="cell" data-label="Status">
+                {stop.scheduleRelationship || "SCHEDULED"}
+              </td>
+              <td role="cell" data-label="Delay" className="num">
                 <DelayPill
                   minutes={stop.delaySeconds === null ? null : stop.delaySeconds / 60}
                   precise
                 />
               </td>
-              <td className="whitespace-nowrap">
+              <td role="cell" data-label="Observed" className="whitespace-nowrap">
                 <time dateTime={stop.lastUpdated}>{time.format(Date.parse(stop.lastUpdated))}</time>
               </td>
             </tr>

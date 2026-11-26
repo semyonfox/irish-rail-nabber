@@ -47,7 +47,7 @@ export default function DelayStretchMap({ stretches }: { stretches: DelayStretch
       if (!container) return;
       let map: maplibregl.Map;
       try {
-        map = createIrelandMap(container, initialTheme);
+        map = createIrelandMap(container, initialTheme, undefined, { inline: true });
       } catch {
         setMapError(true);
         return;

@@ -18,7 +18,7 @@
   --color-line-strong: #d3cfc4;
   --color-ink: #121814;
   --color-ink-2: #3d4540;
-  --color-muted: #6b726c;
+  --color-muted: #5d665f;
   --color-brand: #0b6b4d;
   --color-brand-deep: #084f39;
   --color-brand-soft: #e3f0ea;
@@ -53,7 +53,7 @@
   --map-bg: #e9ebe6;
   --row-hover-bg: #faf9f6;
   --bus-row-hover-bg: #fffaf0;
-  --placeholder: #797f79;
+  --placeholder: #636c65;
   --focus-ring: rgb(11 107 77 / 0.15);
   --warn-border: #efd39c;
   --danger-border: #f2c7bf;
@@ -68,7 +68,7 @@
   --chart-series-2: #eb6834;
   --chart-volume: #d6d2c7;
   --chart-grid: #eeece6;
-  --chart-axis: #767c76;
+  --chart-axis: #636c65;
   --chart-surface: #ffffff;
   --chart-border: #e5e2da;
   --chart-ink: #121814;
@@ -166,6 +166,7 @@
   }
   button,
   a {
+    touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
   }
   ::selection {
@@ -250,8 +251,10 @@
       color 0.15s,
       box-shadow 0.15s;
   }
-  .transport-mode:hover {
-    color: #fff;
+  @media (hover: hover) {
+    .transport-mode:hover {
+      color: #fff;
+    }
   }
   .transport-mode.is-active[data-transport="rail"] {
     background: var(--color-brand);
@@ -293,9 +296,11 @@
     height: 16px;
     opacity: 0.7;
   }
-  .nav-link:hover {
-    background: var(--raised-hover-bg);
-    color: var(--color-ink);
+  @media (hover: hover) {
+    .nav-link:hover {
+      background: var(--raised-hover-bg);
+      color: var(--color-ink);
+    }
   }
   .nav-link.is-active {
     background: var(--color-card);
@@ -306,7 +311,7 @@
     color: var(--color-brand);
     opacity: 1;
   }
-  .app-header[data-mode="bus"] .nav-link.is-active svg {
+  [data-mode="bus"] .nav-link.is-active svg {
     color: var(--color-bus-deep);
   }
   .header-actions {
@@ -314,6 +319,15 @@
     margin-left: auto;
     align-items: center;
     gap: 8px;
+  }
+  .desktop-actions {
+    display: flex;
+    align-items: center;
+    gap: inherit;
+  }
+  .mobile-nav,
+  .header-actions .mobile-menu-toggle {
+    display: none;
   }
   .utility-link {
     display: inline-flex;
@@ -331,7 +345,12 @@
       background-color 0.15s,
       color 0.15s;
   }
-  .utility-link:hover,
+  @media (hover: hover) {
+    .utility-link:hover {
+      background: var(--color-card);
+      color: var(--color-ink);
+    }
+  }
   .utility-link.is-active {
     background: var(--color-card);
     color: var(--color-ink);
@@ -441,24 +460,30 @@
     background: var(--color-ink);
     color: var(--color-on-ink);
   }
-  .btn-primary:hover:not(:disabled) {
-    background: var(--color-brand-deep);
+  @media (hover: hover) {
+    .btn-primary:hover:not(:disabled) {
+      background: var(--color-brand-deep);
+    }
   }
   .btn-brand {
     background: var(--color-brand);
     color: var(--color-on-brand);
   }
-  .btn-brand:hover:not(:disabled) {
-    background: var(--color-brand-deep);
+  @media (hover: hover) {
+    .btn-brand:hover:not(:disabled) {
+      background: var(--color-brand-deep);
+    }
   }
   .btn-quiet {
     border-color: var(--color-line);
     background: var(--color-card);
     color: var(--color-ink);
   }
-  .btn-quiet:hover:not(:disabled) {
-    border-color: var(--color-line-strong);
-    background: var(--color-wash);
+  @media (hover: hover) {
+    .btn-quiet:hover:not(:disabled) {
+      border-color: var(--color-line-strong);
+      background: var(--color-wash);
+    }
   }
   .btn-quiet[aria-pressed="true"] {
     border-color: var(--warn-border);
@@ -470,8 +495,10 @@
     background: var(--color-card);
     color: var(--color-bad);
   }
-  .btn-danger:hover:not(:disabled) {
-    background: var(--color-bad-soft);
+  @media (hover: hover) {
+    .btn-danger:hover:not(:disabled) {
+      background: var(--color-bad-soft);
+    }
   }
   .btn-sm {
     height: 32px;
@@ -500,9 +527,11 @@
       background-color 0.15s,
       color 0.15s;
   }
-  .icon-btn:hover {
-    background: var(--color-line);
-    color: var(--color-ink);
+  @media (hover: hover) {
+    .icon-btn:hover {
+      background: var(--color-line);
+      color: var(--color-ink);
+    }
   }
   .icon-btn svg {
     width: 18px;
@@ -567,8 +596,10 @@
       border-color 0.15s,
       box-shadow 0.15s;
   }
-  .control:hover {
-    border-color: var(--color-line-strong);
+  @media (hover: hover) {
+    .control:hover {
+      border-color: var(--color-line-strong);
+    }
   }
   .control:focus {
     border-color: var(--color-brand);
@@ -656,8 +687,10 @@
       color 0.15s,
       box-shadow 0.15s;
   }
-  .seg button:hover {
-    color: var(--color-ink);
+  @media (hover: hover) {
+    .seg button:hover {
+      color: var(--color-ink);
+    }
   }
   .seg button[aria-pressed="true"] {
     background: var(--color-card);
@@ -858,8 +891,10 @@
   .data-table tbody tr {
     transition: background-color 0.12s;
   }
-  .data-table tbody tr:hover {
-    background: var(--row-hover-bg);
+  @media (hover: hover) {
+    .data-table tbody tr:hover {
+      background: var(--row-hover-bg);
+    }
   }
   .data-table tbody tr:last-child td {
     border-bottom: 0;
@@ -884,8 +919,10 @@
     font: inherit;
     cursor: pointer;
   }
-  .sort-btn:hover {
-    color: var(--color-ink);
+  @media (hover: hover) {
+    .sort-btn:hover {
+      color: var(--color-ink);
+    }
   }
   .sort-btn svg {
     width: 13px;
@@ -1384,8 +1421,10 @@
     cursor: pointer;
     transition: background-color 0.15s;
   }
-  .bus-stop-option:hover {
-    background: var(--bus-row-hover-bg);
+  @media (hover: hover) {
+    .bus-stop-option:hover {
+      background: var(--bus-row-hover-bg);
+    }
   }
   .bus-stop-option:focus-visible {
     outline-offset: -4px;
@@ -1506,8 +1545,10 @@
     text-underline-offset: 2px;
   }
 
-  .bus-attribution a:hover {
-    color: var(--color-ink);
+  @media (hover: hover) {
+    .bus-attribution a:hover {
+      color: var(--color-ink);
+    }
   }
 }
 
@@ -1567,7 +1608,6 @@
 .maplibregl-ctrl-top-right {
   top: 6px;
   right: 6px;
-  transition: right 0.25s;
 }
 .map-shell.has-sheet .maplibregl-ctrl-top-right {
   right: 430px;
@@ -1591,6 +1631,10 @@
 
 :root[data-theme="dark"] .maplibregl-ctrl button .maplibregl-ctrl-icon {
   filter: invert(1) opacity(0.84);
+}
+
+:root[data-theme="dark"] .maplibregl-ctrl-attrib-button {
+  filter: invert(1);
 }
 
 :root[data-theme="dark"] .maplibregl-ctrl-attrib,
@@ -1639,40 +1683,6 @@
   .brand-sub {
     display: none;
   }
-  .transport-modes {
-    height: 34px;
-  }
-  .transport-mode {
-    height: 26px;
-    min-width: 48px;
-    padding: 0 9px;
-    font-size: 11px;
-  }
-  .utility-link {
-    width: 34px;
-    padding: 0;
-    justify-content: center;
-  }
-  .utility-link span {
-    display: none;
-  }
-  .page-inner {
-    gap: 16px;
-    padding: 28px 14px 56px;
-  }
-  .sheet {
-    top: auto;
-    right: 8px;
-    bottom: 8px;
-    left: 8px;
-    width: auto;
-    max-height: 72%;
-    border-radius: 20px;
-    animation-name: sheet-up;
-  }
-  .map-shell.has-sheet .maplibregl-ctrl-top-right {
-    right: 6px;
-  }
   .bus-hero {
     grid-template-columns: auto minmax(0, 1fr);
     min-height: 98px;
@@ -1698,35 +1708,7 @@
     justify-self: start;
   }
   .bus-map-frame {
-    height: 430px;
-  }
-}
-
-@media (max-width: 440px) {
-  .app-header {
-    gap: 8px;
-    padding-right: 10px;
-    padding-left: 10px;
-  }
-  .brand-copy {
-    display: none;
-  }
-  .header-actions {
-    gap: 6px;
-  }
-  .nav {
-    width: calc(100% + 20px);
-    margin-right: -10px;
-    margin-left: -10px;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .rise,
-  .sheet,
-  .live-dot::after,
-  .typing span {
-    animation: none !important;
+    height: clamp(300px, 54dvh, 440px);
   }
 }
 
@@ -1752,10 +1734,7 @@
 }
 @media (max-width: 639px) {
   .live-summary {
-    width: min(300px, calc(100vw - 84px));
     padding: 12px;
-    max-height: 45dvh;
-    overflow-y: auto;
   }
   .live-summary > div:first-child {
     flex-wrap: wrap;
@@ -1786,10 +1765,6 @@
   }
   .live-summary[data-expanded="false"] .live-summary-details {
     display: none;
-  }
-  .maplibregl-ctrl-group button {
-    width: 44px;
-    height: 44px;
   }
 }
 
@@ -1824,33 +1799,135 @@
   white-space: normal;
   overflow-wrap: anywhere;
 }
-.chat-composer textarea {
-  scroll-margin-bottom: 24px;
+/* separate rules, because a browser without popover drops any selector list
+   containing :popover-open */
+.mobile-menu {
+  display: none;
+}
+.mobile-menu:popover-open {
+  display: none;
+}
+
+/* viewport-fit=cover applies at every width, so landscape phones need the
+   side and bottom insets too. env() is 0 where there's nothing to avoid */
+.app-layout {
+  padding-inline: env(safe-area-inset-left) env(safe-area-inset-right);
+}
+@media (min-width: 640px) {
+  .app-layout {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
 }
 
 @media (max-width: 639px) {
+  .app-layout {
+    height: min(100dvh, var(--visual-viewport-height, 100dvh));
+  }
   .app-header {
-    flex-shrink: 0;
+    flex: none;
+    flex-wrap: nowrap;
+    gap: 8px;
+    min-height: 58px;
+    padding: calc(6px + env(safe-area-inset-top)) 12px 6px;
+  }
+  .brand {
+    gap: 6px;
   }
   .brand > svg {
-    width: 32px;
-    height: 32px;
+    width: 28px;
+    height: 28px;
   }
-  .transport-modes {
-    height: 44px;
+  .brand-word {
+    font-size: 25px;
   }
   .transport-mode {
-    height: 38px;
-    min-width: 46px;
+    min-width: 44px;
+    padding-inline: 8px;
   }
-  .nav-link,
-  .btn,
-  .seg button,
-  .account-link {
+  .header-actions {
+    gap: 4px;
+  }
+  .desktop-nav,
+  .desktop-actions {
+    display: none;
+  }
+  .mobile-menu-toggle {
+    display: inline-flex;
+  }
+  .mobile-menu {
+    position: fixed;
+    inset: calc(62px + env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) auto auto;
+    gap: 4px;
+    width: min(248px, calc(100% - 24px));
+    max-height: calc(100dvh - 74px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    margin: 0;
+    padding: 8px;
+    overflow: auto;
+    overscroll-behavior: contain;
+    border: 1px solid var(--color-line);
+    border-radius: 12px;
+    background: var(--color-card);
+    box-shadow: var(--shadow-float);
+    color: var(--color-ink);
+  }
+  .mobile-menu:popover-open {
+    display: grid;
+  }
+  .mobile-menu.is-open {
+    display: grid;
+  }
+  .mobile-menu > :is(.utility-link, .btn, .account-link) {
+    justify-content: flex-start;
     min-height: 44px;
+    padding-inline: 12px;
   }
-  .icon-btn,
-  .utility-link {
+  .mobile-menu .account-link {
+    box-shadow: none;
+  }
+  .mobile-menu .header-account-name {
+    display: inline;
+  }
+  .mobile-nav {
+    display: grid;
+    flex: none;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    padding: 4px 6px calc(4px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--color-line);
+    background: var(--color-card);
+  }
+  .mobile-nav .nav-link {
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    height: auto;
+    min-height: 48px;
+    padding: 4px 0;
+    border-radius: 9px;
+    font-size: 11px;
+    line-height: 1.25;
+    text-align: center;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .mobile-nav .nav-link.is-active {
+    background: var(--color-brand-soft);
+    box-shadow: none;
+    color: var(--color-brand);
+  }
+  .mobile-nav[data-mode="bus"] .nav-link.is-active {
+    background: var(--color-bus-soft);
+    color: var(--color-bus-deep);
+  }
+  .mobile-nav .paid-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .icon-btn {
     width: 44px;
     height: 44px;
   }
@@ -1862,13 +1939,6 @@
     white-space: normal;
     line-height: 1.25;
   }
-  .header-actions {
-    gap: 4px;
-  }
-  .header-actions .btn {
-    padding-right: 10px;
-    padding-left: 10px;
-  }
   .seg {
     flex-wrap: wrap;
     overflow: visible;
@@ -1878,19 +1948,30 @@
     padding-right: 10px;
     padding-left: 10px;
   }
-  .control,
-  .search .control,
-  .chat-composer textarea {
-    min-height: 44px;
-    font-size: 16px;
+  input,
+  select,
+  textarea,
+  .control {
+    font-size: max(16px, 1rem);
   }
   .control {
-    max-width: 100%;
+    width: 100%;
     min-width: 0;
+    border-color: color-mix(in srgb, var(--color-muted) 78%, var(--color-card));
+  }
+  .control:focus {
+    border-color: var(--color-brand);
   }
   .page-inner {
-    padding-top: 24px;
-    padding-bottom: max(32px, env(safe-area-inset-bottom));
+    gap: 16px;
+    padding: 24px 14px 32px;
+  }
+  .page-inner > a,
+  .page-inner header a:not(.btn) {
+    display: inline-flex;
+    align-items: center;
+    align-self: flex-start;
+    min-height: 44px;
   }
   .page-title {
     font-size: 38px;
@@ -1963,18 +2044,39 @@
     width: 100%;
     min-width: 0;
   }
+  /* anchors the visually hidden thead. without it the thead is placed against
+     the viewport and stretches the document behind the app shell */
+  .responsive-table {
+    position: relative;
+  }
+  .responsive-table-frame {
+    max-height: none;
+    overflow: visible;
+  }
+  .responsive-table-frame:focus-visible {
+    outline-offset: -2px;
+  }
   .responsive-table thead {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .responsive-table a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
   }
   .responsive-table tbody tr {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px 16px;
-    padding: 16px;
+    gap: 8px 16px;
+    padding: 12px 16px;
     border-bottom: 1px solid var(--color-line);
   }
-  .responsive-table td,
-  .responsive-table td.num {
+  .responsive-table tbody td {
     display: block;
     min-width: 0;
     max-width: none;
@@ -1984,6 +2086,9 @@
     white-space: normal;
     overflow-wrap: anywhere;
   }
+  .responsive-table tr[data-tone] > :first-child {
+    box-shadow: none;
+  }
   .responsive-table td:first-child,
   .responsive-table td[colspan],
   .responsive-table td[data-label="Route"],
@@ -1992,6 +2097,7 @@
   }
   .responsive-table td[data-label]::before {
     content: attr(data-label);
+    content: attr(data-label) / "";
     display: block;
     margin-bottom: 4px;
     color: var(--color-muted);
@@ -2009,10 +2115,18 @@
   .responsive-table .bus-route-chip {
     flex-shrink: 0;
   }
-  .recharts-default-tooltip,
+  .recharts-responsive-container {
+    max-height: clamp(180px, 46dvh, 300px);
+  }
   .recharts-tooltip-wrapper {
-    max-width: calc(100vw - 64px);
-    white-space: normal;
+    max-width: calc(100vw - 70px);
+  }
+  .recharts-default-tooltip {
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+  }
+  .recharts-tooltip-item {
+    white-space: normal !important;
   }
 }
 
@@ -2048,7 +2162,7 @@
 .bus-map-frame:has(> .sheet) .maplibregl-ctrl-top-right {
   right: 430px;
 }
-@media (max-width: 639px) {
+@media (max-width: 900px) {
   .bus-map-frame:has(> .sheet) .maplibregl-ctrl-top-right {
     right: 6px;
   }
@@ -2096,7 +2210,7 @@
 }
 .help-dialog {
   width: min(540px, calc(100vw - 24px));
-  max-height: calc(100dvh - 32px);
+  max-height: calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   margin: auto;
   padding: 0;
   border: 1px solid var(--color-line-strong);
@@ -2126,27 +2240,27 @@
   max-height: 100%;
   overflow-y: auto;
 }
-.rail-selector {
+.map-selector {
   margin-top: 16px;
   border-top: 1px solid var(--color-line);
   padding-top: 10px;
 }
-.rail-selector summary {
+.map-selector summary {
   padding: 8px 0;
   cursor: pointer;
   font-weight: 600;
 }
-.rail-selector .seg,
-.rail-selector .search {
+.map-selector .seg,
+.map-selector .search {
   width: 100%;
   margin: 6px 0;
 }
-.rail-selector-list {
+.map-selector-list {
   max-height: 180px;
   overflow-y: auto;
   padding: 3px;
 }
-.rail-option {
+.map-option {
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -2160,13 +2274,12 @@
   text-align: left;
   cursor: pointer;
 }
-.rail-option:hover,
-.rail-option[aria-pressed="true"] {
+.map-option[aria-pressed="true"] {
   background: var(--color-brand-soft);
   border-color: var(--color-brand);
 }
-.rail-option span,
-.rail-option small {
+.map-option span,
+.map-option small {
   font-size: 13px;
   overflow-wrap: anywhere;
 }
@@ -2243,14 +2356,6 @@
     height: 44px;
   }
 }
-@media (max-width: 640px) {
-  .header-actions {
-    flex-wrap: wrap;
-  }
-  .app-header {
-    flex: none;
-  }
-}
 @media (max-width: 900px) {
   .map-shell {
     height: 100%;
@@ -2269,11 +2374,13 @@
     width: 100%;
     max-height: none;
   }
-  .map-shell > .relative,
+  .map-shell > .train-map,
   .map-shell > .bus-map-frame {
-    height: 300px;
-    min-height: 300px;
-    flex: none;
+    height: auto;
+    flex: 1 0 clamp(300px, 57dvh, 520px);
+  }
+  .map-shell.has-sheet .maplibregl-ctrl-top-right {
+    right: 6px;
   }
   .map-shell .sheet {
     position: relative;
@@ -2283,18 +2390,39 @@
     margin: 12px;
     flex: none;
   }
-  .rail-selector-list {
+  .map-selector summary {
+    display: list-item;
+    min-height: 44px;
+    padding-block: 12px;
+  }
+  .map-selector-list {
     max-height: 220px;
   }
   .sheet-body {
     overflow: visible;
   }
 }
-@media (max-width: 440px) {
-  .header-actions {
-    width: 100%;
-    margin-left: 0;
-    justify-content: flex-start;
+@media (max-width: 340px) {
+  .brand-copy {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .map-shell > .bus-map-frame:has(> .sheet) {
+    height: auto;
+    flex: none;
+    display: flex;
+    flex-direction: column;
+  }
+  .map-shell > .bus-map-frame:has(> .sheet) .bus-map-canvas {
+    position: relative;
+    height: clamp(300px, 57dvh, 520px);
+    flex: none;
+  }
+  .map-shell > .bus-map-frame > .sheet {
+    position: static;
+    max-height: none;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -2326,4 +2454,26 @@
 
 .sheet .bg-brand-soft .code {
   color: var(--color-ink-2);
+}
+
+@media (hover: hover) {
+  .map-option:hover {
+    background: var(--color-brand-soft);
+    border-color: var(--color-brand);
+  }
+}
+
+@media (pointer: coarse) {
+  :is(.nav-link, .transport-mode, .utility-link, .icon-btn, .seg button, .map-option):active {
+    filter: brightness(0.88);
+  }
+}
+
+.maplibregl-ctrl-group button:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: -3px;
+}
+
+.live-summary-count {
+  font-variant-numeric: tabular-nums;
 }

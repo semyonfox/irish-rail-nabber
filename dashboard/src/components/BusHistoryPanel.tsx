@@ -43,7 +43,7 @@ const dayFormat = new Intl.DateTimeFormat("en-IE", {
 });
 
 function minutes(seconds: number | null) {
-  return seconds === null ? "—" : `${(seconds / 60).toFixed(1)}m`;
+  return seconds === null ? "—" : `${(seconds / 60).toFixed(1)} min`;
 }
 
 export default function BusHistoryPanel({
@@ -152,18 +152,18 @@ export default function BusHistoryPanel({
               ]}
             />
             <ResponsiveContainer width="100%" height={280}>
-              <LineChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+              <LineChart data={chartData} margin={{ top: 10, right: 38, left: 0, bottom: 0 }}>
                 <CartesianGrid stroke={CHART.grid} vertical={false} />
                 <XAxis
                   dataKey="time"
                   type="number"
                   domain={["dataMin", "dataMax"]}
                   stroke={CHART.axis}
-                  fontSize={11}
+                  fontSize={12}
                   tickFormatter={(value: number) => format.format(value)}
                   minTickGap={70}
                 />
-                <YAxis unit="m" stroke={CHART.axis} fontSize={12} />
+                <YAxis unit="m" stroke={CHART.axis} fontSize={12} width={48} />
                 <Tooltip
                   contentStyle={CHART_TOOLTIP_STYLE}
                   labelFormatter={(value) => format.format(Number(value))}
@@ -190,31 +190,67 @@ export default function BusHistoryPanel({
       </Card>
       {points.length > 0 && (
         <Card title={daily ? "History by day" : "History by hour"} description="Newest first">
-          <div className="max-h-96 overflow-auto">
-            <table className="data-table min-w-[660px]">
-              <thead>
-                <tr>
-                  <th>{daily ? "Day" : "Hour"}</th>
-                  <th className="num">Average</th>
-                  <th className="num">P95</th>
-                  <th className="num">Maximum</th>
-                  <th className="num">Within target</th>
-                  <th className="num">Early</th>
-                  <th className="num">Late</th>
-                  <th className="num">Observations</th>
+          <div className="responsive-table-frame max-h-96 overflow-auto">
+            <table role="table" className="data-table responsive-table min-w-[660px]">
+              <thead role="rowgroup">
+                <tr role="row">
+                  <th role="columnheader" scope="col">
+                    {daily ? "Day" : "Hour"}
+                  </th>
+                  <th role="columnheader" scope="col" className="num">
+                    Average
+                  </th>
+                  <th role="columnheader" scope="col" className="num">
+                    P95
+                  </th>
+                  <th role="columnheader" scope="col" className="num">
+                    Maximum
+                  </th>
+                  <th role="columnheader" scope="col" className="num">
+                    Within target
+                  </th>
+                  <th role="columnheader" scope="col" className="num">
+                    Early
+                  </th>
+                  <th role="columnheader" scope="col" className="num">
+                    Late
+                  </th>
+                  <th role="columnheader" scope="col" className="num">
+                    Observations
+                  </th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody role="rowgroup">
                 {points.toReversed().map((point) => (
-                  <tr key={point.bucket}>
-                    <td className="whitespace-nowrap">{format.format(Date.parse(point.bucket))}</td>
-                    <td className="num">{minutes(point.avgDelaySeconds)}</td>
-                    <td className="num">{minutes(point.p95DelaySeconds)}</td>
-                    <td className="num">{minutes(point.maxDelaySeconds)}</td>
-                    <td className="num">{point.onTimePct.toFixed(1)}%</td>
-                    <td className="num">{point.earlyCount.toLocaleString()}</td>
-                    <td className="num">{point.lateCount.toLocaleString()}</td>
-                    <td className="num">{point.sampleCount.toLocaleString()}</td>
+                  <tr role="row" key={point.bucket}>
+                    <td
+                      role="cell"
+                      data-label={daily ? "Day" : "Hour"}
+                      className="whitespace-nowrap"
+                    >
+                      {format.format(Date.parse(point.bucket))}
+                    </td>
+                    <td role="cell" data-label="Average" className="num">
+                      {minutes(point.avgDelaySeconds)}
+                    </td>
+                    <td role="cell" data-label="P95" className="num">
+                      {minutes(point.p95DelaySeconds)}
+                    </td>
+                    <td role="cell" data-label="Maximum" className="num">
+                      {minutes(point.maxDelaySeconds)}
+                    </td>
+                    <td role="cell" data-label="Within target" className="num">
+                      {point.onTimePct.toFixed(1)}%
+                    </td>
+                    <td role="cell" data-label="Early" className="num">
+                      {point.earlyCount.toLocaleString()}
+                    </td>
+                    <td role="cell" data-label="Late" className="num">
+                      {point.lateCount.toLocaleString()}
+                    </td>
+                    <td role="cell" data-label="Observations" className="num">
+                      {point.sampleCount.toLocaleString()}
+                    </td>
                   </tr>
                 ))}
               </tbody>

@@ -73,20 +73,28 @@ export default function BusJourneysPanel({
         />
       )}
       {journeys.length > 0 ? (
-        <div className="max-h-96 overflow-auto">
-          <table className="data-table min-w-[580px]">
-            <thead>
-              <tr>
-                <th>Journey</th>
-                <th>First observed</th>
-                <th>Last observed</th>
-                <th className="num">Stops</th>
+        <div className="responsive-table-frame max-h-96 overflow-auto">
+          <table role="table" className="data-table responsive-table min-w-[580px]">
+            <thead role="rowgroup">
+              <tr role="row">
+                <th role="columnheader" scope="col">
+                  Journey
+                </th>
+                <th role="columnheader" scope="col">
+                  First observed
+                </th>
+                <th role="columnheader" scope="col">
+                  Last observed
+                </th>
+                <th role="columnheader" scope="col" className="num">
+                  Stops
+                </th>
               </tr>
             </thead>
-            <tbody>
+            <tbody role="rowgroup">
               {journeys.map((journey) => (
-                <tr key={journey.tripInstanceKey}>
-                  <td>
+                <tr role="row" key={journey.tripInstanceKey}>
+                  <td role="cell">
                     <Link
                       className="cell-main block underline"
                       to={busJourneyPath(feedVersionId, routeId, journey.tripInstanceKey)}
@@ -95,13 +103,15 @@ export default function BusJourneysPanel({
                     </Link>
                     <small className="block text-muted">{journey.tripId}</small>
                   </td>
-                  <td className="whitespace-nowrap">
+                  <td role="cell" data-label="First observed" className="whitespace-nowrap">
                     {time.format(Date.parse(journey.firstObserved))}
                   </td>
-                  <td className="whitespace-nowrap">
+                  <td role="cell" data-label="Last observed" className="whitespace-nowrap">
                     {time.format(Date.parse(journey.lastObserved))}
                   </td>
-                  <td className="num">{journey.stopCount}</td>
+                  <td role="cell" data-label="Stops" className="num">
+                    {journey.stopCount}
+                  </td>
                 </tr>
               ))}
             </tbody>

@@ -65,6 +65,8 @@ function lineFeature(
   };
 }
 
+const motionMs = () => (window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 250);
+
 export default function BusVehicleMap({
   vehicles,
   routeShapes,
@@ -73,6 +75,8 @@ export default function BusVehicleMap({
   shapesFetching,
   shapeMode,
   shapeFocusKey,
+  selectedKey,
+  onSelect,
 }: {
   vehicles: BusVehicle[];
   routeShapes: BusRouteShape[];
@@ -81,15 +85,17 @@ export default function BusVehicleMap({
   shapesFetching: boolean;
   shapeMode: "live" | "scheduled";
   shapeFocusKey: string;
+  selectedKey: string | null;
+  onSelect: (key: string | null) => void;
 }) {
   const { theme } = useTheme();
   const palette = transitMapPalette(theme);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const previousVehiclesRef = useRef(new Map<string, BusVehicle>());
   const lastFitKeyRef = useRef<string | null>(null);
+  const followedKeyRef = useRef<string | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
   const selectedVehicle = useMemo(
     () => vehicles.find((vehicle) => busVehicleKey(vehicle) === selectedKey) ?? null,
@@ -279,7 +285,8 @@ export default function BusVehicleMap({
 
     setSourceData(mapRef.current, ROUTE_SOURCE_ID, featureCollection(features));
 
-    if (vehicles.length > 0 || features.length === 0) return;
+    // a selected bus owns the camera, so feed dropouts don't refit around it
+    if (vehicles.length > 0 || features.length === 0 || selectedKey) return;
     const shapeSignature = routeShapes.map((shape) => shape.shapeId).join(",");
     const fitKey = `${shapeMode}:${shapeFocusKey}:${shapeSignature}`;
     if (lastFitKeyRef.current === fitKey) return;
@@ -289,11 +296,12 @@ export default function BusVehicleMap({
     lastFitKeyRef.current = fitKey;
     const bounds = new maplibregl.LngLatBounds(coordinates[0], coordinates[0]);
     for (const coordinate of coordinates.slice(1)) bounds.extend(coordinate);
-    mapRef.current.fitBounds(bounds, { padding: 48, maxZoom: 11, duration: 500 });
+    mapRef.current.fitBounds(bounds, { padding: 48, maxZoom: 11, duration: motionMs() });
   }, [
     mapReady,
     palette.bus,
     routeShapes,
+    selectedKey,
     selectedVehicle?.routeId,
     shapeFocusKey,
     shapeMode,
@@ -306,7 +314,7 @@ export default function BusVehicleMap({
 
     const selectVehicle = (event: maplibregl.MapLayerMouseEvent) => {
       const key = event.features?.[0]?.properties?.vehicleKey;
-      if (typeof key === "string") setSelectedKey(key);
+      if (typeof key === "string") onSelect(key);
     };
     const enter = () => {
       map.getCanvas().style.cursor = "pointer";
@@ -323,7 +331,7 @@ export default function BusVehicleMap({
       map.off("mouseenter", VEHICLE_LAYER_ID, enter);
       map.off("mouseleave", VEHICLE_LAYER_ID, leave);
     };
-  }, [mapReady]);
+  }, [mapReady, onSelect]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
@@ -369,13 +377,13 @@ export default function BusVehicleMap({
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
 
-    if (vehicles.length === 0 || lastFitKeyRef.current === "vehicles") return;
+    if (vehicles.length === 0 || lastFitKeyRef.current === "vehicles" || selectedKey) return;
     lastFitKeyRef.current = "vehicles";
     if (vehicles.length === 1) {
       mapRef.current.easeTo({
         center: [vehicles[0].longitude, vehicles[0].latitude],
         zoom: 10,
-        duration: 500,
+        duration: motionMs(),
       });
       return;
     }
@@ -387,8 +395,40 @@ export default function BusVehicleMap({
     for (const vehicle of vehicles.slice(1)) {
       bounds.extend([vehicle.longitude, vehicle.latitude]);
     }
-    mapRef.current.fitBounds(bounds, { padding: 48, maxZoom: 10, duration: 500 });
+    mapRef.current.fitBounds(bounds, { padding: 48, maxZoom: 10, duration: motionMs() });
   }, [mapReady, selectedKey, vehicles]);
+
+  // a bus picked from the list can be off screen, so bring it into view once
+  // per selection. polls move it later but shouldn't drag the camera along
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!selectedKey) {
+      followedKeyRef.current = null;
+      return;
+    }
+    if (!mapReady || !map || !selectedVehicle || followedKeyRef.current === selectedKey) return;
+    followedKeyRef.current = selectedKey;
+    const position: [number, number] = [selectedVehicle.longitude, selectedVehicle.latitude];
+    // above 900px the summary card overlays the left of the map and the
+    // details sheet the right, so only the strip between them counts
+    const wide = window.matchMedia("(min-width: 901px)").matches;
+    const left = wide ? 340 : 0;
+    const right = wide ? 440 : 0;
+    const container = map.getContainer();
+    const point = map.project(position);
+    const visible =
+      point.x >= left &&
+      point.y >= 0 &&
+      point.x <= container.clientWidth - right &&
+      point.y <= container.clientHeight;
+    if (visible) return;
+    map.easeTo({
+      center: position,
+      offset: [(left - right) / 2, 0],
+      zoom: Math.max(map.getZoom(), 11),
+      duration: motionMs(),
+    });
+  }, [mapReady, selectedKey, selectedVehicle]);
 
   const speed = selectedVehicle ? speedKmh(selectedVehicle.speedMetersPerSecond) : null;
   const status = selectedVehicle ? humanizeGtfsValue(selectedVehicle.currentStatus) : null;
@@ -424,7 +464,7 @@ export default function BusVehicleMap({
       {selectedVehicle ? (
         <Sheet
           label="bus details"
-          onClose={() => setSelectedKey(null)}
+          onClose={() => onSelect(null)}
           eyebrow={
             <>
               <span className="bus-route-chip">{busVehicleRoute(selectedVehicle)}</span>Bus

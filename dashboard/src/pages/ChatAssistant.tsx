@@ -60,7 +60,7 @@ export default function ChatAssistant() {
   const canSend = !loading && !authLoading && input.trim().length > 0 && canUseChat;
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages, loading]);
 
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
@@ -147,7 +147,7 @@ export default function ChatAssistant() {
   return (
     <div className="flex h-full flex-col">
       <div ref={scrollRef} className="page min-h-0 flex-1">
-        <div className="mx-auto flex max-w-3xl flex-col gap-7 px-4 py-10">
+        <div className="mx-auto flex max-w-3xl flex-col gap-5 px-4 py-6 sm:gap-7 sm:py-10">
           <header className="rise">
             <p className="eyebrow">Assistant</p>
             <h1 className="page-title">
@@ -175,62 +175,70 @@ export default function ChatAssistant() {
             </div>
           ) : null}
 
-          {messages.map((message) =>
-            message.role === "user" ? (
-              <div
-                key={message.id}
-                className="max-w-[85%] self-end whitespace-pre-wrap break-words rounded-[20px] rounded-br-md bg-ink px-4 py-3 text-[15px] text-[var(--color-on-ink)]"
-              >
-                {message.text}
-              </div>
-            ) : (
-              <div key={message.id} className="flex gap-3">
-                <BrandMark className="h-8 w-8 shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 text-[13px] font-semibold">
-                    Rail assistant
-                    {message.model ? (
-                      <span className="code font-normal">{message.model}</span>
+          <div
+            role="log"
+            aria-label="Conversation"
+            className="flex min-w-0 flex-col gap-5 empty:hidden"
+          >
+            {messages.map((message) =>
+              message.role === "user" ? (
+                <div
+                  key={message.id}
+                  className="max-w-[85%] self-end whitespace-pre-wrap break-words rounded-[20px] rounded-br-md bg-ink px-4 py-3 text-[15px] text-[var(--color-on-ink)]"
+                >
+                  {message.text}
+                </div>
+              ) : (
+                <div key={message.id} className="flex gap-3">
+                  <BrandMark className="h-8 w-8 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2 text-[13px] font-semibold [overflow-wrap:anywhere]">
+                      Rail assistant
+                      {message.model ? (
+                        <span className="code font-normal">{message.model}</span>
+                      ) : null}
+                    </div>
+                    <div
+                      className={`mt-1 whitespace-pre-wrap break-words text-[15px] leading-relaxed ${
+                        message.error ? "tone-block px-4 py-3" : "text-ink"
+                      }`}
+                      data-tone={message.error ? "bad" : undefined}
+                    >
+                      {message.text}
+                    </div>
+                    {message.tools && message.tools.length > 0 ? (
+                      <details className="mt-3 rounded-xl border border-line bg-card">
+                        <summary className="min-h-11 cursor-pointer px-3 py-2 text-[13px] font-semibold text-ink-2">
+                          Looked up {message.tools.length}{" "}
+                          {message.tools.length === 1 ? "source" : "sources"}
+                        </summary>
+                        <div className="space-y-2 border-t border-line p-3">
+                          {message.tools.map((tool) => (
+                            <div key={`${message.id}-${tool.name}`}>
+                              <div className="flex flex-wrap items-center gap-2 text-[13px]">
+                                <span className="chip max-w-full whitespace-normal [overflow-wrap:anywhere]">
+                                  {tool.name}
+                                </span>
+                                <span className="text-muted">
+                                  {tool.rows} rows{tool.truncated ? ", truncated" : ""}
+                                </span>
+                              </div>
+                              <p className="code mt-1 break-words">
+                                {formatToolArgs(tool.arguments)}
+                              </p>
+                              <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-wash p-2 font-mono text-[12px] text-ink-2">
+                                {tool.result}
+                              </pre>
+                            </div>
+                          ))}
+                        </div>
+                      </details>
                     ) : null}
                   </div>
-                  <div
-                    className={`mt-1 whitespace-pre-wrap break-words text-[15px] leading-relaxed ${
-                      message.error ? "tone-block px-4 py-3" : "text-ink"
-                    }`}
-                    data-tone={message.error ? "bad" : undefined}
-                  >
-                    {message.text}
-                  </div>
-                  {message.tools && message.tools.length > 0 ? (
-                    <details className="mt-3 rounded-xl border border-line bg-card">
-                      <summary className="cursor-pointer px-3 py-2 text-[13px] font-semibold text-ink-2">
-                        Looked up {message.tools.length}{" "}
-                        {message.tools.length === 1 ? "source" : "sources"}
-                      </summary>
-                      <div className="space-y-2 border-t border-line p-3">
-                        {message.tools.map((tool) => (
-                          <div key={`${message.id}-${tool.name}`}>
-                            <div className="flex flex-wrap items-center gap-2 text-[13px]">
-                              <span className="chip">{tool.name}</span>
-                              <span className="text-muted">
-                                {tool.rows} rows{tool.truncated ? ", truncated" : ""}
-                              </span>
-                            </div>
-                            <p className="code mt-1 break-words">
-                              {formatToolArgs(tool.arguments)}
-                            </p>
-                            <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-wash p-2 font-mono text-[12px] text-ink-2">
-                              {tool.result}
-                            </pre>
-                          </div>
-                        ))}
-                      </div>
-                    </details>
-                  ) : null}
                 </div>
-              </div>
-            ),
-          )}
+              ),
+            )}
+          </div>
 
           {loading ? (
             <div className="flex items-center gap-3" aria-live="polite">
@@ -245,8 +253,8 @@ export default function ChatAssistant() {
         </div>
       </div>
 
-      <div className="border-t border-line bg-paper/90 backdrop-blur">
-        <form ref={formRef} onSubmit={sendMessage} className="mx-auto max-w-3xl px-4 py-4">
+      <div className="shrink-0 border-t border-line bg-paper/90 backdrop-blur">
+        <form ref={formRef} onSubmit={sendMessage} className="mx-auto max-w-3xl px-4 py-2 sm:py-4">
           <label htmlFor="chat-input" className="sr-only">
             Ask a question
           </label>
@@ -257,14 +265,15 @@ export default function ChatAssistant() {
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={onComposerKey}
               rows={2}
+              enterKeyHint="send"
               placeholder="How late is the 10:10 from Heuston?"
-              className="min-h-12 min-w-0 flex-1 resize-none bg-transparent px-2 py-1.5 text-[15px] outline-none placeholder:text-[var(--placeholder)]"
+              className="min-h-12 min-w-0 flex-1 resize-none bg-transparent px-2 py-1.5 text-base sm:text-[15px] placeholder:text-[var(--placeholder)]"
               disabled={loading}
             />
             <button
               type="submit"
               disabled={!canSend}
-              className="btn btn-primary h-10 w-10 shrink-0 rounded-full p-0"
+              className="btn btn-primary size-11 shrink-0 rounded-full p-0 sm:size-10"
               aria-label="Send question"
             >
               <Icon name="up" />

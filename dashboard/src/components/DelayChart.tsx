@@ -110,6 +110,7 @@ export default function DelayChart({ stationCode, hours = 24 }: Props) {
             cursor={{ stroke: CHART.axis, strokeWidth: 1 }}
           />
           <Line
+            animationDuration={250}
             type="monotone"
             dataKey="avgDelay"
             stroke={CHART.series1}
@@ -119,6 +120,7 @@ export default function DelayChart({ stationCode, hours = 24 }: Props) {
             name="Weighted average"
           />
           <Line
+            animationDuration={250}
             type="monotone"
             dataKey="maxDelay"
             stroke={CHART.series2}
@@ -136,7 +138,7 @@ export default function DelayChart({ stationCode, hours = 24 }: Props) {
           syncId="delay-load"
           margin={{ top: 4, right: 8, left: AXIS_WIDTH, bottom: 0 }}
         >
-          <XAxis dataKey="label" {...axisProps} fontSize={11} minTickGap={16} />
+          <XAxis dataKey="label" {...axisProps} fontSize={12} minTickGap={16} />
           <YAxis hide />
           <Tooltip
             labelFormatter={tooltipLabel}
@@ -145,6 +147,7 @@ export default function DelayChart({ stationCode, hours = 24 }: Props) {
             cursor={{ fill: "var(--chart-cursor)" }}
           />
           <Bar
+            animationDuration={250}
             dataKey="events"
             name="Observations"
             fill={CHART.volume}

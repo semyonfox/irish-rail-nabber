@@ -62,22 +62,34 @@ export default function BusStopRankings() {
         />
       )}
       {stops.length > 0 ? (
-        <div className="max-h-[36rem] overflow-auto">
-          <table className="data-table min-w-[680px]">
-            <thead>
-              <tr>
-                <th>Stop</th>
-                <th className="num">Average</th>
-                <th className="num">P95</th>
-                <th className="num">Maximum</th>
-                <th className="num">Within target</th>
-                <th className="num">Observations</th>
+        <div className="responsive-table-frame max-h-[36rem] overflow-auto">
+          <table role="table" className="data-table responsive-table min-w-[680px]">
+            <thead role="rowgroup">
+              <tr role="row">
+                <th role="columnheader" scope="col">
+                  Stop
+                </th>
+                <th role="columnheader" scope="col" className="num">
+                  Average
+                </th>
+                <th role="columnheader" scope="col" className="num">
+                  P95
+                </th>
+                <th role="columnheader" scope="col" className="num">
+                  Maximum
+                </th>
+                <th role="columnheader" scope="col" className="num">
+                  Within target
+                </th>
+                <th role="columnheader" scope="col" className="num">
+                  Observations
+                </th>
               </tr>
             </thead>
-            <tbody>
+            <tbody role="rowgroup">
               {stops.map((stop) => (
-                <tr key={`${stop.feedVersionId}:${stop.stopId}`}>
-                  <td>
+                <tr role="row" key={`${stop.feedVersionId}:${stop.stopId}`}>
+                  <td role="cell">
                     <Link
                       className="cell-main block underline"
                       to={busStopPath(stop.feedVersionId, stop.stopId)}
@@ -86,11 +98,21 @@ export default function BusStopRankings() {
                     </Link>
                     <small className="block text-muted">{stop.stopId}</small>
                   </td>
-                  <td className="num">{(stop.avgDelaySeconds / 60).toFixed(1)}m</td>
-                  <td className="num">{(stop.p95DelaySeconds / 60).toFixed(1)}m</td>
-                  <td className="num">{(stop.maxDelaySeconds / 60).toFixed(1)}m</td>
-                  <td className="num">{stop.onTimePct.toFixed(1)}%</td>
-                  <td className="num">{stop.sampleCount.toLocaleString()}</td>
+                  <td role="cell" data-label="Average" className="num">
+                    {(stop.avgDelaySeconds / 60).toFixed(1)}m
+                  </td>
+                  <td role="cell" data-label="P95" className="num">
+                    {(stop.p95DelaySeconds / 60).toFixed(1)}m
+                  </td>
+                  <td role="cell" data-label="Maximum" className="num">
+                    {(stop.maxDelaySeconds / 60).toFixed(1)}m
+                  </td>
+                  <td role="cell" data-label="Within target" className="num">
+                    {stop.onTimePct.toFixed(1)}%
+                  </td>
+                  <td role="cell" data-label="Observations" className="num">
+                    {stop.sampleCount.toLocaleString()}
+                  </td>
                 </tr>
               ))}
             </tbody>

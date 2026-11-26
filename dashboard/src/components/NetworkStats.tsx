@@ -37,8 +37,10 @@ export default function NetworkStats({
       status={status}
       live={live}
       count={known ? trains.length : "--"}
-      caption="services in live feed"
-      detail={known ? `${mapped.length}/${trains.length} on map` : "Map positions unavailable"}
+      caption={trains.length === 1 ? "train running" : "trains running"}
+      detail={
+        known ? `${mapped.length} of ${trains.length} on the map` : "Map positions unavailable"
+      }
       stats={[
         {
           label: "Late",
