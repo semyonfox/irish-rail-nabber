@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "Traein",
+    "slug": "traein",
+    "scheme": "traein",
+    "version": "0.1.0",
+    "userInterfaceStyle": "automatic",
+    "runtimeVersion": { "policy": "fingerprint" },
+    "updates": {
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    },
+    "ios": { "bundleIdentifier": "ie.semyon.traein" },
+    "android": { "package": "ie.semyon.traein" },
+    "plugins": ["expo-router", "expo-secure-store"],
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    }
+  }
+}
