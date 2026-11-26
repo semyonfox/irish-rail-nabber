@@ -2,6 +2,7 @@ pub mod analytics;
 pub(crate) mod bounds;
 pub mod bus;
 pub mod bus_history;
+pub mod bus_live;
 pub mod bus_published;
 mod insights;
 pub mod station;
@@ -15,6 +16,7 @@ use crate::state::QueryCache;
 use analytics::AnalyticsQuery;
 use bus::BusQuery;
 use bus_history::BusHistoryQuery;
+use bus_live::BusLiveQuery;
 use bus_published::BusPublishedQuery;
 use insights::InsightsQuery;
 use station::StationQuery;
@@ -38,6 +40,7 @@ pub struct Query(
     AnalyticsQuery,
     BusQuery,
     BusHistoryQuery,
+    BusLiveQuery,
     BusPublishedQuery,
     InsightsQuery,
 );

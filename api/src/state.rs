@@ -3,9 +3,11 @@ use std::{sync::Arc, time::Duration};
 use moka::future::Cache;
 use sqlx::PgPool;
 
+use crate::geometry::LatLon;
 use crate::schema::bus_history::{
     BusHistoryPoint, BusJourney, BusRoute, BusRouteStopDelay, BusStopStats,
 };
+use crate::schema::bus_live::{BusBunch, BusServiceNotice, ShapeKey};
 use crate::schema::bus_published::{BusPublishedDataset, BusPublishedPage};
 use crate::schema::types::{
     BusDeparture, BusRealtimeStatus, BusRouteDelay, BusRouteShape, BusStop, BusVehicle,
@@ -33,6 +35,9 @@ pub struct QueryCache {
     pub bus_vehicles: Cache<String, Arc<Vec<BusVehicle>>>,
     pub bus_live_route_shapes: Cache<i32, Arc<Vec<BusRouteShape>>>,
     pub bus_scheduled_route_shapes: Cache<String, Arc<Vec<BusRouteShape>>>,
+    pub bus_shape_geometry: Cache<ShapeKey, Arc<Vec<LatLon>>>,
+    pub bus_bunching: Cache<(), Arc<Vec<BusBunch>>>,
+    pub bus_service_notices: Cache<(), Arc<Vec<BusServiceNotice>>>,
     pub bus_realtime_status: Cache<(), Arc<BusRealtimeStatus>>,
 }
 
@@ -58,6 +63,11 @@ impl QueryCache {
             bus_vehicles: cache(Duration::from_secs(30), 128),
             bus_live_route_shapes: cache(Duration::from_secs(30), 8),
             bus_scheduled_route_shapes: cache(Duration::from_secs(900), 256),
+            // shapes are fixed per feed version, so this only bounds memory
+            // across a feed change. a day covers every shape a day's buses use
+            bus_shape_geometry: cache(Duration::from_secs(86_400), 20_000),
+            bus_bunching: cache(Duration::from_secs(30), 1),
+            bus_service_notices: cache(Duration::from_secs(60), 1),
             bus_realtime_status: cache(Duration::from_secs(15), 1),
         }
     }

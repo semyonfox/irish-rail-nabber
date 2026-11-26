@@ -3,6 +3,7 @@ import { describe, expect, test } from "vite-plus/test";
 import {
   busShapeCoordinates,
   busShapeRouteLabel,
+  decodePolyline,
   gtfsRouteColor,
   type BusRouteShape,
 } from "./busShapes";
@@ -12,11 +13,8 @@ const shape: BusRouteShape = {
   routeShortName: " 404 ",
   shapeId: "outbound",
   routeColor: "0B6B4D",
-  points: [
-    { latitude: 53.2, longitude: -8.8, sequence: 8 },
-    { latitude: 53.0, longitude: -9.0, sequence: 0 },
-    { latitude: Number.NaN, longitude: -8.9, sequence: 4 },
-  ],
+  // the worked example from Google's polyline algorithm docs, as the API encodes it
+  polyline: "_p~iF~ps|U_ulLnnqC_mqNvxq`@",
 };
 
 describe("bus route shape display values", () => {
@@ -26,11 +24,17 @@ describe("bus route shape display values", () => {
     expect(gtfsRouteColor("javascript:red", "#d88a05")).toBe("#d88a05");
   });
 
-  test("orders coordinates by GTFS sequence and drops invalid points", () => {
+  test("decodes the API polyline into map coordinates", () => {
     expect(busShapeCoordinates(shape)).toEqual([
-      [-9.0, 53.0],
-      [-8.8, 53.2],
+      [-120.2, 38.5],
+      [-120.95, 40.7],
+      [-126.453, 43.252],
     ]);
+  });
+
+  test("keeps the valid prefix of a truncated or corrupt polyline", () => {
+    expect(decodePolyline("_p~iF~ps|U_ulL")).toEqual([[-120.2, 38.5]]);
+    expect(decodePolyline("_p~iF~ps|U\u0000\u0000")).toEqual([[-120.2, 38.5]]);
   });
 
   test("uses the public route name before the feed's internal id", () => {

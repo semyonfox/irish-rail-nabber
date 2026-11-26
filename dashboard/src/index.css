@@ -2283,6 +2283,56 @@
   font-size: 13px;
   overflow-wrap: anywhere;
 }
+.map-option:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.bus-notice-list {
+  display: grid;
+  gap: 12px;
+  max-height: 240px;
+  margin: 6px 0 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.sheet .bus-notice-list {
+  max-height: none;
+}
+.bus-notice-list li,
+.bus-notice-list summary {
+  display: grid;
+  gap: 2px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.bus-notice-list summary {
+  cursor: pointer;
+  list-style: none;
+}
+.bus-notice-list summary::-webkit-details-marker {
+  display: none;
+}
+.bus-notice-list details[open] summary strong {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.bus-notice-list small {
+  display: block;
+  margin-top: 4px;
+  color: var(--color-muted);
+}
+.bus-notice-list p {
+  margin: 2px 0 0;
+  color: var(--color-ink-2);
+}
+.bus-bunched-note {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--color-warn-soft);
+  color: var(--color-warn);
+  font-size: 13px;
+}
 .station-board-link {
   min-height: 44px;
   padding: 4px 0;

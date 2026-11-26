@@ -142,6 +142,8 @@ busRouteDelays(hours: Int = 24, limit: Int = 30)
 busVehicles(routeId: String, limit: Int = 2000)
 busLiveRouteShapes(limit: Int = 100)
 busScheduledRouteShapes(stopId: String, limit: Int = 24)
+busBunching
+busServiceNotices
 busDelayHistory(routeId: String, stopId: String, feedVersionId: Int, hours: Int = 24, resolution: BusHistoryResolution = HOUR)
 busRoutes(search: String, routeId: String, feedVersionId: Int, limit: Int = 60)
 busStopStats(hours: Int = 24, search: String, feedVersionId: Int, stopId: String, limit: Int = 100)
@@ -171,7 +173,11 @@ Stops, boards, current vehicles, scheduled route shapes and up to 72 hours of
 route-delay history are public. Coffee, Pro and admin accounts may query up to
 seven days through the route-delay API.
 
-`busLiveRouteShapes` only considers trips with a vehicle seen in the last five minutes. It returns at most 100 shapes and samples each to at most 500 ordered points. It stays empty until realtime collection succeeds.
+`busLiveRouteShapes` returns one line per shape used by a bus seen in the last five minutes, busiest first, up to 2,000. It stays empty until realtime collection succeeds. Each shape is simplified once per feed version to within 8 m (about a tenth of the original points) and kept in the API's memory for a day. A cold start reads about 700,000 points once, and later requests only read shapes not seen before. The dashboard asks for every live shape through the `polyline` field, a Google encoded polyline at five decimal places. In November 2026 that was 542 shapes in about 390 KB (230 KB gzipped), against 5.8 MB for the same shapes as `points`. `points` stays for existing API users.
+
+`busBunching` lists buses on the same shape and direction running within 400 m of each other although their trips start at least six minutes apart. Each bus is placed along its own simplified shape. It must be within 150 m of the line and more than 600 m from either end, so terminus layovers don't count. Both positions must be reported within 90 seconds of each other. Buses keep reporting a finished trip while they lay over or return to the depot, so only trips the timetable has running now count, allowing up to 45 minutes late. Neighbouring bunched buses are merged into one group, and `tripIds` matches `BusVehicle.tripId`. NTA stop predictions only cover about five stops per trip, which is too sparse to measure gaps at stops, so this uses positions.
+
+`busServiceNotices` returns NTA notices seen in the last 25 minutes whose active period covers now. The alerts feed also carries Irish Rail and Luas notices, so a notice must name a bus route, stop or agency from its feed version, and must not name any agency outside it.
 
 `busScheduledRouteShapes` does not depend on realtime. Without `stopId`, it returns representative directions from the most frequently scheduled routes in the active feed. With `stopId`, it returns representative directions for routes serving that stop. The API returns at most 40 shapes, samples each to at most 300 points, and keeps one common shape per route and direction. The dashboard requests 24. This gives the map useful route lines in static-only mode without sending the full national feed to the browser.
 

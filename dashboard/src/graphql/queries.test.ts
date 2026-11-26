@@ -32,28 +32,6 @@ function childFields(document: DocumentNode, rootName: string) {
   );
 }
 
-function nestedChildFields(document: DocumentNode, rootName: string, childName: string) {
-  const operation = document.definitions.find(
-    (definition) => definition.kind === Kind.OPERATION_DEFINITION,
-  );
-  if (!operation || operation.kind !== Kind.OPERATION_DEFINITION) return [];
-
-  const root = operation.selectionSet.selections.find(
-    (selection) => selection.kind === Kind.FIELD && selection.name.value === rootName,
-  );
-  if (!root || root.kind !== Kind.FIELD) return [];
-  const child = root.selectionSet?.selections.find(
-    (selection) => selection.kind === Kind.FIELD && selection.name.value === childName,
-  );
-  if (!child || child.kind !== Kind.FIELD) return [];
-
-  return (
-    child.selectionSet?.selections
-      .filter((selection) => selection.kind === Kind.FIELD)
-      .map((selection) => selection.name.value) ?? []
-  );
-}
-
 describe("live overview operations", () => {
   test("fetches rail map and board data in one operation", () => {
     expect(rootFields(LIVE_RAIL_OVERVIEW)).toEqual(["liveTrains", "countryBoard"]);
@@ -118,12 +96,7 @@ describe("live overview operations", () => {
       "routeShortName",
       "shapeId",
       "routeColor",
-      "points",
-    ]);
-    expect(nestedChildFields(BUS_LIVE_OVERVIEW, "busLiveRouteShapes", "points")).toEqual([
-      "latitude",
-      "longitude",
-      "sequence",
+      "polyline",
     ]);
   });
 
@@ -134,10 +107,7 @@ describe("live overview operations", () => {
       "routeShortName",
       "shapeId",
       "routeColor",
-      "points",
+      "polyline",
     ]);
-    expect(
-      nestedChildFields(BUS_SCHEDULED_ROUTE_SHAPES, "busScheduledRouteShapes", "points"),
-    ).toEqual(["latitude", "longitude", "sequence"]);
   });
 });

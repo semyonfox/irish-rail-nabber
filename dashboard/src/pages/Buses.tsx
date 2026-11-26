@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import LiveMapShell from "../components/LiveMapShell";
 import LiveNetworkSummary from "../components/LiveNetworkSummary";
@@ -6,7 +6,13 @@ import BusAttribution from "../components/BusAttribution";
 import BusVehicleMap from "../components/BusVehicleMap";
 import RequestError from "../components/RequestError";
 import { Card, DelayPill, Empty, Icon, PageHeader, SearchInput, Segmented } from "../components/ui";
-import { BUS_LIVE_OVERVIEW, BUS_SCHEDULED_ROUTE_SHAPES, BUS_STOPS } from "../graphql/queries";
+import {
+  BUS_LIVE_CONDITIONS,
+  BUS_LIVE_OVERVIEW,
+  BUS_SCHEDULED_ROUTE_SHAPES,
+  BUS_STOPS,
+} from "../graphql/queries";
+import { noticeCategoryLabel, type BusBunch, type BusServiceNotice } from "../utils/busConditions";
 import {
   busFeedState,
   busSourceStatus,
@@ -66,6 +72,15 @@ interface BusLiveOverviewData {
   busRouteDelays?: BusRouteDelay[];
 }
 
+interface BusLiveConditionsData {
+  busServiceNotices: BusServiceNotice[];
+  busBunching: BusBunch[];
+}
+
+// every shape a live bus is using. the API sends simplified polylines, about
+// 400 KB for the whole network
+const LIVE_SHAPE_LIMIT = 2_000;
+
 interface BusScheduledRouteShapesData {
   busScheduledRouteShapes: BusRouteShape[];
 }
@@ -87,6 +102,18 @@ function timeLabel(value: string | null) {
   if (!value) return "--:--";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "--:--" : timeFormat.format(date);
+}
+
+const noticeDateFormat = new Intl.DateTimeFormat("en-IE", {
+  timeZone: "Europe/Dublin",
+  weekday: "short",
+  day: "numeric",
+  month: "short",
+});
+
+function noticeDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "a date not given" : noticeDateFormat.format(date);
 }
 
 function routeLabel(routeShortName: string | null, routeId: string | null) {
@@ -170,7 +197,7 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
       includeDelays: view === "network",
       boardLimit: 30,
       vehicleLimit: 2_000,
-      shapeLimit: 100,
+      shapeLimit: LIVE_SHAPE_LIMIT,
       hours: expectedHours,
       routeLimit: 100,
     },
@@ -189,10 +216,19 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
         includeVehicles: false,
         includeShapes: true,
         includeDelays: false,
-        shapeLimit: 100,
+        shapeLimit: LIVE_SHAPE_LIMIT,
       },
-      pollInterval: 60_000,
+      // lines only change as trips start, so this is slower than positions
+      pollInterval: 120_000,
     });
+
+  const [{ data: conditionsData }] = usePollingQuery<BusLiveConditionsData>({
+    query: BUS_LIVE_CONDITIONS,
+    pause: view !== "live",
+    pollInterval: 30_000,
+  });
+  const notices = useMemo(() => conditionsData?.busServiceNotices ?? [], [conditionsData]);
+  const bunches = useMemo(() => conditionsData?.busBunching ?? [], [conditionsData]);
 
   const boardResultIsCurrent =
     selectedStopId != null && liveResult.operation?.variables?.stopId === selectedStopId;
@@ -249,6 +285,8 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
             shapeFocusKey={selectedStopId ?? "network"}
             selectedKey={selectedVehicleKey}
             onSelect={setSelectedVehicleKey}
+            bunches={bunches}
+            notices={notices}
           />
         }
         summary={
@@ -262,8 +300,18 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
               {
                 label: "Routes",
                 value: new Set(routeShapes.map((shape) => shape.routeId)).size,
-                title: "Routes represented by the loaded paths, not the entire network",
+                title: useLiveRouteShapes
+                  ? "Routes with a bus running now"
+                  : "Busiest scheduled routes, not the entire network",
               },
+              {
+                label: "Bunched",
+                value: feedState.isLive ? bunches.length : "--",
+                tone: bunches.length > 0 ? "warn" : undefined,
+                title:
+                  "Groups of buses on one route running together although the timetable spaces them at least six minutes apart",
+              },
+              { label: "Notices", value: notices.length, title: "NTA bus notices in effect now" },
             ]}
           >
             {liveVehicles.length > 0 && (
@@ -307,6 +355,68 @@ export default function Buses({ view = "live" }: { view?: "live" | "stops" | "ne
                     })}
                   </div>
                 ) : null}
+              </details>
+            )}
+            {feedState.isLive && bunches.length > 0 && (
+              <details className="map-selector">
+                <summary>Bunched now</summary>
+                <p className="text-xs text-muted">
+                  Buses on the same route within a few hundred metres, although timetabled at least
+                  six minutes apart.
+                </p>
+                <div className="map-selector-list">
+                  {bunches.map((bunch) => {
+                    const lead = liveVehicles.find(
+                      (vehicle) => vehicle.tripId != null && bunch.tripIds.includes(vehicle.tripId),
+                    );
+                    const key = lead ? busVehicleKey(lead) : null;
+                    return (
+                      <button
+                        key={bunch.tripIds.join(",")}
+                        type="button"
+                        className="map-option"
+                        disabled={key == null}
+                        aria-pressed={key != null && selectedVehicleKey === key}
+                        onClick={() => key && setSelectedVehicleKey(key)}
+                      >
+                        <strong>
+                          {routeLabel(bunch.routeShortName, bunch.routeId)} ·{" "}
+                          {bunch.headsign || "Destination not reported"}
+                        </strong>
+                        <span>
+                          {bunch.tripIds.length} buses within {bunch.spreadMetres} m, timetabled{" "}
+                          {bunch.scheduledGapMinutes} min apart
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </details>
+            )}
+            {notices.length > 0 && (
+              <details className="map-selector">
+                <summary>Service notices</summary>
+                <ul className="bus-notice-list">
+                  {notices.map((notice) => (
+                    <li key={notice.noticeId}>
+                      <details>
+                        <summary>
+                          <span className="eyebrow">
+                            {noticeCategoryLabel(notice.category)}
+                            {notice.routeShortNames.length > 0
+                              ? ` · ${notice.routeShortNames.join(", ")}`
+                              : null}
+                          </span>
+                          <strong>{notice.header}</strong>
+                        </summary>
+                        {notice.endsAt ? <small>Until {noticeDate(notice.endsAt)}</small> : null}
+                        {notice.description && notice.description !== notice.header ? (
+                          <p>{notice.description}</p>
+                        ) : null}
+                      </details>
+                    </li>
+                  ))}
+                </ul>
               </details>
             )}
             {liveShapesError && (
