@@ -37,7 +37,11 @@ describe("independent bus feed freshness", () => {
   test("successful predictions cannot revive stale vehicles", () => {
     expect(busSourceStatus(status, "vehicles", now)?.isLive).toBe(false);
     expect(busSourceStatus(status, "tripUpdates", now)?.isLive).toBe(true);
-    expect(busSourceStatus(status, "tripUpdates", now + 180_000)?.isLive).toBe(false);
+    expect(busSourceStatus(status, "tripUpdates", now + 240_000)?.isLive).toBe(false);
+  });
+
+  test("a feed that waited out an alerts slot still counts as live", () => {
+    expect(busSourceStatus(status, "tripUpdates", now + 200_000)?.isLive).toBe(true);
   });
 
   test("missing, invalid and future timestamps do not claim a live feed", () => {

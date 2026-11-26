@@ -67,7 +67,9 @@ export function busSourceStatus(
     (source === "vehicles" ? status.vehiclesLastSuccessAt : status.tripUpdatesLastSuccessAt) ??
     null;
   const age = lastSuccessAt == null ? NaN : now - Date.parse(lastSuccessAt);
-  return { ...status, lastSuccessAt, isLive: Number.isFinite(age) && age >= 0 && age < 180_000 };
+  // the daemon alternates vehicles and trip updates on one 61 s slot and gives
+  // alerts a slot every 10 min, so a healthy feed lands every 135 to 200 s
+  return { ...status, lastSuccessAt, isLive: Number.isFinite(age) && age >= 0 && age < 240_000 };
 }
 
 export function busUpdateAge(value: string | null | undefined, now = Date.now()) {
