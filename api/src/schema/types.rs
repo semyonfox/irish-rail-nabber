@@ -1,4 +1,4 @@
-use async_graphql::SimpleObject;
+use async_graphql::{ComplexObject, SimpleObject};
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, SecondsFormat, Utc};
 
@@ -186,12 +186,27 @@ pub struct BusShapePoint {
 }
 
 #[derive(Clone, SimpleObject)]
+#[graphql(complex)]
 pub struct BusRouteShape {
     pub route_id: String,
     pub route_short_name: Option<String>,
     pub shape_id: String,
     pub route_color: Option<String>,
     pub points: Vec<BusShapePoint>,
+}
+
+#[ComplexObject]
+impl BusRouteShape {
+    /// the same points as an encoded polyline at five decimal places, a
+    /// fraction of the size for drawing every live route at once
+    async fn polyline(&self) -> String {
+        let points: Vec<_> = self
+            .points
+            .iter()
+            .map(|point| (point.latitude, point.longitude))
+            .collect();
+        crate::geometry::encode_polyline(&points)
+    }
 }
 
 #[derive(Clone, SimpleObject)]

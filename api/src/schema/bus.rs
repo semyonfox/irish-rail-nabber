@@ -20,8 +20,6 @@ const BUS_ROUTE_DELAY_HOURS: (i32, i32) = (1, 168);
 const PUBLIC_BUS_ROUTE_DELAY_MAX_HOURS: i32 = 72;
 const BUS_ROUTE_DELAY_LIMIT: (i32, i32) = (1, 100);
 const BUS_VEHICLE_LIMIT: (i32, i32) = (1, 3_000);
-const BUS_ROUTE_SHAPE_LIMIT: (i32, i32) = (1, 100);
-const BUS_SHAPE_POINTS_PER_SHAPE: i64 = 500;
 const BUS_SCHEDULED_ROUTE_SHAPE_LIMIT: (i32, i32) = (1, 40);
 const BUS_SCHEDULED_SHAPE_POINTS_PER_SHAPE: i64 = 300;
 
@@ -461,119 +459,6 @@ impl BusQuery {
                 Ok::<_, sqlx::Error>(Arc::new(
                     rows.into_iter().map(BusVehicle::from).collect(),
                 ))
-            })
-            .await
-            .map_err(|error| Error::new(error.to_string()))?;
-
-        Ok((*result).clone())
-    }
-
-    #[graphql(complexity = 150)]
-    async fn bus_live_route_shapes(
-        &self,
-        ctx: &Context<'_>,
-        #[graphql(default = 100)] limit: i32,
-    ) -> Result<Vec<BusRouteShape>> {
-        let pool = ctx.data::<PgPool>()?;
-        let cache = ctx.data::<QueryCache>()?;
-        let limit = limit.clamp(BUS_ROUTE_SHAPE_LIMIT.0, BUS_ROUTE_SHAPE_LIMIT.1);
-        let pool = pool.clone();
-
-        let result = cache
-            .bus_live_route_shapes
-            .try_get_with(limit, async move {
-                let rows = sqlx::query_as::<_, BusShapePointRow>(
-                    "WITH active_shapes AS (
-                        SELECT
-                            vehicle.feed_version_id,
-                            COALESCE(vehicle.route_id, trip.route_id) AS route_id,
-                            NULLIF(BTRIM(route.route_short_name), '') AS route_short_name,
-                            trip.shape_id,
-                            NULLIF(BTRIM(route.route_color), '') AS route_color,
-                            MAX(vehicle.last_seen_at) AS last_seen_at
-                        FROM bus_vehicle_positions vehicle
-                        JOIN transit_feed_versions feed
-                          ON feed.id = vehicle.feed_version_id
-                         AND feed.is_active
-                        JOIN bus_trips trip
-                          ON trip.feed_version_id = vehicle.feed_version_id
-                         AND trip.trip_id = vehicle.trip_id
-                        LEFT JOIN bus_routes route
-                          ON route.feed_version_id = vehicle.feed_version_id
-                         AND route.route_id = COALESCE(vehicle.route_id, trip.route_id)
-                        WHERE vehicle.last_seen_at > NOW() - INTERVAL '5 minutes'
-                          AND vehicle.latitude BETWEEN -90 AND 90
-                          AND vehicle.longitude BETWEEN -180 AND 180
-                          AND NULLIF(BTRIM(trip.shape_id), '') IS NOT NULL
-                          AND UPPER(vehicle.schedule_relationship) NOT IN (
-                              'CANCELED', 'CANCELLED', 'DELETED'
-                          )
-                        GROUP BY
-                            vehicle.feed_version_id,
-                            COALESCE(vehicle.route_id, trip.route_id),
-                            route.route_short_name,
-                            trip.shape_id,
-                            route.route_color
-                        ORDER BY MAX(vehicle.last_seen_at) DESC, route_id, trip.shape_id
-                        LIMIT $1
-                    ), ranked_points AS (
-                        SELECT
-                            active.route_id,
-                            active.route_short_name,
-                            active.shape_id,
-                            active.route_color,
-                            active.last_seen_at,
-                            point.shape_pt_lat AS latitude,
-                            point.shape_pt_lon AS longitude,
-                            point.shape_pt_sequence,
-                            ROW_NUMBER() OVER (
-                                PARTITION BY active.feed_version_id,
-                                             active.route_id,
-                                             active.shape_id
-                                ORDER BY point.shape_pt_sequence
-                            ) AS point_number,
-                            COUNT(*) OVER (
-                                PARTITION BY active.feed_version_id,
-                                             active.route_id,
-                                             active.shape_id
-                            ) AS point_count
-                        FROM active_shapes active
-                        JOIN bus_shape_points point
-                          ON point.feed_version_id = active.feed_version_id
-                         AND point.shape_id = active.shape_id
-                    )
-                    SELECT
-                        route_id,
-                        route_short_name,
-                        shape_id,
-                        route_color,
-                        latitude,
-                        longitude,
-                        shape_pt_sequence
-                    FROM ranked_points
-                    WHERE point_count >= 2
-                      AND (
-                          point_count <= $2
-                          OR point_number = 1
-                          OR point_number = point_count
-                          OR MOD(
-                              point_number - 1,
-                              GREATEST(
-                                  1,
-                                  CEIL(
-                                      (point_count - 1)::numeric / ($2 - 1)
-                                  )::bigint
-                              )
-                          ) = 0
-                      )
-                    ORDER BY last_seen_at DESC, route_id, shape_id, shape_pt_sequence",
-                )
-                .bind(i64::from(limit))
-                .bind(BUS_SHAPE_POINTS_PER_SHAPE)
-                .fetch_all(&pool)
-                .await?;
-
-                Ok::<_, sqlx::Error>(Arc::new(group_bus_route_shapes(rows)))
             })
             .await
             .map_err(|error| Error::new(error.to_string()))?;

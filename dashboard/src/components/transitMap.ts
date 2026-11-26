@@ -19,6 +19,8 @@ export interface TransitMapPalette {
   ink: string;
   brand: string;
   bus: string;
+  /** marks buses running bunched */
+  alert: string;
   track: string;
   casing: string;
   point: string;
@@ -38,6 +40,7 @@ const MAP_PALETTES = {
     ink: "#121814",
     brand: "#0b6b4d",
     bus: "#d88a05",
+    alert: "#c2410c",
     track: "#8fa197",
     casing: "#ffffff",
     point: "#ffffff",
@@ -55,6 +58,7 @@ const MAP_PALETTES = {
     ink: "#f2f0e9",
     brand: "#58c99b",
     bus: "#f0aa2a",
+    alert: "#fb7a4a",
     track: "#71867a",
     casing: "#101512",
     point: "#e8ede9",

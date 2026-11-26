@@ -206,11 +206,32 @@ export const BUS_SCHEDULED_ROUTE_SHAPES = gql`
       routeShortName
       shapeId
       routeColor
-      points {
-        latitude
-        longitude
-        sequence
-      }
+      polyline
+    }
+  }
+`;
+
+export const BUS_LIVE_CONDITIONS = gql`
+  query BusLiveConditions {
+    busServiceNotices {
+      noticeId
+      header
+      description
+      url
+      category
+      startsAt
+      endsAt
+      routeIds
+      routeShortNames
+      stopCount
+    }
+    busBunching {
+      routeId
+      routeShortName
+      headsign
+      tripIds
+      spreadMetres
+      scheduledGapMinutes
     }
   }
 `;
@@ -276,11 +297,7 @@ export const BUS_LIVE_OVERVIEW = gql`
       routeShortName
       shapeId
       routeColor
-      points {
-        latitude
-        longitude
-        sequence
-      }
+      polyline
     }
     busRouteDelays(hours: $hours, limit: $routeLimit) @include(if: $includeDelays) {
       feedVersionId

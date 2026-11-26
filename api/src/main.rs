@@ -2,6 +2,7 @@ mod auth;
 mod billing;
 mod chat;
 mod db;
+mod geometry;
 mod models;
 mod rate_limit;
 mod schema;

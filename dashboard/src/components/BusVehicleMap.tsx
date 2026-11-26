@@ -4,12 +4,7 @@ import * as maplibregl from "maplibre-gl";
 import { busMotionPath, busMotionPosition } from "../utils/busMotion";
 import { useTheme } from "../theme";
 import { busFeedState, type BusRealtimeStatus } from "../utils/busRealtime";
-import {
-  busShapeCoordinates,
-  busShapeRouteLabel,
-  gtfsRouteColor,
-  type BusRouteShape,
-} from "../utils/busShapes";
+import { busShapeCoordinates, busShapeRouteLabel, type BusRouteShape } from "../utils/busShapes";
 import {
   busVehicleKey,
   busVehicleRoute,
@@ -17,6 +12,12 @@ import {
   speedKmh,
   type BusVehicle,
 } from "../utils/busVehicles";
+import {
+  noticeCategoryLabel,
+  noticesForRoute,
+  type BusBunch,
+  type BusServiceNotice,
+} from "../utils/busConditions";
 import { Icon, Sheet } from "./ui";
 import {
   applyIrelandMapTheme,
@@ -27,16 +28,19 @@ import {
   setSourceData,
   transitMapPalette,
   type FeatureProperties,
+  type TransitMapPalette,
   type TransitFeature,
 } from "./transitMap";
 
 const ROUTE_SOURCE_ID = "live-bus-routes";
-const ROUTE_CASING_LAYER_ID = "live-bus-routes-casing";
 const ROUTE_LAYER_ID = "live-bus-routes-line";
+const SELECTED_CASING_LAYER_ID = "live-bus-route-selected-casing";
+const SELECTED_LAYER_ID = "live-bus-route-selected-line";
 const ROUTE_LABEL_LAYER_ID = "live-bus-routes-label";
 const VEHICLE_SOURCE_ID = "live-buses";
-const VEHICLE_HALO_LAYER_ID = "live-buses-halo";
 const VEHICLE_LAYER_ID = "live-buses-circle";
+// dots shrink to a couple of pixels at country zoom, so clicks hit this instead
+const VEHICLE_HIT_LAYER_ID = "live-buses-hit";
 const VEHICLE_LABEL_LAYER_ID = "live-buses-label";
 const LABEL_FONT = ["Noto Sans Medium"];
 
@@ -67,6 +71,72 @@ function lineFeature(
 
 const motionMs = () => (window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 250);
 
+const isSelected: maplibregl.ExpressionSpecification = ["==", ["get", "selected"], true];
+const isDimmed: maplibregl.ExpressionSpecification = ["==", ["get", "dimmed"], true];
+const isBunched: maplibregl.ExpressionSpecification = ["==", ["get", "bunched"], true];
+
+// every live route at once is several hundred lines, so they stay a faint
+// network sketch and only the selected route is drawn strongly
+function routePaint(palette: TransitMapPalette): maplibregl.LineLayerSpecification["paint"] {
+  return {
+    "line-color": palette.track,
+    "line-width": ["interpolate", ["linear"], ["zoom"], 7, 0.4, 11, 1, 14, 2.5],
+    "line-opacity": [
+      "interpolate",
+      ["linear"],
+      ["zoom"],
+      7,
+      ["case", isDimmed, 0.08, 0.18],
+      12,
+      ["case", isDimmed, 0.15, 0.45],
+    ],
+  };
+}
+
+const vehicleColor = (palette: TransitMapPalette): maplibregl.ExpressionSpecification => [
+  "case",
+  isSelected,
+  palette.ink,
+  palette.bus,
+];
+const vehicleStroke = (palette: TransitMapPalette): maplibregl.ExpressionSpecification => [
+  "case",
+  isBunched,
+  palette.alert,
+  palette.casing,
+];
+
+function vehiclePaint(palette: TransitMapPalette): maplibregl.CircleLayerSpecification["paint"] {
+  return {
+    "circle-radius": [
+      "interpolate",
+      ["linear"],
+      ["zoom"],
+      5,
+      ["case", isSelected, 5, 1.6],
+      8,
+      ["case", isSelected, 6, 2.4],
+      11,
+      ["case", isSelected, 8, 4.5],
+      14,
+      ["case", isSelected, 10, 7],
+    ],
+    "circle-color": vehicleColor(palette),
+    "circle-opacity": ["case", isDimmed, 0.25, 0.95],
+    "circle-stroke-color": vehicleStroke(palette),
+    "circle-stroke-opacity": ["case", isDimmed, 0.25, 1],
+    "circle-stroke-width": [
+      "interpolate",
+      ["linear"],
+      ["zoom"],
+      8,
+      ["case", isBunched, 1, 0],
+      11,
+      ["case", isBunched, 2.5, 1],
+    ],
+  };
+}
+
 export default function BusVehicleMap({
   vehicles,
   routeShapes,
@@ -77,6 +147,8 @@ export default function BusVehicleMap({
   shapeFocusKey,
   selectedKey,
   onSelect,
+  bunches,
+  notices,
 }: {
   vehicles: BusVehicle[];
   routeShapes: BusRouteShape[];
@@ -87,6 +159,8 @@ export default function BusVehicleMap({
   shapeFocusKey: string;
   selectedKey: string | null;
   onSelect: (key: string | null) => void;
+  bunches: BusBunch[];
+  notices: BusServiceNotice[];
 }) {
   const { theme } = useTheme();
   const palette = transitMapPalette(theme);
@@ -103,6 +177,27 @@ export default function BusVehicleMap({
   );
 
   const feedState = busFeedState(realtimeStatus, fetching && realtimeStatus == null);
+  const shapeCoordinates = useMemo(
+    () => new Map(routeShapes.map((shape) => [shape.shapeId, busShapeCoordinates(shape)])),
+    [routeShapes],
+  );
+  const selectedRouteId = selectedVehicle?.routeId ?? null;
+  const bunchedTripIds = useMemo(
+    () => new Set(bunches.flatMap((bunch) => bunch.tripIds)),
+    [bunches],
+  );
+  const selectedTripId = selectedVehicle?.tripId ?? null;
+  const selectedBunch = useMemo(
+    () =>
+      selectedTripId
+        ? (bunches.find((bunch) => bunch.tripIds.includes(selectedTripId)) ?? null)
+        : null,
+    [bunches, selectedTripId],
+  );
+  const selectedNotices = useMemo(
+    () => noticesForRoute(notices, selectedRouteId),
+    [notices, selectedRouteId],
+  );
 
   const containerRef = useCallback(
     (node: HTMLDivElement | null) => {
@@ -126,32 +221,34 @@ export default function BusVehicleMap({
           map.addSource(ROUTE_SOURCE_ID, { type: "geojson", data: emptyCollection() });
           map.addSource(VEHICLE_SOURCE_ID, { type: "geojson", data: emptyCollection() });
           map.addLayer({
-            id: ROUTE_CASING_LAYER_ID,
-            type: "line",
-            source: ROUTE_SOURCE_ID,
-            layout: { "line-cap": "round", "line-join": "round" },
-            paint: {
-              "line-color": palette.casing,
-              "line-opacity": ["case", ["get", "selected"], 0.88, 0.5],
-              "line-width": ["case", ["get", "selected"], 7, 4],
-            },
-          });
-          map.addLayer({
             id: ROUTE_LAYER_ID,
             type: "line",
             source: ROUTE_SOURCE_ID,
+            filter: ["!", isSelected],
             layout: { "line-cap": "round", "line-join": "round" },
-            paint: {
-              "line-color": ["case", ["get", "selected"], palette.ink, ["get", "routeColor"]],
-              "line-opacity": ["case", ["get", "selected"], 0.95, 0.62],
-              "line-width": ["case", ["get", "selected"], 4.5, 2.25],
-            },
+            paint: routePaint(palette),
+          });
+          map.addLayer({
+            id: SELECTED_CASING_LAYER_ID,
+            type: "line",
+            source: ROUTE_SOURCE_ID,
+            filter: isSelected,
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: { "line-color": palette.casing, "line-opacity": 0.85, "line-width": 7 },
+          });
+          map.addLayer({
+            id: SELECTED_LAYER_ID,
+            type: "line",
+            source: ROUTE_SOURCE_ID,
+            filter: isSelected,
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: { "line-color": palette.ink, "line-opacity": 0.95, "line-width": 4 },
           });
           map.addLayer({
             id: ROUTE_LABEL_LAYER_ID,
             type: "symbol",
             source: ROUTE_SOURCE_ID,
-            minzoom: 7.5,
+            filter: isSelected,
             layout: {
               "symbol-placement": "line",
               "symbol-spacing": 360,
@@ -166,39 +263,23 @@ export default function BusVehicleMap({
             },
           });
           map.addLayer({
-            id: VEHICLE_HALO_LAYER_ID,
-            type: "circle",
-            source: VEHICLE_SOURCE_ID,
-            paint: {
-              "circle-radius": ["case", ["get", "selected"], 17, 11],
-              "circle-color": ["case", ["get", "selected"], palette.ink, palette.bus],
-              "circle-opacity": 0.2,
-            },
-          });
-          map.addLayer({
             id: VEHICLE_LAYER_ID,
             type: "circle",
             source: VEHICLE_SOURCE_ID,
-            paint: {
-              "circle-radius": [
-                "interpolate",
-                ["linear"],
-                ["zoom"],
-                6,
-                ["case", ["get", "selected"], 7, 4.5],
-                11,
-                ["case", ["get", "selected"], 10, 6.5],
-              ],
-              "circle-color": ["case", ["get", "selected"], palette.ink, palette.bus],
-              "circle-stroke-color": palette.casing,
-              "circle-stroke-width": 2,
-            },
+            paint: vehiclePaint(palette),
+          });
+          map.addLayer({
+            id: VEHICLE_HIT_LAYER_ID,
+            type: "circle",
+            source: VEHICLE_SOURCE_ID,
+            paint: { "circle-radius": 10, "circle-opacity": 0 },
           });
           map.addLayer({
             id: VEHICLE_LABEL_LAYER_ID,
             type: "symbol",
             source: VEHICLE_SOURCE_ID,
-            minzoom: 8.25,
+            minzoom: 12,
+            filter: ["!", isDimmed],
             layout: {
               "text-field": ["get", "routeLabel"],
               "text-font": LABEL_FONT,
@@ -239,28 +320,13 @@ export default function BusVehicleMap({
     const next = transitMapPalette(theme);
 
     applyIrelandMapTheme(map, theme);
-    map.setPaintProperty(ROUTE_CASING_LAYER_ID, "line-color", next.casing);
-    map.setPaintProperty(ROUTE_LAYER_ID, "line-color", [
-      "case",
-      ["get", "selected"],
-      next.ink,
-      ["get", "routeColor"],
-    ]);
+    map.setPaintProperty(ROUTE_LAYER_ID, "line-color", next.track);
+    map.setPaintProperty(SELECTED_CASING_LAYER_ID, "line-color", next.casing);
+    map.setPaintProperty(SELECTED_LAYER_ID, "line-color", next.ink);
     map.setPaintProperty(ROUTE_LABEL_LAYER_ID, "text-color", next.label);
     map.setPaintProperty(ROUTE_LABEL_LAYER_ID, "text-halo-color", next.labelHalo);
-    map.setPaintProperty(VEHICLE_HALO_LAYER_ID, "circle-color", [
-      "case",
-      ["get", "selected"],
-      next.ink,
-      next.bus,
-    ]);
-    map.setPaintProperty(VEHICLE_LAYER_ID, "circle-color", [
-      "case",
-      ["get", "selected"],
-      next.ink,
-      next.bus,
-    ]);
-    map.setPaintProperty(VEHICLE_LAYER_ID, "circle-stroke-color", next.casing);
+    map.setPaintProperty(VEHICLE_LAYER_ID, "circle-color", vehicleColor(next));
+    map.setPaintProperty(VEHICLE_LAYER_ID, "circle-stroke-color", vehicleStroke(next));
     map.setPaintProperty(VEHICLE_LABEL_LAYER_ID, "text-color", next.label);
     map.setPaintProperty(VEHICLE_LABEL_LAYER_ID, "text-halo-color", next.labelHalo);
   }, [mapReady, theme]);
@@ -268,17 +334,17 @@ export default function BusVehicleMap({
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
 
-    const selectedRouteId = selectedVehicle?.routeId ?? null;
     const features = routeShapes.flatMap((shape) => {
-      const coordinates = busShapeCoordinates(shape);
+      const coordinates = shapeCoordinates.get(shape.shapeId) ?? [];
       if (coordinates.length < 2) return [];
+      const selected = selectedRouteId != null && shape.routeId === selectedRouteId;
       return [
         lineFeature(coordinates, {
           routeId: shape.routeId,
           routeLabel: busShapeRouteLabel(shape),
           shapeId: shape.shapeId,
-          routeColor: gtfsRouteColor(shape.routeColor, palette.bus),
-          selected: selectedRouteId != null && shape.routeId === selectedRouteId,
+          selected,
+          dimmed: selectedRouteId != null && !selected,
         }),
       ];
     });
@@ -291,7 +357,7 @@ export default function BusVehicleMap({
     const fitKey = `${shapeMode}:${shapeFocusKey}:${shapeSignature}`;
     if (lastFitKeyRef.current === fitKey) return;
 
-    const coordinates = routeShapes.flatMap(busShapeCoordinates);
+    const coordinates = [...shapeCoordinates.values()].flat();
     if (coordinates.length === 0) return;
     lastFitKeyRef.current = fitKey;
     const bounds = new maplibregl.LngLatBounds(coordinates[0], coordinates[0]);
@@ -299,10 +365,10 @@ export default function BusVehicleMap({
     mapRef.current.fitBounds(bounds, { padding: 48, maxZoom: 11, duration: motionMs() });
   }, [
     mapReady,
-    palette.bus,
     routeShapes,
     selectedKey,
-    selectedVehicle?.routeId,
+    selectedRouteId,
+    shapeCoordinates,
     shapeFocusKey,
     shapeMode,
     vehicles.length,
@@ -323,20 +389,19 @@ export default function BusVehicleMap({
       map.getCanvas().style.cursor = "";
     };
 
-    map.on("click", VEHICLE_LAYER_ID, selectVehicle);
-    map.on("mouseenter", VEHICLE_LAYER_ID, enter);
-    map.on("mouseleave", VEHICLE_LAYER_ID, leave);
+    map.on("click", VEHICLE_HIT_LAYER_ID, selectVehicle);
+    map.on("mouseenter", VEHICLE_HIT_LAYER_ID, enter);
+    map.on("mouseleave", VEHICLE_HIT_LAYER_ID, leave);
     return () => {
-      map.off("click", VEHICLE_LAYER_ID, selectVehicle);
-      map.off("mouseenter", VEHICLE_LAYER_ID, enter);
-      map.off("mouseleave", VEHICLE_LAYER_ID, leave);
+      map.off("click", VEHICLE_HIT_LAYER_ID, selectVehicle);
+      map.off("mouseenter", VEHICLE_HIT_LAYER_ID, enter);
+      map.off("mouseleave", VEHICLE_HIT_LAYER_ID, leave);
     };
   }, [mapReady, onSelect]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
 
-    const shapes = new Map(routeShapes.map((shape) => [shape.shapeId, busShapeCoordinates(shape)]));
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     const paths = vehicles.map((vehicle) =>
       reducedMotion.matches
@@ -344,7 +409,7 @@ export default function BusVehicleMap({
         : busMotionPath(
             previousVehiclesRef.current.get(busVehicleKey(vehicle)),
             vehicle,
-            vehicle.shapeId ? shapes.get(vehicle.shapeId) : undefined,
+            vehicle.shapeId ? shapeCoordinates.get(vehicle.shapeId) : undefined,
           ),
     );
     previousVehiclesRef.current = new Map(
@@ -365,6 +430,13 @@ export default function BusVehicleMap({
           vehicleKey: busVehicleKey(vehicle),
           routeLabel: busVehicleRoute(vehicle),
           selected: busVehicleKey(vehicle) === selectedKey,
+          dimmed: selectedRouteId != null && vehicle.routeId !== selectedRouteId,
+          // only on the selected route, or every busy corridor glows
+          bunched:
+            selectedRouteId != null &&
+            vehicle.routeId === selectedRouteId &&
+            vehicle.tripId != null &&
+            bunchedTripIds.has(vehicle.tripId),
         });
       });
       setSourceData(mapRef.current, VEHICLE_SOURCE_ID, featureCollection(features));
@@ -372,7 +444,7 @@ export default function BusVehicleMap({
     };
     draw(started);
     return () => cancelAnimationFrame(frame);
-  }, [mapReady, routeShapes, selectedKey, vehicles]);
+  }, [bunchedTripIds, mapReady, selectedKey, selectedRouteId, shapeCoordinates, vehicles]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
@@ -408,12 +480,33 @@ export default function BusVehicleMap({
     }
     if (!mapReady || !map || !selectedVehicle || followedKeyRef.current === selectedKey) return;
     followedKeyRef.current = selectedKey;
-    const position: [number, number] = [selectedVehicle.longitude, selectedVehicle.latitude];
     // above 900px the summary card overlays the left of the map and the
     // details sheet the right, so only the strip between them counts
     const wide = window.matchMedia("(min-width: 901px)").matches;
     const left = wide ? 340 : 0;
     const right = wide ? 440 : 0;
+
+    // a bunch only reads as one on screen together, so frame every bus in it
+    const group = selectedBunch
+      ? vehicles.filter(
+          (vehicle) => vehicle.tripId != null && selectedBunch.tripIds.includes(vehicle.tripId),
+        )
+      : [];
+    if (group.length > 1) {
+      const bounds = new maplibregl.LngLatBounds(
+        [group[0].longitude, group[0].latitude],
+        [group[0].longitude, group[0].latitude],
+      );
+      for (const vehicle of group.slice(1)) bounds.extend([vehicle.longitude, vehicle.latitude]);
+      map.fitBounds(bounds, {
+        padding: { top: 80, bottom: 80, left: left + 60, right: right + 60 },
+        maxZoom: 16,
+        duration: motionMs(),
+      });
+      return;
+    }
+
+    const position: [number, number] = [selectedVehicle.longitude, selectedVehicle.latitude];
     const container = map.getContainer();
     const point = map.project(position);
     const visible =
@@ -428,11 +521,33 @@ export default function BusVehicleMap({
       zoom: Math.max(map.getZoom(), 11),
       duration: motionMs(),
     });
-  }, [mapReady, selectedKey, selectedVehicle]);
+  }, [mapReady, selectedBunch, selectedKey, selectedVehicle, vehicles]);
 
   const speed = selectedVehicle ? speedKmh(selectedVehicle.speedMetersPerSecond) : null;
   const status = selectedVehicle ? humanizeGtfsValue(selectedVehicle.currentStatus) : null;
   const occupancy = selectedVehicle ? humanizeGtfsValue(selectedVehicle.occupancyStatus) : null;
+  // NTA leaves most of these empty for most buses, so only show what was reported
+  const facts: [string, string][] = selectedVehicle
+    ? (
+        [
+          ["Status", status],
+          ["Speed", speed == null ? null : `${speed} km/h`],
+          ["Occupancy", occupancy],
+          [
+            "Stop",
+            selectedVehicle.stopId ||
+              (selectedVehicle.currentStopSequence == null
+                ? null
+                : `Sequence ${selectedVehicle.currentStopSequence}`),
+          ],
+          [
+            "Bearing",
+            selectedVehicle.bearing == null ? null : `${Math.round(selectedVehicle.bearing)}°`,
+          ],
+          ["Updated", updateTime(selectedVehicle.sourceTimestamp || selectedVehicle.fetchedAt)],
+        ] satisfies [string, string | null][]
+      ).filter((fact): fact is [string, string] => Boolean(fact[1]))
+    : [];
 
   return (
     <div className="bus-map-frame">
@@ -481,40 +596,36 @@ export default function BusVehicleMap({
             .join(" · ")}
         >
           <dl className="bus-vehicle-facts">
-            <div>
-              <dt>Status</dt>
-              <dd>{status || "Position reported"}</dd>
-            </div>
-            <div>
-              <dt>Speed</dt>
-              <dd>{speed == null ? "Not reported" : `${speed} km/h`}</dd>
-            </div>
-            <div>
-              <dt>Occupancy</dt>
-              <dd>{occupancy || "Not reported"}</dd>
-            </div>
-            <div>
-              <dt>Stop</dt>
-              <dd>
-                {selectedVehicle.stopId ||
-                  (selectedVehicle.currentStopSequence == null
-                    ? "Not reported"
-                    : `Sequence ${selectedVehicle.currentStopSequence}`)}
-              </dd>
-            </div>
-            <div>
-              <dt>Bearing</dt>
-              <dd>
-                {selectedVehicle.bearing == null
-                  ? "Not reported"
-                  : `${Math.round(selectedVehicle.bearing)}°`}
-              </dd>
-            </div>
-            <div>
-              <dt>Updated</dt>
-              <dd>{updateTime(selectedVehicle.sourceTimestamp || selectedVehicle.fetchedAt)}</dd>
-            </div>
+            {facts.map(([label, value]) => (
+              <div key={label}>
+                <dt>{label}</dt>
+                <dd>{value}</dd>
+              </div>
+            ))}
           </dl>
+          {selectedBunch ? (
+            <p className="bus-bunched-note">
+              Bunched: {selectedBunch.tripIds.length} {busVehicleRoute(selectedVehicle)} buses
+              within {selectedBunch.spreadMetres} m, timetabled {selectedBunch.scheduledGapMinutes}{" "}
+              min apart.
+            </p>
+          ) : null}
+          {selectedNotices.length > 0 ? (
+            <section aria-label="Service notices for this route">
+              <div className="section-label">Service notices</div>
+              <ul className="bus-notice-list">
+                {selectedNotices.map((notice) => (
+                  <li key={notice.noticeId}>
+                    <span className="eyebrow">{noticeCategoryLabel(notice.category)}</span>
+                    <strong>{notice.header}</strong>
+                    {notice.description && notice.description !== notice.header ? (
+                      <p>{notice.description}</p>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
         </Sheet>
       ) : null}
 
