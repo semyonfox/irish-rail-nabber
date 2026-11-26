@@ -21,6 +21,7 @@ jobs:
       api: ${{ steps.changes.outputs.api }}
       dashboard: ${{ steps.changes.outputs.dashboard }}
       python: ${{ steps.changes.outputs.python }}
+      mobile: ${{ steps.changes.outputs.mobile }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,6 +34,7 @@ jobs:
           api=true
           dashboard=true
           python=true
+          mobile=true
           changed_files=$(mktemp)
           trap 'rm -f "$changed_files"' EXIT
 
@@ -44,6 +46,7 @@ jobs:
             api=false
             dashboard=false
             python=false
+            mobile=false
             while IFS= read -r -d '' path; do
               if [[ "$path" == docs/*.md || ( "$path" != */* && "$path" == *.md ) ]]; then
                 continue
@@ -55,8 +58,9 @@ jobs:
               case "$path" in
                 api/*) api=true ;;
                 dashboard/*) dashboard=true ;;
+                mobile/*) mobile=true ;;
                 *.py|requirements.txt) python=true ;;
-                *) api=true; dashboard=true; python=true ;;
+                *) api=true; dashboard=true; python=true; mobile=true ;;
               esac
             done < "$changed_files"
           fi
@@ -65,6 +69,7 @@ jobs:
             echo "api=$api"
             echo "dashboard=$dashboard"
             echo "python=$python"
+            echo "mobile=$mobile"
           } >> "$GITHUB_OUTPUT"
       - name: Reject tracked production env files
         run: |
@@ -126,6 +131,36 @@ jobs:
         run: vp test run
       - name: Build
         run: vp build
+
+  mobile:
+    name: Mobile app
+    needs: repository-hygiene
+    if: needs.repository-hygiene.outputs.mobile == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: mobile/package.json
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: mobile/pnpm-lock.yaml
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Type check
+        run: pnpm tsc --noEmit
+      - name: Lint
+        run: pnpm expo lint
+      - name: Expo doctor
+        run: pnpm dlx expo-doctor
 
   python:
     name: Python scripts (${{ matrix.python }})
