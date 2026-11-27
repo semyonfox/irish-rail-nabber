@@ -19,7 +19,7 @@ This repository, on this branch, contains:
 | Local compose file | `docker-compose.yml` |
 | Image build for the collector | `Dockerfile` |
 
-The production compose file is `/home/semyon/server-stacks/irish-rail/stack.yaml`. Its build context is `/home/semyon/code/owned/tools/irish-rail-nabber`. That checkout is a different branch and has uncommitted work. Leave it alone.
+The production compose file is `/home/semyon/server-stacks/irish-rail/stack.yaml`. It names `/home/semyon/code/owned/tools/irish-rail-nabber` as the build context. On 27 November 2026 that directory was checked out at `fix/bus-map-archive-regional` (`6039553`, 24 September 2026) with uncommitted edits. Those working-tree copies of `daemon.py` and `bus_daemon.py` do not match the running image. Leave that checkout alone.
 
 Running containers on 27 November 2026, from `docker ps`:
 
@@ -32,7 +32,11 @@ Running containers on 27 November 2026, from `docker ps`:
 | `irish_rail_dashboard` | `irish-rail-nabber-dashboard:latest` | nginx and the built UI |
 | `irish_rail_cloudflared` | `cloudflare/cloudflared:2026.10.4` | Tunnel |
 
-`Dockerfile` on this branch copies only `daemon.py` and installs `python:3.14-slim`. The running collector reports Python 3.15.2 and has `/app/bus_daemon.py`, `/app/context_collector.py`, and migrations through `025_weather_and_traffic.sql`. Inference. The running image was not built from this branch.
+`Dockerfile` on this branch copies only `daemon.py` and installs `python:3.14-slim`. The running collector reports Python 3.15.2 and has `/app/bus_daemon.py`, `/app/context_collector.py`, and migrations through `025_weather_and_traffic.sql`.
+
+The running images are tagged `8048ab3`. That tag is `origin/main` at `8048ab396699ff43ddb086541097bd2765b8fd8b`, the merge of pull request 119 on 26 November 2026. The API image and the dashboard image were built that day. The daemon image was built on 25 November 2026 and later carried the same tag. `daemon.py`, `bus_daemon.py`, `context_collector.py`, `schema.sql`, and `migrations/025_weather_and_traffic.sql` in the daemon image match `origin/main` at `8048ab3`. They also match `main` at `0866715`, the 25 November merge of pull request 114, because those files did not change between the two commits. They do not match `origin/dev` at `495f7ac`. `origin/main` contains `api/src/auth/clerk.rs`. `origin/dev` does not.
+
+Backups are not on `main` or `dev`. They are the cron job and the user timer under `/home/semyon/server-stacks/backups`.
 
 ## Data sources
 
@@ -325,6 +329,6 @@ On this branch, for rail data the running site does not already have:
 3. Read it from a resolver in `api/src/schema/`. Add the type to the merged query in `api/src/schema/mod.rs` only if it is a new query object. Clamp numeric arguments the way `api/src/schema/bounds.rs` does.
 4. Show it from `dashboard/src/pages` and add a route in `dashboard/src/App.tsx`. If the browser calls a new API prefix, add a `location` in `dashboard/nginx.conf`. The current proxy only forwards GraphQL, auth, billing, and chat.
 
-Do not add bus, Clerk, Polar, weather, traffic, or archive compaction on this branch and expect production to pick it up. That code is in the running image and in the other checkout. Land it on `dev` first, then change it here. A migration numbered `009` or higher in this branch will collide with the files already applied on the live database.
+Do not add bus, Clerk, Polar, weather, traffic, or archive compaction on this branch and expect production to pick it up. That code is on `origin/main` at `8048ab3`, which is the tag on the running images. It is not on `origin/dev`. Land it on `dev` first, then change it here. A migration numbered `009` or higher in this branch will collide with the files already applied on the live database.
 
 Do not point a new backup, restore, or compose change at `ireland_public` from a laptop script. The live writers are the cron script and the B2 timer above.
