@@ -4,7 +4,7 @@ Single source of truth for irish-rail-nabber. Each doc owns one concern; cross-r
 
 ## Read order for a new contributor
 
-1. [architecture.md](architecture.md) — what the system is and how the pieces fit
+1. [ARCHITECTURE.md](ARCHITECTURE.md). What the system is, how the pieces fit, and where this branch differs from production. [architecture.md](architecture.md) only points there.
 2. [scraper.md](scraper.md) — the Python daemon that collects data
 3. [api.md](api.md) — the Rust GraphQL + REST API
 4. [dashboard.md](dashboard.md) — the React UI

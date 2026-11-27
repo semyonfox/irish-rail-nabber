@@ -17,7 +17,7 @@ Python ingestion daemon ───► PostgreSQL / TimescaleDB
 
 ## Engineering highlights
 
-- **Ingestion:** a Python daemon polls Irish Rail realtime endpoints, normalizes records, deduplicates updates with content hashes and writes time-series data.
+- **Ingestion:** a Python daemon polls Irish Rail realtime endpoints, normalises records, deduplicates updates with content hashes and writes time-series data. Production also runs a bus collector that is not in this branch. See [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md).
 - **Backend:** Rust, Axum, Tokio, SQLx and async-graphql provide GraphQL queries alongside REST endpoints for account, billing and chat integrations.
 - **Data model:** PostgreSQL with TimescaleDB migrations models historical train positions, station data and time-series queries.
 - **Dashboard:** a React 19/Vite client provides live-map, station, history, analytics and account workflows.
@@ -45,7 +45,7 @@ The current implementation contains Stripe integration code. Any alternative bil
 
 Start at [docs/README.md](./docs/README.md). Useful entry points:
 
-- [Architecture](./docs/architecture.md)
+- [Architecture](./docs/ARCHITECTURE.md)
 - [Data ingestion](./docs/scraper.md)
 - [API](./docs/api.md)
 - [Dashboard](./docs/dashboard.md)
