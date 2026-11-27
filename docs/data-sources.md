@@ -18,7 +18,7 @@ track circuits / signal blocks
 - Stack: IIS + ASP.NET SOAP (`.asmx`), SQL Server.
 - HTTP headers: `Cache-Control: private, max-age=0`. Polling never hits a cache.
 - HTTPS endpoint exists but returns 500 on bare `GET` (it is a SOAP endpoint).
-- Documentation: none official; this doc and `private/analysis/*` are the institutional knowledge.
+- There is no official field guide. `private/` is gitignored, and this repository does not track `private/analysis`.
 
 ## Endpoints
 
@@ -58,29 +58,30 @@ All endpoints are case-sensitive.
 
 ### Station board fields (`getStationData...`)
 
+These are the element names `_insert_station_events` in `daemon.py` looks up. The lookup is case-sensitive. Older notes spelled several of them in Pascal case. The parser does not.
+
 ```
-ServerTime          response timestamp (volatile, strip before hashing)
-QueryTime           request echo timestamp (volatile, strip before hashing)
-TrainCode           unique train ID for the day
-TrainDate           service date (may cross midnight)
-StationCode         4–5 char code
-StationFullName     long station name
+Querytime           stored in query_time. Also stripped before the board hash
+Traincode           train id for the day
+Traindate           service date
 Origin              origin station name
 Destination         destination station name
-OriginTime          scheduled origin departure
-DestinationTime     scheduled destination arrival
-Status              status text (e.g. "Departed Drogheda")
-LastLocation        "Arrived/Departed <station>" (may be a signal block ID)
-DueIn               minutes until arrival
-Late                minutes late (negative for early)
-ExpArrival          expected arrival time          (00:00 if originating here)
-ExpDepart           expected departure time        (00:00 if terminating here)
-SchArrival          scheduled arrival time         (00:00 if originating here)
-SchDepart           scheduled departure time       (00:00 if terminating here)
-Direction           Northbound / Southbound / "To <Destination>"
-TrainType           DART / Intercity / etc.
-LocationType        O = Origin, D = Destination, S = Stop
+Origintime          scheduled origin departure
+Destinationtime     scheduled destination arrival
+Status              status text
+Lastlocation        last reported place. May be a signal block id
+Duein               minutes until arrival. Stored, and not part of the row fingerprint
+Late                minutes late. Negative means early
+Exparrival          expected arrival
+Expdepart           expected departure
+Scharrival          scheduled arrival
+Schdepart           scheduled departure
+Direction           direction text
+Traintype           train type text
+Locationtype        O, D, or S
 ```
+
+`<Servertime>` is stripped before the board hash and is not inserted. `getCurrentTrainsXML` is different. `fetch_trains` reads `TrainCode`, `TrainLatitude`, and `TrainLongitude`. `fetch_all_train_movements` reads `TrainCode` and `TrainDate`.
 
 ### Train movement fields (`getTrainMovementsXML`)
 
@@ -157,7 +158,7 @@ About **9.8%** of movement stops in the dataset are signal block IDs rather than
 | `getTrainMovementsXML` | event-driven | changes only when a train arrives or departs a stop |
 | `getHaconTrainsXML` | ~10s | same feed as current trains, richer fields |
 
-`ServerTime` and `QueryTime` change every single request. They must be stripped before hashing or content-based dedup is defeated. See [scraper.md](scraper.md#the-servertimequerytime-trap).
+`daemon.py` strips `<Servertime>` and `<Querytime>` before the station-board hash only. The other hashes do not strip them. See [scraper.md](scraper.md#the-servertimequerytime-trap).
 
 ## Weak coverage regions
 

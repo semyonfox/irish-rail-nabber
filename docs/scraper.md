@@ -35,15 +35,15 @@ These are the intervals in `daemon.py` `run`, not the upstream refresh times in 
 
 Hash-based, at the layers in `daemon.py`. HACON is a separate feed from the current-trains list.
 
-1. **Whole train list.** `fetch_trains` hashes the cleaned current-trains XML as one blob.
-2. **HACON.** `fetch_hacon` hashes the cleaned response, then fingerprints each train.
-3. **Per station.** `fetch_all_station_boards` hashes each station board on its own.
-4. **Per train at a station.** `_insert_station_events` fingerprints status, lateness, location, due-in, and expected times.
+1. **Whole train list.** `fetch_trains` hashes sorted `code:lat:lon` strings. A status or message change alone is not a new hash.
+2. **HACON.** `fetch_hacon` hashes the raw response, then fingerprints each train.
+3. **Per station.** `fetch_all_station_boards` hashes each station board after stripping `<Servertime>` and `<Querytime>`.
+4. **Per train at a station.** `_insert_station_events` fingerprints status, lateness, last location, and expected arrival and departure. Due-in is stored and is not in the fingerprint.
 5. **Per journey.** `_fetch_train_movements` hashes the stops for one `train_code` and `train_date`.
 
 ### The `Servertime`/`Querytime` trap
 
-Every Irish Rail response contains `<Servertime>` and `<Querytime>` tags that change every request — not real data. Hashing raw XML defeats dedup entirely because every poll appears "changed".
+Station board responses contain `<Servertime>` and `<Querytime>` tags that change every request. They are not train data. `fetch_all_station_boards` strips them before hashing. The other hashes do not. HACON hashes the raw response, so those tags would defeat that hash if the HACON feed includes them.
 
 The fix is in `daemon.py`:
 
@@ -59,95 +59,9 @@ This was the root cause of duplicate station_events rows before April 2026.
 
 ## Schema
 
-Schema lives in `schema.sql` and runs at container startup. Migrations under `migrations/` apply incrementally. The column lists below are shortened. Where a name disagrees with those SQL files, the SQL wins. Live rail compression is 2 days. `schema.sql` still schedules 7 days. See [ARCHITECTURE.md](ARCHITECTURE.md).
+`docker-entrypoint.sh` applies `schema.sql` and then every file in `migrations/` on every start of this branch's daemon image. Column names and types are those SQL files. `fetched_at` is `TIMESTAMP` without time zone. The HACON table is `train_snapshots_hacon` in `migrations/005_add_hacon_snapshots.sql`. There is no table named `hacon_snapshots`.
 
-### Reference
-
-```sql
-stations (
-    station_code      TEXT PRIMARY KEY,
-    name              TEXT,
-    latitude          DOUBLE PRECISION,
-    longitude         DOUBLE PRECISION,
-    station_type      TEXT          -- M, S, D
-)
-```
-
-### Hypertables (time-series)
-
-```sql
-train_snapshots (
-    train_code     TEXT,
-    train_date     DATE,
-    fetched_at     TIMESTAMPTZ,
-    train_status   TEXT,
-    latitude       DOUBLE PRECISION,
-    longitude      DOUBLE PRECISION,
-    public_message TEXT,
-    direction      TEXT,
-    train_type     TEXT
-)  -- hypertable by fetched_at
-
-station_events (
-    station_code   TEXT,
-    train_code     TEXT,
-    train_date     DATE,
-    fetched_at     TIMESTAMPTZ,
-    sch_arrival    TIME,
-    sch_depart     TIME,
-    exp_arrival    TIME,
-    exp_depart     TIME,
-    due_in         INT,
-    late           INT,
-    status         TEXT,
-    last_location  TEXT,
-    origin         TEXT,
-    destination    TEXT,
-    location_type  TEXT
-)  -- hypertable by fetched_at
-
-train_movements (
-    train_code         TEXT,
-    train_date         DATE,
-    location_code      TEXT,
-    location_full_name TEXT,
-    location_order     INT,
-    location_type      TEXT,            -- O, S, T, D
-    scheduled_arrival  TIME,
-    scheduled_depart   TIME,
-    arrival            TIME,
-    depart             TIME,
-    stop_type          TEXT,            -- C, N
-    fetched_at         TIMESTAMPTZ
-)  -- hypertable by fetched_at
-
-hacon_snapshots (
-    train_code            TEXT,
-    fetched_at            TIMESTAMPTZ,
-    last_location_type    TEXT,         -- A, D, E, T
-    last_location         TEXT,
-    next_location         TEXT,
-    train_origin          TEXT,
-    train_destination     TEXT,
-    train_origin_time     TIMESTAMPTZ,
-    train_destination_time TIMESTAMPTZ,
-    difference_seconds    INT,
-    scheduled_arrival     TIMESTAMPTZ,
-    scheduled_departure   TIMESTAMPTZ
-)  -- hypertable by fetched_at
-```
-
-### Audit
-
-```sql
-fetch_history (
-    endpoint      TEXT,
-    status        TEXT,            -- success, skipped, failed
-    error_msg     TEXT,
-    fetched_at    TIMESTAMPTZ,
-    rows_inserted INT
-)
-```
+Live rail compression is 2 days. `schema.sql` still schedules 7 days. See [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ### Storage policy
 
@@ -156,14 +70,7 @@ fetch_history (
 
 ## Daily volume (steady state)
 
-These rates were not remeasured on 27 November 2026. Live row estimates are in [ARCHITECTURE.md](ARCHITECTURE.md).
-
-| Table | Inserts/day | Notes |
-|-------|-------------|-------|
-| `train_snapshots` | ~50 k | 10s poll × ~40 trains × ~15% change rate |
-| `station_events` | ~100 k | 15s poll × 171 stations × ~10% change rate |
-| `train_movements` | ~5 k | event-driven, journey hash dedup |
-| `hacon_snapshots` | ~30 k | per-train dedup |
+An older draft of this page multiplied a 10 second train poll and a 15 second board poll. `daemon.py` polls both every 5 seconds. A full-table insert rate was not measured on 27 November 2026. Uncompressed chunk estimates in [ARCHITECTURE.md](ARCHITECTURE.md) cover only 25 November through 28 November. Compressed chunks have no positive row estimate.
 
 ## Known operational hazards
 
@@ -176,11 +83,11 @@ Fix options (pick one):
 2. Set `network_mode: host` for the daemon in `docker-compose.yml` (temporary, breaks isolation).
 3. Switch docker to nftables backend: `"iptables": false` in `/etc/docker/daemon.json`.
 
-Option 2 is what is currently deployed; option 1 is the correct long-term fix.
+Neither `docker-compose.yml` nor `/home/semyon/server-stacks/irish-rail/stack.yaml` sets `network_mode: host`. On 27 November 2026 the running daemon's network mode was `irish-rail-nabber_default`.
 
 ### Station board startup race
 
-`getAllStationsXML` runs once at boot to populate the station code list. If it fails, every subsequent station board poll is skipped with "no stations loaded" and the daemon silently stops collecting board data. The fix is to retry station fetch on a timer until it succeeds.
+`fetch_stations` runs at startup and again every 86400 seconds. If `station_codes` is empty, `fetch_all_station_boards` loads codes from the `stations` table. It logs "no stations loaded" and returns only when that table is empty too.
 
 ## Quick verification
 

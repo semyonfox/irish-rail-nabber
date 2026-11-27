@@ -6,37 +6,32 @@ The running API binary and the live `users` table are a Clerk and Polar build. S
 
 ## Tiers
 
-| Role | Price | Access |
+| Role | Price on `PricingPage.tsx` | What this branch actually gates |
 |------|-------|--------|
-| `free` | €0 | live map, station list, anonymous GraphQL, 1 000 req/day |
-| `coffee` | €5/mo | + analytics, historical queries, 10 000 req/day, chatbot (limited tokens) |
-| `pro` | €25/mo | + chatbot (high token budget), CSV/Parquet export, priority support |
-| `admin` | — | full access, user management |
+| `free` | EUR0 | Live map and stations. Default quota 25000 requests a day |
+| `coffee` | EUR25/mo | Analytics fields and `/chat`. Default quota 100000 requests a day |
+| `pro` | EUR75/mo | Same paid fields as coffee. `rate_limit.rs` treats `pro` and `admin` as unlimited when those roles are in `API_RATE_LIMIT_UNLIMITED_ROLES` |
+| `admin` | not listed on the pricing page | Same unlimited default as `pro`. There is no admin user-management route |
 
-Tier checks live in three places:
+`dashboard/src/billing/PricingPage.tsx` shows those three prices. It does not show EUR5 or EUR25 for the paid plans. Chat limits are process-wide environment values in `api/src/chat.rs`. There is no per-role token budget, no CSV or Parquet export, and no admin route in `api/src/main.rs`.
 
-- Per-resolver in the Rust API for paywalled GraphQL fields ([api.md](api.md#auth-in-resolvers)).
-- At the chatbot service entrypoint, which rejects `free` outright ([chatbot.md](chatbot.md#rate-limiting-and-cost-control)).
+Tier checks in this branch:
 
-Authentication routes (`/auth/login`, `/auth/register`, `/auth/refresh`, and `/auth/logout`) are
-outside the daily GraphQL usage quota. The default quota is sized for the polling dashboard:
-25,000 requests/day for free accounts and 100,000 requests/day for coffee accounts; pro and admin
-roles are unlimited. Deployments can override these values with the existing
-`API_RATE_LIMIT_*_TIER_LIMIT` environment variables.
-- In the dashboard's `ProtectedRoute` for paid pages ([dashboard.md](dashboard.md#auth-flow)).
+- `ensure_premium` in `api/src/schema/analytics.rs` for the paywalled GraphQL fields.
+- `chat` in `api/src/chat.rs` returns 401 with no user and 403 for `free`.
+- `dashboard/src/auth/ProtectedRoute.tsx` checks that a user exists. It does not read the role. `/history`, `/chat`, and `/account` use it. `/analytics` does not.
+
+Authentication routes are outside the GraphQL rate-limit middleware. Deployments can override the quotas with `API_RATE_LIMIT_FREE_TIER_LIMIT` and `API_RATE_LIMIT_COFFEE_TIER_LIMIT`. The defaults in `api/src/rate_limit.rs` are 25000 and 100000.
 
 ## Schema
 
 ```sql
 users (
     id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    email                    TEXT UNIQUE NOT NULL,
+    email                    TEXT NOT NULL,
     password_hash            TEXT NOT NULL,             -- argon2id
     display_name             TEXT,
     role                     TEXT NOT NULL DEFAULT 'free',
-    polar_customer_id        TEXT UNIQUE,
-    polar_subscription_id    TEXT,
-    -- legacy, populated only on accounts migrated from the Stripe era
     stripe_customer_id       TEXT UNIQUE,
     stripe_subscription_id   TEXT,
     created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -52,7 +47,7 @@ refresh_tokens (
 );
 ```
 
-The original migration is `migrations/004_add_users_and_auth.sql`. The Polar columns are added by a follow-up migration once the provider switch lands.
+The original migration is `migrations/004_add_users_and_auth.sql`. `email` is not a column unique constraint. That file adds a unique index on `LOWER(email)`. The live `users` table also has Clerk and Polar columns. Those are not in this migration. See [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Token rotation
 
@@ -79,11 +74,11 @@ Auth endpoints (REST, JSON):
 
 | Path | Body | Returns | Notes |
 |------|------|---------|-------|
-| `POST /auth/register` | `{ email, password, display_name? }` | `201 { user }` + cookies | password ≥ 8 chars |
-| `POST /auth/login` | `{ email, password }` | `200 { user }` + cookies | 401 on bad creds (no field-specific hints) |
-| `POST /auth/refresh` | — (refresh cookie) | `200 { user }` + rotated cookies | 401 on expired or unknown |
-| `POST /auth/logout` | — (access cookie) | `200 {}` + cleared cookies | revokes all refresh tokens for user |
-| `GET /auth/me` | — (access cookie) | `200 { user, polar_customer_id?, created_at }` | |
+| `POST /auth/register` | `{ email, password, display_name? }` | `201` and a flat user object plus cookies | password at least 8 chars |
+| `POST /auth/login` | `{ email, password }` | `200` and a flat user object plus cookies | 401 on bad creds |
+| `POST /auth/refresh` | refresh cookie | `200` and a flat user object plus rotated cookies | 401 on expired or unknown |
+| `POST /auth/logout` | access cookie | `200` with an empty body and cleared cookies | revokes all refresh tokens for the user |
+| `GET /auth/me` | access cookie | flat `MeResponse`, including `stripe_customer_id` and `created_at` | not wrapped in `user`, and not `polar_customer_id` |
 
 Billing endpoints:
 
@@ -152,7 +147,7 @@ It can be ripped out cleanly once Polar is live and no production users have an 
 3. Update env in `docker-compose.yml` and `.env.local`.
 4. Confirm no live Stripe subscriptions, then drop Stripe columns and remove `async-stripe` from `api/Cargo.toml`.
 
-The same dashboard pages (`PricingPage`, `AccountPage`) work for either provider — they only call `/billing/checkout` and `/billing/portal`.
+`PricingPage.tsx` reads `VITE_STRIPE_COFFEE_PRICE_ID` and `VITE_STRIPE_PRO_PRICE_ID`. The page is Stripe-specific. It posts to `/billing/checkout`.
 
 ## Security notes
 

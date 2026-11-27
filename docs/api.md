@@ -8,7 +8,7 @@ Rust service built on Axum 0.8. Exposes a public GraphQL query layer and REST en
 |------|--------|------|---------|
 | `/graphql` | GET | none | Playground UI |
 | `/graphql` | POST | optional cookie | Query the live data |
-| `/chat` | POST | optional cookie, rate limited | Assistant in `api/src/chat.rs` |
+| `/chat` | POST | paid role | 401 with no user, 403 for `free`. Handler in `api/src/chat.rs` |
 | `/auth/register` | POST | none | Create account |
 | `/auth/login` | POST | none | Issue tokens |
 | `/auth/refresh` | POST | refresh cookie | Rotate tokens |
@@ -45,7 +45,7 @@ api/src/
 │   └── handlers.rs  checkout / portal / webhook
 └── schema/
     ├── mod.rs       MergedObject root query + build_schema
-    ├── types.rs     scalar mappings
+    ├── types.rs     GraphQL object types such as Station and TrainPosition
     ├── station.rs   station resolvers
     ├── train.rs     train + movement resolvers
     └── analytics.rs gated analytics resolvers
@@ -132,7 +132,7 @@ See [auth-billing.md](auth-billing.md) for token lifetimes, rotation, and cookie
 
 ## Environment
 
-The API reads `.env.local` first, then `.env`. Required:
+The API reads `.env.local` first, then `.env`. Only `DATABASE_URL` is required. `api/src/db/mod.rs` stops if it is missing. The other names below have defaults. Free and coffee rate limits default to 25000 and 100000 in `api/src/rate_limit.rs`. `docker-compose.yml` sets those same defaults.
 
 ```
 DATABASE_URL=postgres://irish_data:secure_password@db:5432/ireland_public
@@ -142,13 +142,13 @@ JWT_REFRESH_EXPIRY=604800
 COOKIE_SECURE=true
 CORS_ORIGINS=https://traein.semyon.ie
 APP_URL=https://traein.semyon.ie
-API_RATE_LIMIT_FREE_TIER_LIMIT=1000
-API_RATE_LIMIT_COFFEE_TIER_LIMIT=10000
+API_RATE_LIMIT_FREE_TIER_LIMIT=25000
+API_RATE_LIMIT_COFFEE_TIER_LIMIT=100000
 API_RATE_LIMIT_UNLIMITED_ROLES=pro,admin
 API_RATE_LIMIT_IP_SALT=rail-salt
 ```
 
-Provider-specific keys (Polar or Stripe) are in [auth-billing.md](auth-billing.md).
+This branch's billing handlers read `STRIPE_*`. See [auth-billing.md](auth-billing.md).
 
 ## Building and running
 
@@ -164,6 +164,6 @@ Inside the compose stack the service is named `api`, exposes `8000` on the docke
 
 - [auth-billing.md](auth-billing.md) — register/login flow, Polar checkout, role gating
 - [dashboard.md](dashboard.md) — how the frontend consumes the API
-- [chatbot.md](chatbot.md) — how the chatbot wraps GraphQL as MCP tools
+- [chatbot.md](chatbot.md). That page describes an MCP wrapper. `api/src/chat.rs` sends OpenAI-style tool definitions and runs GraphQL in process. This branch has no MCP server.
 - [scraper.md](scraper.md#schema) — the underlying schema being queried
 - [data-sources.md](data-sources.md) — upstream field semantics

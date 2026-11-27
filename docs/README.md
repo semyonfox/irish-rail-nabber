@@ -29,5 +29,5 @@ Historical design specs and the step-by-step implementation plans that produced 
 
 ## Top-level pointers
 
-- [../README.md](../README.md) — project pitch and quick-start
+- [../README.md](../README.md). Project pitch and links into this folder. There is no quick-start section.
 - [../ROADMAP.md](../ROADMAP.md) — phases and revenue plan
