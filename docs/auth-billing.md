@@ -1,6 +1,8 @@
 # Auth and Billing
 
-Custom email/password auth in Rust. [Polar.sh](https://polar.sh) for subscription billing — chosen over Stripe because Polar acts as the merchant of record and handles EU VAT (and US sales tax) automatically. The original implementation targeted Stripe; that code is still in the tree and works, but Polar is the path forward. See [Stripe legacy](#stripe-legacy) for the migration.
+This branch authenticates with email and password JWTs in `api/src/auth/`. Billing handlers in `api/src/billing/handlers.rs` call Stripe. Migration `004` has Stripe columns and no Polar columns.
+
+The running API binary and the live `users` table are a Clerk and Polar build. See [ARCHITECTURE.md](ARCHITECTURE.md). The Polar sections below describe that intended design. They are not what `handlers.rs` does on this branch.
 
 ## Tiers
 

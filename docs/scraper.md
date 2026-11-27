@@ -1,6 +1,6 @@
 # Scraper (daemon)
 
-The Python daemon polls the Irish Rail Realtime API on a fixed cadence, deduplicates by content hash, and writes time-series rows to TimescaleDB. It is the only writer of the live data tables.
+The Python daemon polls the Irish Rail Realtime API on a fixed cadence, deduplicates by content hash, and writes time-series rows to TimescaleDB. On this branch it is the only process that writes those rail tables. Production also runs a bus daemon and a weather and traffic collector. See [ARCHITECTURE.md](ARCHITECTURE.md).
 
 For upstream API behaviour and field semantics, see [data-sources.md](data-sources.md).
 
@@ -19,24 +19,27 @@ Position data is signal-block-triggered, not continuous GPS. Newer rolling stock
 
 ## Polling intervals
 
-Benchmarked April 2026. Earlier 3s intervals were ~75% wasted.
+These are the intervals in `daemon.py` `run`, not the upstream refresh times in [data-sources.md](data-sources.md).
 
-| Resource | Interval | Why |
-|----------|----------|-----|
-| Train positions (`getCurrentTrainsXML`) | 10s | matches the ~10s server-side refresh |
-| Station boards (`getStationDataByCodeXML`) | 15s | bulk flush is ~60s but busy stations trickle ~15–30s |
-| Train movements (`getTrainMovementsXML`) | 60s | event-driven; changes only on arrival/departure |
-| Station reference (`getAllStationsXML`) | 24h | static |
-| HACON enriched feed (`getHaconTrainsXML`) | 10s | same cadence, richer fields per train |
+| Resource | Interval | Task name |
+|----------|----------|-----------|
+| Train positions (`getCurrentTrainsXML`) | 5s | `trains` |
+| Station boards (`getStationDataByCodeXML`) | 5s | `boards` |
+| Train movements (`getTrainMovementsXML`) | 60s | `movements` |
+| Station reference (`getAllStationsXML`) | 24h | `stations` |
+| HACON enriched feed (`getHaconTrainsXML`) | 5s | `hacon` |
+
+`schema.sql` still seeds `fetch_schedules` at 3 seconds for trains and boards. The daemon does not read that table.
 
 ## Deduplication
 
-Hash-based at four granularities. Without this, the database would grow ~10× faster with identical rows.
+Hash-based, at the layers in `daemon.py`. HACON is a separate feed from the current-trains list.
 
-1. **Whole-endpoint** — the trains XML is hashed as one blob.
-2. **Per-station** — each of the 171 station boards is hashed independently.
-3. **Per-train-per-station** — station events are fingerprinted by `(status, late, location, due_in, expected times)` minus volatile fields.
-4. **Per-journey** — `train_movements` is hashed per `(train_code, train_date)`.
+1. **Whole train list.** `fetch_trains` hashes the cleaned current-trains XML as one blob.
+2. **HACON.** `fetch_hacon` hashes the cleaned response, then fingerprints each train.
+3. **Per station.** `fetch_all_station_boards` hashes each station board on its own.
+4. **Per train at a station.** `_insert_station_events` fingerprints status, lateness, location, due-in, and expected times.
+5. **Per journey.** `_fetch_train_movements` hashes the stops for one `train_code` and `train_date`.
 
 ### The `Servertime`/`Querytime` trap
 
@@ -56,7 +59,7 @@ This was the root cause of duplicate station_events rows before April 2026.
 
 ## Schema
 
-Schema lives in `schema.sql` and runs at container startup. Migrations under `migrations/` apply incrementally.
+Schema lives in `schema.sql` and runs at container startup. Migrations under `migrations/` apply incrementally. The column lists below are shortened. Where a name disagrees with those SQL files, the SQL wins. Live rail compression is 2 days. `schema.sql` still schedules 7 days. See [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ### Reference
 
@@ -152,6 +155,8 @@ fetch_history (
 - No automatic row-retention policy is defined in the checked-in schema or migrations. Plan storage and backups accordingly; verify runtime policy settings separately.
 
 ## Daily volume (steady state)
+
+These rates were not remeasured on 27 November 2026. Live row estimates are in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 | Table | Inserts/day | Notes |
 |-------|-------------|-------|

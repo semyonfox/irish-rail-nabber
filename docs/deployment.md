@@ -1,6 +1,6 @@
 # Deployment
 
-The stack runs from a single `docker-compose.yml`. Production today is a home server fronted by Cloudflare Tunnel at `traein.semyon.ie`. Cloud options below.
+`docker-compose.yml` in this repository is the local service list. Production runs from `/home/semyon/server-stacks/irish-rail/stack.yaml`, which adds a bus daemon, a one-off migrate container, and a fixed edge network. The public name is still `traein.semyon.ie`. Read [ARCHITECTURE.md](ARCHITECTURE.md) before recreating the database container. The server-stacks README says the live data is on an anonymous volume, and that `irish_rail_db` should not be recreated until that mount is repaired.
 
 For backups and disaster recovery procedures see [Recovery](#backups-and-recovery).
 
@@ -16,7 +16,7 @@ cloudflared   cloudflare/cloudflared:latest          edge tunnel
 
 `db` is the only stateful service (volume `postgres_data`). Everything else is stateless and can be rebuilt at will.
 
-Service responsibilities are described in [architecture.md](architecture.md#service-responsibilities).
+This list is `docker-compose.yml`. The running services are in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Env template
 
@@ -135,45 +135,16 @@ See [ROADMAP.md](../ROADMAP.md) for revenue phasing.
 
 ## Backups and recovery
 
-The full disaster-recovery plan, including verification queries and emergency procedures, is at `private/RECOVERY_PLAN.md` (gitignored). Summary here.
+`backup-db.sh` in this repository writes hourly and daily gzip dumps on the host. It is not the job that runs in production. There is no `recover.sh` in this repository.
 
-### Backup schedule
+Production has two copies.
 
-- **Hourly**: `pg_dump | gzip` to `backups/hourly/`, keep last 6.
-- **Daily 02:00**: `pg_dump | gzip` to `backups/daily/`, keep indefinitely.
-- Driven by cron on the host, script `backup-db.sh`.
+- **02:00 daily.** `/etc/cron.d/server-stacks-backups` runs `/home/semyon/server-stacks/backups/scripts/irish-rail-db-backup.sh`. That writes a custom-format dump and a globals dump on the NAS, checks the dump with `pg_restore --list`, then archives the raw files into the NAS restic repository and deletes only verified originals.
+- **04:30 daily.** The user timer `irish-rail-offsite-backup.timer` runs `/home/semyon/server-stacks/backups/scripts/irish-rail-offsite-backup.sh`. That copies the newest NAS snapshot to Backblaze B2 and snapshots the bus GTFS archive. B2 retention is 14 daily, 8 weekly, 12 monthly, and 3 yearly copies.
 
-### Targets
+Restore rules, including the instruction to rehearse only on a disposable database, are in `/home/semyon/server-stacks/docs/backup/IRISH_RAIL_REPOSITORY.md`. Do not restore into `ireland_public`.
 
-| Metric | Target | Current |
-|--------|--------|---------|
-| RPO (max data loss) | < 1 h | < 1 h (hourly) |
-| RTO (recovery time) | < 15 min | ~5–10 min |
-
-### Restore (most common)
-
-```bash
-ssh semyon@server
-docker stop irish_rail_daemon
-
-BACKUP=$(ls -t backups/hourly/*.sql.gz | head -1)
-gunzip -c "$BACKUP" > /tmp/restore.sql
-
-docker exec -i irish_rail_db psql -U irish_data -d postgres \
-  -c "DROP DATABASE IF EXISTS ireland_public; CREATE DATABASE ireland_public;"
-docker exec -i irish_rail_db psql -U irish_data -d ireland_public < /tmp/restore.sql
-docker start irish_rail_daemon
-```
-
-Then run the verification queries from [testing.md](testing.md).
-
-### Monthly test
-
-```bash
-./recover.sh test    # restores latest backup to ireland_public_test, leaves prod untouched
-```
-
-This must pass once a month. If it has not run in 30 days, the next restore is unverified.
+Service responsibilities in the running stack are in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Logs
 
@@ -194,7 +165,7 @@ docker exec -i irish_rail_db psql -U irish_data -d ireland_public \
 
 ## Related docs
 
-- [architecture.md](architecture.md) — service topology
+- [ARCHITECTURE.md](ARCHITECTURE.md). Service topology.
 - [scraper.md](scraper.md) — known networking issues, daemon behaviour
 - [api.md](api.md) — Rust service env
 - [auth-billing.md](auth-billing.md) — Polar/Stripe env

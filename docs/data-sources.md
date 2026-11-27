@@ -1,6 +1,6 @@
 # Data Sources
 
-The project is fed by one upstream: the Irish Rail Realtime API at `http://api.irishrail.ie/realtime/realtime.asmx`. Everything else (network graph, analysis) is derived from data this API produced.
+This branch collects from one upstream: the Irish Rail Realtime API at `http://api.irishrail.ie/realtime/realtime.asmx`. Network graphs and the analysis notes are derived from that feed. Production also collects National Transport GTFS and GTFS-RT, Met Éireann, TII traffic counters, and Irish Rail connect notices. Those collectors are not in this branch. See [ARCHITECTURE.md](ARCHITECTURE.md).
 
 For how the daemon polls it, see [scraper.md](scraper.md). For where the data ends up, see [scraper.md#schema](scraper.md#schema).
 

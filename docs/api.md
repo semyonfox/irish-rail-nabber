@@ -7,18 +7,22 @@ Rust service built on Axum 0.8. Exposes a public GraphQL query layer and REST en
 | Path | Method | Auth | Purpose |
 |------|--------|------|---------|
 | `/graphql` | GET | none | Playground UI |
-| `/graphql` | POST | optional | Query the live data |
+| `/graphql` | POST | optional cookie | Query the live data |
+| `/chat` | POST | optional cookie, rate limited | Assistant in `api/src/chat.rs` |
 | `/auth/register` | POST | none | Create account |
 | `/auth/login` | POST | none | Issue tokens |
 | `/auth/refresh` | POST | refresh cookie | Rotate tokens |
 | `/auth/logout` | POST | access cookie | Revoke session |
+| `/auth/session` | GET | optional cookie | Session probe |
 | `/auth/me` | GET | access cookie | Current user |
-| `/billing/checkout` | POST | access cookie | Polar checkout session |
-| `/billing/portal` | POST | access cookie | Polar customer portal |
-| `/billing/webhook` | POST | provider signature | Subscription state sync |
+| `/billing/checkout` | POST | access cookie | Stripe checkout session |
+| `/billing/portal` | POST | access cookie | Stripe customer portal |
+| `/billing/limits` | GET | none | Tier limits from environment |
+| `/billing/usage` | GET | access cookie | Usage |
+| `/billing/webhook` | POST | `stripe-signature` | Subscription state sync |
 | `/health` | GET | none | Liveness probe |
 
-Auth + billing details live in [auth-billing.md](auth-billing.md).
+Routes are wired in `api/src/main.rs`. Checkout, portal, and the webhook call Stripe from `api/src/billing/handlers.rs`. `limits` does not read the cookie. The running API binary is a Clerk and Polar build. See [ARCHITECTURE.md](ARCHITECTURE.md). [auth-billing.md](auth-billing.md) describes Polar as the intended billing path. The handlers in this branch still call Stripe.
 
 ## Module layout
 
@@ -60,34 +64,34 @@ Examples:
 
 ```graphql
 query LiveTrains {
-  recentTrains(hours: 1) {
+  liveTrains {
     trainCode
     latitude
     longitude
     direction
-    late
   }
 }
 
 query StationBoard {
-  stationBoard(code: "CNLLY") {
+  stationBoard(stationCode: "CNLLY", limit: 20) {
     trainCode
-    schArrival
-    expArrival
-    late
+    scheduledArrival
+    expectedArrival
+    lateMinutes
     status
   }
 }
 
-# gated to coffee/pro/admin roles
 query DelayHistory {
-  delayHistory(stationCode: "GLWY", days: 7) {
+  delayHistory(stationCode: "GLWY", hours: 168, bucket: "hour") {
     bucket
-    meanDelayMinutes
-    p95DelayMinutes
+    avgLateMinutes
+    p95LateMinutes
   }
 }
 ```
+
+`delayHistory` is rejected unless the caller has role `coffee`, `pro`, or `admin`. The check is `ensure_premium` in `api/src/schema/analytics.rs`.
 
 ### Auth in resolvers
 
@@ -97,19 +101,7 @@ The middleware extracts the access-token cookie into `Option<AuthUser>` on every
 state.schema.execute(req.into_inner().data(auth_user)).await
 ```
 
-A resolver opts in:
-
-```rust
-async fn delay_history(&self, ctx: &Context<'_>, ...) -> Result<Vec<DelayBucket>> {
-    let user = ctx.data::<Option<AuthUser>>().ok().and_then(|u| u.as_ref());
-    match user {
-        Some(u) if u.role != "free" => { /* query */ }
-        _ => Err("Paid plan required".into()),
-    }
-}
-```
-
-This keeps anonymous queries working while letting individual fields enforce a paywall.
+`ensure_premium` in `api/src/schema/analytics.rs` allows `coffee`, `pro`, and `admin`. A signed-in `free` user gets `coffee or pro subscription required`. A missing user gets `authentication required`. Anonymous queries still work for fields that do not call it.
 
 ### Numeric query bounds
 
