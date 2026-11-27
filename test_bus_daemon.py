@@ -733,8 +733,28 @@ class StopUpdatePersistenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(state_calls[0][1][0]), 18)
         self.assertEqual(live_calls[0][1][0][-1], "sequence:1")
         self.assertEqual(delay_calls[0][1][0][-2], 10)
+        self.assertNotIn("bus_trips", delay_calls[0][0])
         self.assertEqual(len(freshness_calls[0][1][0]), 5)
         self.assertEqual(len(daemon._previous_update_hashes), 1)
+
+    async def test_delay_sample_without_a_route_still_reads_the_timetable(self) -> None:
+        daemon = NtaBusDaemon("unused", write_legacy_stop_updates=False)
+        pool = _RecordingPool()
+        daemon.pool = pool
+        feed = self._feed(10)
+        update = replace(feed.stop_updates[0], route_id=None)
+        fetched_at = datetime(2026, 9, 13, tzinfo=timezone.utc)
+
+        await daemon._insert_trip_updates(
+            1, (update,), feed.trip_freshness, fetched_at
+        )
+
+        delay_calls = [
+            call for call in pool.calls if "INSERT INTO bus_delay_samples" in call[0]
+        ]
+        self.assertEqual(len(delay_calls), 1)
+        self.assertIn("bus_trips", delay_calls[0][0])
+        self.assertEqual(delay_calls[0][1][0][3], "trip")
 
     async def test_restart_uses_persisted_live_hash_to_skip_unchanged_state(self) -> None:
         daemon = NtaBusDaemon("unused")

@@ -241,14 +241,13 @@ impl BusQuery {
                 JOIN bus_trip_update_freshness freshness
                     ON freshness.feed_version_id = update.feed_version_id
                    AND freshness.trip_instance_key = update.trip_instance_key
-                LEFT JOIN bus_stop_times identified_stop
-                    ON identified_stop.feed_version_id = update.feed_version_id
-                   AND identified_stop.trip_id = update.trip_id
-                   AND identified_stop.stop_sequence = update.stop_sequence
                 LEFT JOIN fetch_schedules poll_schedule
                     ON poll_schedule.endpoint = 'nta_realtime'
                 WHERE feed.is_active
-                  AND COALESCE(update.stop_id, identified_stop.stop_id) = $1
+                  -- stop_id equality can use bus_stop_live_stop. coalescing
+                  -- with the timetable forced a scan of every live row, and
+                  -- the live table currently has no null stop ids.
+                  AND update.stop_id = $1
                   AND UPPER(freshness.schedule_relationship) NOT IN (
                         'CANCELED', 'CANCELLED', 'DELETED'
                   )

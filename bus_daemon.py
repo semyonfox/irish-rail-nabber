@@ -2432,10 +2432,23 @@ class NtaBusDaemon:
                 if await cursor.fetchone() is None:
                     return None
 
+                # one index probe per endpoint. IN (...) ORDER BY fetched_at
+                # walks every row those endpoints have ever stored.
                 latest_cursor = await connection.execute(
                     """SELECT endpoint
-                       FROM fetch_history
-                       WHERE endpoint IN (%s, %s)
+                       FROM (
+                           (SELECT endpoint, fetched_at, id
+                              FROM fetch_history
+                             WHERE endpoint = %s
+                             ORDER BY fetched_at DESC, id DESC
+                             LIMIT 1)
+                           UNION ALL
+                           (SELECT endpoint, fetched_at, id
+                              FROM fetch_history
+                             WHERE endpoint = %s
+                             ORDER BY fetched_at DESC, id DESC
+                             LIMIT 1)
+                       ) latest
                        ORDER BY fetched_at DESC, id DESC
                        LIMIT 1""",
                     ("nta_trip_updates", "nta_vehicles"),
@@ -2559,7 +2572,20 @@ class NtaBusDaemon:
                 END,
                 update_hash = EXCLUDED.update_hash,
                 last_seen_at = EXCLUDED.last_seen_at"""
-        delay_statement = """WITH incoming
+        # the realtime filter already resolved route_id from the active
+        # timetable. joining bus_trips again probed a 16M-row index once per
+        # changed stop. route_id is NOT NULL, so a missing route still has to
+        # be filled from the timetable or the row is dropped.
+        delay_statement = """INSERT INTO bus_delay_samples
+            (feed_version_id, trip_instance_key, stop_key, route_id,
+             delay_seconds, last_seen_at)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (feed_version_id, trip_instance_key, stop_key)
+            DO UPDATE SET
+                route_id = EXCLUDED.route_id,
+                delay_seconds = EXCLUDED.delay_seconds,
+                last_seen_at = EXCLUDED.last_seen_at"""
+        delay_lookup_statement = """WITH incoming
             (feed_version_id, trip_instance_key, stop_key, trip_id, route_id,
              delay_seconds, last_seen_at)
             AS (VALUES (%s, %s, %s, %s, %s, %s, %s))
@@ -2628,21 +2654,38 @@ class NtaBusDaemon:
                         for batch in _chunks(live_rows, INSERT_BATCH_ROWS):
                             await cursor.executemany(live_statement, batch)
 
-                        delay_rows = [
-                            (
-                                feed_version_id,
-                                update.trip_instance_key,
-                                update.stop_key,
-                                update.trip_id,
-                                update.route_id,
-                                update.delay_seconds,
-                                fetched_at,
-                            )
-                            for update in changed
-                            if update.delay_seconds is not None
-                        ]
+                        delay_rows = []
+                        delay_lookups = []
+                        for update in changed:
+                            if update.delay_seconds is None:
+                                continue
+                            if update.route_id is None:
+                                delay_lookups.append(
+                                    (
+                                        feed_version_id,
+                                        update.trip_instance_key,
+                                        update.stop_key,
+                                        update.trip_id,
+                                        update.route_id,
+                                        update.delay_seconds,
+                                        fetched_at,
+                                    )
+                                )
+                            else:
+                                delay_rows.append(
+                                    (
+                                        feed_version_id,
+                                        update.trip_instance_key,
+                                        update.stop_key,
+                                        update.route_id,
+                                        update.delay_seconds,
+                                        fetched_at,
+                                    )
+                                )
                         for batch in _chunks(delay_rows, INSERT_BATCH_ROWS):
                             await cursor.executemany(delay_statement, batch)
+                        for batch in _chunks(delay_lookups, INSERT_BATCH_ROWS):
+                            await cursor.executemany(delay_lookup_statement, batch)
 
                         freshness_rows = [
                             trip.database_row(feed_version_id, fetched_at)
