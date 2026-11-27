@@ -1,6 +1,6 @@
 # Architecture
 
-Read this before changing ingestion, the database, or the public site. `main` is the trunk. This page is the longer map. [architecture.md](architecture.md) is the short one. Bus collection is in [buses.md](buses.md). Weather and traffic are in [context-data.md](context-data.md). `origin/dev` is 137 commits behind `origin/main` and is not where new work lands.
+Read this before changing ingestion, the database, or the public site. `main` is the trunk. This page is the longer map. [architecture.md](architecture.md) is the short one. Bus collection is in [buses.md](buses.md). Weather and traffic are in [context-data.md](context-data.md). After a fetch on 27 November 2026, `origin/dev` at `1b2681a` contains `origin/main` and is 13 commits ahead of it, including pull requests 120 and 121. New work still lands on `main`.
 
 A claim names the file it comes from. A sentence that starts with Inference. is a conclusion from those files, not a line of code.
 
@@ -56,7 +56,7 @@ This branch's collector calls these methods:
 
 `schema.sql` inserts `fetch_schedules` rows of 3 seconds for trains and station boards. The rail loop in `daemon.py` does not read that table. `bus_daemon.py` uses `fetch_schedules` to reserve the NTA realtime slot.
 
-The same running file polls `https://connect.irishrail.ie` for customer notices when `RAIL_NOTICES` is exactly `1`. Any other value turns the poll off. The variable was unset in the container, so the default `"1"` in `/app/daemon.py` applies and the poll is on. The homepage is scraped for an API key. That key is not written here.
+`daemon.py` polls `https://connect.irishrail.ie` for customer notices when `RAIL_NOTICES` is exactly `1`. Any other value turns the poll off. The default in that file is `"1"`. The variable was unset in the running container, so the poll is on. The homepage is scraped for an API key. That key is not written here.
 
 ### GTFS and GTFS-RT for buses
 
@@ -66,7 +66,7 @@ Static GTFS comes from `NTA_GTFS_URL`. In the running container that is `https:/
 
 `bus_daemon.py` keeps agencies, routes, trips, stop times, stops, and shapes for bus and coach route types. The feed source string in that file is `nta_gtfs`.
 
-GTFS-RT uses the National Transport Authority JSON API. Defaults in `/app/bus_daemon.py`:
+GTFS-RT uses the National Transport Authority JSON API. Defaults in `bus_daemon.py`:
 
 | Feed | Default URL |
 | --- | --- |
@@ -86,7 +86,9 @@ NTA allows one realtime request per 60 seconds. The bus daemon reserves the next
 
 ## Daemon schedule
 
-### This branch, `daemon.py`
+### Rail daemon
+
+`daemon.py` `run` starts every task below. `TYPE_MAP_REFRESH_INTERVAL` is 300 seconds. That refreshes the train-type map used while writing snapshots. It is not its own scheduled task. The running `irish_rail_daemon` image matches this commit for `daemon.py`.
 
 | Task | Every | Work |
 | --- | --- | --- |
@@ -97,18 +99,7 @@ NTA allows one realtime request per 60 seconds. The bus daemon reserves the next
 | `stations` | 86400 seconds | Station reference |
 | `hash-cleanup` | 3600 seconds | Drop dedup hashes for trains that are no longer active |
 | `history-rollups` | 300 seconds | Refresh `delay_history_hourly` for the last two hours |
-
-`TYPE_MAP_REFRESH_INTERVAL` is 300 seconds. That refreshes the train-type map used while writing snapshots. It is not its own scheduled task.
-
-`docs/scraper.md` used to list 10 second and 15 second polls. The `run` method does not. The upstream refresh notes in [data-sources.md](data-sources.md) are about the Irish Rail side, not this loop.
-
-### More tasks in `daemon.py` `run`
-
-These are in this file, and the running `irish_rail_daemon` image matches this commit for `daemon.py`.
-
-| Task | Every | Work |
-| --- | --- | --- |
-| `fetch-history-retention` | 3600 seconds | Delete `fetch_history` older than 30 days, 50000 rows at a time |
+| `fetch-history-retention` | 3600 seconds | `prune_fetch_history` deletes `fetch_history` older than 30 days, 50000 rows at a time |
 | `alert-impacts` | 900 seconds | Notice impact rollups |
 | `rail-segments` | 3600 seconds | Finished service days into segment and dwell totals, a few days per run |
 | `service-alerts` | 120 seconds | `connect.irishrail.ie`, only when notices are enabled |
@@ -120,9 +111,11 @@ These are in this file, and the running `irish_rail_daemon` image matches this c
 | `tii-yearly` | 3600 seconds | Yearly AADT, sites rechecked after 7 days |
 | `tii-bulk` | 3600 seconds | Bulk daily class counts |
 
-### Running bus container
+`docs/scraper.md` used to list 10 second and 15 second polls. The `run` method does not. The upstream refresh notes in [data-sources.md](data-sources.md) are about the Irish Rail side, not this loop.
 
-Read from `/app/bus_daemon.py` in `irish_bus_daemon`, with the container environment above.
+### Bus daemon
+
+Intervals below are the defaults in `bus_daemon.py`. The running container can override them with `BUS_STATIC_REFRESH_SECONDS` and `BUS_REALTIME_INTERVAL_SECONDS`. Those two were 86400 and 60 on 27 November 2026.
 
 | Task | Every | Work |
 | --- | --- | --- |
@@ -138,9 +131,9 @@ Database name `ireland_public`. User `irish_data`. Both are in `docker-compose.y
 
 TimescaleDB is enabled by `schema.sql`. Live server version is PostgreSQL 18.3 with TimescaleDB 2.25.2.
 
-### Tables this branch defines
+### Tables this repository defines
 
-`schema.sql` creates the rail tables. Later migrations add columns, drop indexes, add accounts, add HACON, add API usage, add query indexes, and add `delay_history_hourly`.
+`schema.sql` creates the rail tables. Migrations `001` through `008` add columns, drop indexes, add accounts, add HACON, add API usage, add query indexes, and add `delay_history_hourly`. Migrations `009` through `025` add Clerk, Polar, the bus tables, alerts, segment rollups, and the weather and traffic tables. Those definitions are in `migrations/`. The sizes further down were read from the live database. They are not a second schema.
 
 | Table | Kind in this branch | Role |
 | --- | --- | --- |
@@ -150,17 +143,17 @@ TimescaleDB is enabled by `schema.sql`. Live server version is PostgreSQL 18.3 w
 | `train_movements` | hypertable on `fetched_at` | Stops from `getTrainMovementsXML` |
 | `train_snapshots_hacon` | hypertable on `fetched_at` | `migrations/005_add_hacon_snapshots.sql` |
 | `fetch_history` | ordinary | One row per upstream call |
-| `fetch_schedules` | ordinary | Seeded in `schema.sql`. Unused by this branch's daemon |
+| `fetch_schedules` | ordinary | Seeded in `schema.sql`. The rail loop does not read it. `bus_daemon.py` reserves the NTA slot in it |
 | `delay_history_hourly` | ordinary | Hourly delay rollup. `migrations/008_delay_history_rollups.sql` |
 | `hourly_delays` | continuous aggregate | From `station_events`, refreshed every 5 minutes in `schema.sql` |
 | `users`, `refresh_tokens` | ordinary | `migrations/004_add_users_and_auth.sql`. Roles `free`, `coffee`, `pro`, `admin` |
 | `api_daily_usage` | ordinary | `migrations/006_add_api_daily_usage.sql` |
 
-`schema.sql` and migration `005` compress the rail hypertables after 7 days and set `compress_chunk_time_interval` to 7 days. There is no `add_retention_policy` in this branch. `docs/scraper.md` already says that.
+`schema.sql` and migration `005` first schedule compression after 7 days with a 7 day chunk interval. `migrations/019_train_compression.sql` then sets a 1 day chunk interval and a 2 day compression policy. There is no `add_retention_policy` in this repository. The live jobs match migration 019.
 
 `latest_train_positions` and `latest_station_events` are views in `schema.sql`.
 
-### What is live, and where it drifts
+### Live measurements
 
 Public tables were listed from `pg_class` on 27 November 2026. Hypertables were listed from `timescaledb_information.hypertables`. Jobs were listed from `timescaledb_information.jobs`.
 
@@ -175,7 +168,7 @@ Rail hypertable compression state on 27 November 2026. The row figures are `relt
 
 The parent `pg_total_relation_size` of those four tables is a few dozen kilobytes. The rows are in chunks. Inference. Do not use the parent size as the table size.
 
-Live compression jobs for those four tables use `compress_after` of 2 days and run every 12 hours. `migrations/019_train_compression.sql` sets a 1 day chunk interval and replaces the policy with 2 days when the current policy differs. `schema.sql` still says 7 days. The live jobs match migration 019.
+Live compression jobs for those four tables use `compress_after` of 2 days and run every 12 hours, which is what migration 019 asks for.
 
 `hourly_delays` still exists. Its refresh job matches `schema.sql`: start offset 3 hours, end offset 1 minute, every 5 minutes. A second continuous aggregate, `bus_hourly_delays`, exists only on the live database. Its refresh job uses a 3 day start offset and an end offset of 0.
 
@@ -183,7 +176,7 @@ Live compression jobs for those four tables use `compress_after` of 2 days and r
 
 `fetch_schedules` on the live database has the three Irish Rail rows from `schema.sql`, still at 3 seconds, plus `nta_realtime` at 60 seconds, `nta_trip_updates` at 60 seconds, and `nta_realtime_retention` at 86400 seconds with `enabled` false. The bus daemon writes `nta_realtime`.
 
-`fetch_history` is an ordinary table of about 1.5 GB and about 1.7 million estimated rows. The running rail daemon deletes rows older than 30 days. This branch's `daemon.py` does not.
+`fetch_history` is an ordinary table of about 1.5 GB and about 1.7 million estimated rows. `prune_fetch_history` in `daemon.py` deletes rows older than 30 days, 50000 at a time, every 3600 seconds.
 
 Live sizes on 27 November 2026 for tables created by migrations `009` through `025`. Ordinary-table sizes are `pg_total_relation_size` of the parent. Hypertable chunk bytes were not measured.
 
@@ -219,7 +212,7 @@ Coordinates outside Ireland, and the upstream `0,0` pair, are stored as NULL by 
 
 ### Bus archive and expiry
 
-`/app/bus_daemon.py` skips a realtime stop update when its state hash is unchanged. The comment there says unchanged states were about three quarters of archived rows before that filter. The same file compacts `update_hash` to the first 8 bytes of the SHA-256, stored as a bigint, when the column already has that type.
+`bus_daemon.py` skips a realtime stop update when its state hash is unchanged. The comment there says unchanged states were about three quarters of archived rows before that filter. The same file compacts `update_hash` to the first 8 bytes of the SHA-256, stored as a bigint, when the column already has that type.
 
 `migrations/014_bus_observation_archive.sql` creates `bus_stop_observations`, `bus_vehicle_observations`, and `bus_trip_observations`, and compresses them after 3 hours. Live jobs for the first three current archive hypertables use `compress_after` of 3 hours and run every 30 minutes. `bus_delay_histogram` and `bus_route_poll_stats` compress after 7 days.
 
@@ -263,7 +256,7 @@ The user timer `irish-rail-offsite-backup.timer` fires at 04:30. It runs `/home/
 | `/billing/webhook` | POST | Polar signature check in `api/src/billing/handlers.rs` |
 | `/health` | GET | `ok` |
 
-Identity is Clerk, in `api/src/auth/clerk.rs`. Billing calls Polar. The README states both. Local JWT register and login routes may still be wired beside Clerk. Check `api/src/main.rs` before assuming a route is gone.
+Identity is Clerk, in `api/src/auth/clerk.rs`. Billing calls Polar. The README states both. `api/src/main.rs` does not register `/auth/login`, `/auth/register`, `/auth/refresh`, or `/auth/logout`.
 
 GraphQL queries are the merged object in `api/src/schema/mod.rs`. It includes `StationQuery`, `TrainQuery`, `AnalyticsQuery`, `BusQuery`, `BusHistoryQuery`, `BusLiveQuery`, `BusPublishedQuery`, and `InsightsQuery`.
 
