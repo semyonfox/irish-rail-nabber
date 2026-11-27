@@ -1,6 +1,6 @@
 # Deployment
 
-The stack runs from a single `docker-compose.yml`. Production today is a home server fronted by Cloudflare Tunnel at `traein.semyon.ie`. Cloud options below.
+`docker-compose.yml` in this repository is the local service list. Production runs from `/home/semyon/server-stacks/irish-rail/stack.yaml`, which adds a bus daemon, a one-off migrate container, and a fixed edge network. The public name is still `traein.semyon.ie`. Read [ARCHITECTURE.md](ARCHITECTURE.md) before recreating the database container. The running database mounts the named volume at `/var/lib/postgresql`. The server-stacks README, dated 12 September 2026, still describes that repair as pending.
 
 For backups and disaster recovery procedures see [Recovery](#backups-and-recovery).
 
@@ -16,11 +16,11 @@ cloudflared   cloudflare/cloudflared:latest          edge tunnel
 
 `db` is the only stateful service (volume `postgres_data`). Everything else is stateless and can be rebuilt at will.
 
-Service responsibilities are described in [architecture.md](architecture.md#service-responsibilities).
+This list is `docker-compose.yml`. The running services are in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Env template
 
-Drop this in `.env.local` on the server (and adjust). The file is gitignored.
+`api/src/main.rs` loads `.env.local` and then `.env` through dotenvy when the process starts. `docker-compose.yml` does not load that file. It hard-codes the database user, password, and URL. `Jenkinsfile` sources `/home/semyon/jenkins/env/irish-rail-nabber.env` when that file exists. Production uses `/home/semyon/server-stacks/irish-rail/stack.env`. The block below is a name list for this branch, not the file the running stack loads.
 
 ```bash
 # database (used by db, daemon, api)
@@ -38,8 +38,8 @@ COOKIE_SECURE=true
 # routing
 APP_URL=https://traein.semyon.ie
 CORS_ORIGINS=https://traein.semyon.ie
-API_RATE_LIMIT_FREE_TIER_LIMIT=1000
-API_RATE_LIMIT_COFFEE_TIER_LIMIT=10000
+API_RATE_LIMIT_FREE_TIER_LIMIT=25000
+API_RATE_LIMIT_COFFEE_TIER_LIMIT=100000
 API_RATE_LIMIT_UNLIMITED_ROLES=pro,admin
 API_RATE_LIMIT_IP_SALT=rail-salt
 
@@ -61,7 +61,7 @@ CHAT_TOOL_RESULT_MAX_CHARS=3500
 # CHAT_REQUEST_TIMEOUT_SECONDS=45
 # CHAT_MAX_TOKENS=1200
 
-# billing (Polar.sh — primary, see auth-billing.md)
+# Polar variables are read by the running stack, not by this branch.
 POLAR_ACCESS_TOKEN=polar_at_...
 POLAR_WEBHOOK_SECRET=polar_wh_...
 POLAR_ORGANIZATION_ID=...
@@ -69,7 +69,7 @@ POLAR_COFFEE_PRODUCT_ID=...
 POLAR_PRO_PRODUCT_ID=...
 POLAR_ENVIRONMENT=production
 
-# billing (Stripe — legacy, optional until removed)
+# Stripe. This branch's api/src/billing/handlers.rs reads these names.
 STRIPE_SECRET_KEY=
 STRIPE_WEBHOOK_SECRET=
 STRIPE_COFFEE_PRICE_ID=
@@ -101,13 +101,13 @@ Verify the daemon is collecting and the API is up using the checklist in [testin
 
 ### nftables blocks the docker bridge
 
-If the daemon container cannot reach the upstream API but the host can, the cause is almost always host nftables dropping outbound TCP from the docker bridge subnet. Symptom: DNS resolves, every TCP connect times out, including to non-Irish hosts (try `docker exec daemon curl https://google.com`).
+If the daemon container cannot reach the upstream API but the host can, the cause is almost always host nftables dropping outbound TCP from the docker bridge subnet. Symptom: DNS resolves, and every TCP connect times out. The container name is `irish_rail_daemon`. This branch's `Dockerfile` installs postgresql-client and does not install curl.
 
 Fix options ranked by quality:
 
 1. **Best**: add an nftables rule allowing the docker bridge subnet outbound. Survives docker upgrades, keeps container isolation.
 2. **Good**: tell docker to manage nftables: `"iptables": false` in `/etc/docker/daemon.json`, then restart docker.
-3. **Quick fix**: `network_mode: host` on the daemon in `docker-compose.yml`. Currently deployed. Breaks isolation but works while option 1 is pending.
+3. **Quick fix**: `network_mode: host` on the daemon in `docker-compose.yml`. It is not set in this repository or in `stack.yaml`. On 27 November 2026 the running daemon used network `irish-rail-nabber_default`.
 
 ### Cloudflare Tunnel
 
@@ -135,51 +135,22 @@ See [ROADMAP.md](../ROADMAP.md) for revenue phasing.
 
 ## Backups and recovery
 
-The full disaster-recovery plan, including verification queries and emergency procedures, is at `private/RECOVERY_PLAN.md` (gitignored). Summary here.
+`backup-db.sh` in this repository writes hourly and daily gzip dumps on the host. It is not the job that runs in production. There is no `recover.sh` in this repository.
 
-### Backup schedule
+Production has two copies.
 
-- **Hourly**: `pg_dump | gzip` to `backups/hourly/`, keep last 6.
-- **Daily 02:00**: `pg_dump | gzip` to `backups/daily/`, keep indefinitely.
-- Driven by cron on the host, script `backup-db.sh`.
+- **02:00 daily.** `/etc/cron.d/server-stacks-backups` runs `/home/semyon/server-stacks/backups/scripts/irish-rail-db-backup.sh`. That writes a custom-format dump and a globals dump on the NAS, checks the dump with `pg_restore --list`, then archives the raw files into the NAS restic repository and deletes only verified originals.
+- **04:30 daily.** The user timer `irish-rail-offsite-backup.timer` runs `/home/semyon/server-stacks/backups/scripts/irish-rail-offsite-backup.sh`. That copies the newest NAS snapshot to Backblaze B2 and snapshots the bus GTFS archive. B2 retention is 14 daily, 8 weekly, 12 monthly, and 3 yearly copies.
 
-### Targets
+Restore rules, including the instruction to rehearse only on a disposable database, are in `/home/semyon/server-stacks/docs/backup/IRISH_RAIL_REPOSITORY.md`. Do not restore into `ireland_public`.
 
-| Metric | Target | Current |
-|--------|--------|---------|
-| RPO (max data loss) | < 1 h | < 1 h (hourly) |
-| RTO (recovery time) | < 15 min | ~5–10 min |
-
-### Restore (most common)
-
-```bash
-ssh semyon@server
-docker stop irish_rail_daemon
-
-BACKUP=$(ls -t backups/hourly/*.sql.gz | head -1)
-gunzip -c "$BACKUP" > /tmp/restore.sql
-
-docker exec -i irish_rail_db psql -U irish_data -d postgres \
-  -c "DROP DATABASE IF EXISTS ireland_public; CREATE DATABASE ireland_public;"
-docker exec -i irish_rail_db psql -U irish_data -d ireland_public < /tmp/restore.sql
-docker start irish_rail_daemon
-```
-
-Then run the verification queries from [testing.md](testing.md).
-
-### Monthly test
-
-```bash
-./recover.sh test    # restores latest backup to ireland_public_test, leaves prod untouched
-```
-
-This must pass once a month. If it has not run in 30 days, the next restore is unverified.
+Service responsibilities in the running stack are in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Logs
 
 - `docker compose logs <service> --tail=200` for each container.
 - Daemon uses JSON log driver, 10MB × 3 files retained.
-- API logs through `tracing` to stdout (`RUST_LOG=irish_rail_api=info`).
+- API logs through `tracing` to stdout. The filter is hard-coded as `irish_rail_api=info` in `api/src/main.rs`. `RUST_LOG` is not read.
 
 ## Migrations
 
@@ -190,11 +161,11 @@ docker exec -i irish_rail_db psql -U irish_data -d ireland_public \
   < migrations/<NNN>_<name>.sql
 ```
 
-`schema.sql` (in the daemon image) idempotently creates the initial set on first boot. Anything past the initial schema is a numbered migration.
+On this branch, `docker-entrypoint.sh` applies `schema.sql` and then every migration on every daemon start. Production sets `SKIP_DB_MIGRATIONS` on the long-running daemon and applies migrations from the one-off migrate container. See [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Related docs
 
-- [architecture.md](architecture.md) — service topology
+- [ARCHITECTURE.md](ARCHITECTURE.md). Service topology.
 - [scraper.md](scraper.md) — known networking issues, daemon behaviour
 - [api.md](api.md) — Rust service env
 - [auth-billing.md](auth-billing.md) — Polar/Stripe env

@@ -7,18 +7,22 @@ Rust service built on Axum 0.8. Exposes a public GraphQL query layer and REST en
 | Path | Method | Auth | Purpose |
 |------|--------|------|---------|
 | `/graphql` | GET | none | Playground UI |
-| `/graphql` | POST | optional | Query the live data |
+| `/graphql` | POST | optional cookie | Query the live data |
+| `/chat` | POST | paid role | 401 with no user, 403 for `free`. Handler in `api/src/chat.rs` |
 | `/auth/register` | POST | none | Create account |
 | `/auth/login` | POST | none | Issue tokens |
 | `/auth/refresh` | POST | refresh cookie | Rotate tokens |
 | `/auth/logout` | POST | access cookie | Revoke session |
+| `/auth/session` | GET | optional cookie | Session probe |
 | `/auth/me` | GET | access cookie | Current user |
-| `/billing/checkout` | POST | access cookie | Polar checkout session |
-| `/billing/portal` | POST | access cookie | Polar customer portal |
-| `/billing/webhook` | POST | provider signature | Subscription state sync |
+| `/billing/checkout` | POST | access cookie | Stripe checkout session |
+| `/billing/portal` | POST | access cookie | Stripe customer portal |
+| `/billing/limits` | GET | none | Tier limits from environment |
+| `/billing/usage` | GET | access cookie | Usage |
+| `/billing/webhook` | POST | `stripe-signature` | Subscription state sync |
 | `/health` | GET | none | Liveness probe |
 
-Auth + billing details live in [auth-billing.md](auth-billing.md).
+Routes are wired in `api/src/main.rs`. Checkout, portal, and the webhook call Stripe from `api/src/billing/handlers.rs`. `limits` does not read the cookie. The running API binary is a Clerk and Polar build. See [ARCHITECTURE.md](ARCHITECTURE.md). [auth-billing.md](auth-billing.md) describes Polar as the intended billing path. The handlers in this branch still call Stripe.
 
 ## Module layout
 
@@ -41,7 +45,7 @@ api/src/
 │   └── handlers.rs  checkout / portal / webhook
 └── schema/
     ├── mod.rs       MergedObject root query + build_schema
-    ├── types.rs     scalar mappings
+    ├── types.rs     GraphQL object types such as Station and TrainPosition
     ├── station.rs   station resolvers
     ├── train.rs     train + movement resolvers
     └── analytics.rs gated analytics resolvers
@@ -60,34 +64,34 @@ Examples:
 
 ```graphql
 query LiveTrains {
-  recentTrains(hours: 1) {
+  liveTrains {
     trainCode
     latitude
     longitude
     direction
-    late
   }
 }
 
 query StationBoard {
-  stationBoard(code: "CNLLY") {
+  stationBoard(stationCode: "CNLLY", limit: 20) {
     trainCode
-    schArrival
-    expArrival
-    late
+    scheduledArrival
+    expectedArrival
+    lateMinutes
     status
   }
 }
 
-# gated to coffee/pro/admin roles
 query DelayHistory {
-  delayHistory(stationCode: "GLWY", days: 7) {
+  delayHistory(stationCode: "GLWY", hours: 168, bucket: "hour") {
     bucket
-    meanDelayMinutes
-    p95DelayMinutes
+    avgLateMinutes
+    p95LateMinutes
   }
 }
 ```
+
+`delayHistory` is rejected unless the caller has role `coffee`, `pro`, or `admin`. The check is `ensure_premium` in `api/src/schema/analytics.rs`.
 
 ### Auth in resolvers
 
@@ -97,19 +101,7 @@ The middleware extracts the access-token cookie into `Option<AuthUser>` on every
 state.schema.execute(req.into_inner().data(auth_user)).await
 ```
 
-A resolver opts in:
-
-```rust
-async fn delay_history(&self, ctx: &Context<'_>, ...) -> Result<Vec<DelayBucket>> {
-    let user = ctx.data::<Option<AuthUser>>().ok().and_then(|u| u.as_ref());
-    match user {
-        Some(u) if u.role != "free" => { /* query */ }
-        _ => Err("Paid plan required".into()),
-    }
-}
-```
-
-This keeps anonymous queries working while letting individual fields enforce a paywall.
+`ensure_premium` in `api/src/schema/analytics.rs` allows `coffee`, `pro`, and `admin`. A signed-in `free` user gets `coffee or pro subscription required`. A missing user gets `authentication required`. Anonymous queries still work for fields that do not call it.
 
 ### Numeric query bounds
 
@@ -140,7 +132,7 @@ See [auth-billing.md](auth-billing.md) for token lifetimes, rotation, and cookie
 
 ## Environment
 
-The API reads `.env.local` first, then `.env`. Required:
+The API reads `.env.local` first, then `.env`. Only `DATABASE_URL` is required. `api/src/db/mod.rs` stops if it is missing. The other names below have defaults. Free and coffee rate limits default to 25000 and 100000 in `api/src/rate_limit.rs`. `docker-compose.yml` sets those same defaults.
 
 ```
 DATABASE_URL=postgres://irish_data:secure_password@db:5432/ireland_public
@@ -150,13 +142,13 @@ JWT_REFRESH_EXPIRY=604800
 COOKIE_SECURE=true
 CORS_ORIGINS=https://traein.semyon.ie
 APP_URL=https://traein.semyon.ie
-API_RATE_LIMIT_FREE_TIER_LIMIT=1000
-API_RATE_LIMIT_COFFEE_TIER_LIMIT=10000
+API_RATE_LIMIT_FREE_TIER_LIMIT=25000
+API_RATE_LIMIT_COFFEE_TIER_LIMIT=100000
 API_RATE_LIMIT_UNLIMITED_ROLES=pro,admin
 API_RATE_LIMIT_IP_SALT=rail-salt
 ```
 
-Provider-specific keys (Polar or Stripe) are in [auth-billing.md](auth-billing.md).
+This branch's billing handlers read `STRIPE_*`. See [auth-billing.md](auth-billing.md).
 
 ## Building and running
 
@@ -172,6 +164,6 @@ Inside the compose stack the service is named `api`, exposes `8000` on the docke
 
 - [auth-billing.md](auth-billing.md) — register/login flow, Polar checkout, role gating
 - [dashboard.md](dashboard.md) — how the frontend consumes the API
-- [chatbot.md](chatbot.md) — how the chatbot wraps GraphQL as MCP tools
+- [chatbot.md](chatbot.md). That page describes an MCP wrapper. `api/src/chat.rs` sends OpenAI-style tool definitions and runs GraphQL in process. This branch has no MCP server.
 - [scraper.md](scraper.md#schema) — the underlying schema being queried
 - [data-sources.md](data-sources.md) — upstream field semantics
