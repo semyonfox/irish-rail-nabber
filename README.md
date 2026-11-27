@@ -52,6 +52,7 @@ Clerk handles identity. Polar handles Coffee and Pro subscriptions as merchant o
 Start at [docs/README.md](./docs/README.md). Useful entry points:
 
 - [Architecture](./docs/architecture.md)
+- [Contributor guide](./docs/ARCHITECTURE.md)
 - [Data ingestion](./docs/scraper.md)
 - [API](./docs/api.md)
 - [Dashboard](./docs/dashboard.md)
