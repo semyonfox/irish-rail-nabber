@@ -1,6 +1,6 @@
 # Architecture
 
-Read this before changing ingestion, the database, or the public site. Two trees are easy to mix up. This branch tracks `origin/dev` and stops at the rail collector, the Stripe API, and migrations `001` to `008`. The containers that are actually running were built from a later tree. That tree is not in this branch.
+Read this before changing ingestion, the database, or the public site. Two trees are easy to mix up. This branch was cut from `origin/dev` at `495f7ac`. Its upstream is `origin/burn/rail-docs`. It stops at the rail collector, the Stripe API, and migrations `001` to `008`. The containers that are actually running were built from a later tree. That tree is not in this branch.
 
 A claim names the file it comes from. A sentence that starts with Inference. is a conclusion from those files, not a line of code.
 
@@ -13,7 +13,7 @@ This repository, on this branch, contains:
 | Piece | Where |
 | --- | --- |
 | Rail collector | `daemon.py` |
-| Schema applied on first boot | `schema.sql`, then `migrations/*.sql` via `docker-entrypoint.sh` |
+| Schema on every daemon start | `docker-entrypoint.sh` applies `schema.sql`, then every file in `migrations/` |
 | API | `api/src/main.rs` |
 | Dashboard | `dashboard/src/App.tsx` |
 | Local compose file | `docker-compose.yml` |
@@ -32,7 +32,7 @@ Running containers on 27 November 2026, from `docker ps`:
 | `irish_rail_dashboard` | `irish-rail-nabber-dashboard:latest` | nginx and the built UI |
 | `irish_rail_cloudflared` | `cloudflare/cloudflared:2026.10.4` | Tunnel |
 
-`Dockerfile` on this branch copies only `daemon.py` and installs `python:3.14-slim`. The running collector reports Python 3.15.2 and has `/app/bus_daemon.py`, `/app/context_collector.py`, and migrations through `025_weather_and_traffic.sql`.
+`Dockerfile` on this branch copies `requirements.txt`, `schema.sql`, `daemon.py`, `migrations/`, and `docker-entrypoint.sh`. It does not copy `bus_daemon.py` or `context_collector.py`. The base image is `python:3.14-slim`. The running collector reports Python 3.15.2 and has `/app/bus_daemon.py`, `/app/context_collector.py`, and migrations through `025_weather_and_traffic.sql`.
 
 The running images are tagged `8048ab3`. That tag is `origin/main` at `8048ab396699ff43ddb086541097bd2765b8fd8b`, the merge of pull request 119 on 26 November 2026. The API image and the dashboard image were built that day. The daemon image was built on 25 November 2026 and later carried the same tag. `daemon.py`, `bus_daemon.py`, `context_collector.py`, `schema.sql`, and `migrations/025_weather_and_traffic.sql` in the daemon image match `origin/main` at `8048ab3`. They also match `main` at `0866715`, the 25 November merge of pull request 114, because those files did not change between the two commits. They do not match `origin/dev` at `495f7ac`. `origin/main` contains `api/src/auth/clerk.rs`. `origin/dev` does not.
 
@@ -58,7 +58,7 @@ This branch's collector calls these methods:
 
 The running rail container starts the same five intervals, read from `/app/daemon.py` inside `irish_rail_daemon`. It also starts tasks this branch does not have. See the schedule table below.
 
-The same running file polls `https://connect.irishrail.ie` for customer notices when `RAIL_NOTICES` is not `0`. The variable was unset in the container, so the default in that file applies and the poll is on. The homepage is scraped for an API key. That key is not written here.
+The same running file polls `https://connect.irishrail.ie` for customer notices when `RAIL_NOTICES` is exactly `1`. Any other value turns the poll off. The variable was unset in the container, so the default `"1"` in `/app/daemon.py` applies and the poll is on. The homepage is scraped for an API key. That key is not written here.
 
 ### GTFS and GTFS-RT for buses
 
@@ -97,7 +97,7 @@ This branch has none of that code.
 | `trains` | 5 seconds | Live positions, content-hash dedup |
 | `hacon` | 5 seconds | HACON feed, whole-response then per-train dedup |
 | `boards` | 5 seconds | Station boards, 30 at a time (`STATION_FETCH_CONCURRENCY`) |
-| `movements` | 60 seconds | Stop sequences for trains seen on the board |
+| `movements` | 60 seconds | Stop sequences for trains returned by `getCurrentTrainsXML` |
 | `stations` | 86400 seconds | Station reference |
 | `hash-cleanup` | 3600 seconds | Drop dedup hashes for trains that are no longer active |
 | `history-rollups` | 300 seconds | Refresh `delay_history_hourly` for the last two hours |
@@ -108,7 +108,7 @@ This branch has none of that code.
 
 ### Running rail container, extra tasks
 
-Read from `/app/daemon.py` in `irish_rail_daemon`. The five rail polls and the three maintenance tasks above are also present there.
+Read from `/app/daemon.py` in `irish_rail_daemon`. The five rail polls above are also present there, as are `hash-cleanup` and `history-rollups`.
 
 | Task | Every | Work |
 | --- | --- | --- |
@@ -168,20 +168,20 @@ TimescaleDB is enabled by `schema.sql`. Live server version is PostgreSQL 18.3 w
 
 Public tables were listed from `pg_class` on 27 November 2026. Hypertables were listed from `timescaledb_information.hypertables`. Jobs were listed from `timescaledb_information.jobs`.
 
-Rail hypertable estimates and compression state:
+Rail hypertable compression state on 27 November 2026. The row figures are `reltuples` on the three uncompressed chunks only, covering 25 November through 28 November. The 26 compressed chunks, from 28 May through 25 November, have no positive `reltuples`. For `train_snapshots`, 19 of those compressed chunks are 0 and 7 are negative. They are not included below. These figures are not the size of the hypertable.
 
-| Hypertable | Chunks | Compressed chunks | Estimated rows |
+| Hypertable | Chunks | Compressed chunks | Uncompressed estimated rows |
 | --- | --- | --- | --- |
-| `train_snapshots` | 29 | 26 | 1.1 million |
-| `train_movements` | 29 | 26 | 0.84 million |
+| `train_snapshots` | 29 | 26 | 1.08 million |
+| `train_movements` | 29 | 26 | 0.85 million |
 | `station_events` | 29 | 26 | 0.61 million |
-| `train_snapshots_hacon` | 29 | 26 | 61 thousand |
+| `train_snapshots_hacon` | 29 | 26 | 62 thousand |
 
 The parent `pg_total_relation_size` of those four tables is a few dozen kilobytes. The rows are in chunks. Inference. Do not use the parent size as the table size.
 
 Live compression jobs for those four tables use `compress_after` of 2 days and run every 12 hours. Image migration `/app/migrations/019_train_compression.sql` sets a 1 day chunk interval and replaces the policy with 2 days when the current policy differs. That file is not in this branch. `schema.sql` still says 7 days. The live jobs match migration 019, not `schema.sql`.
 
-`hourly_delays` still exists. Its refresh job matches `schema.sql`: start offset 3 hours, end offset 1 minute, every 5 minutes. A second continuous aggregate, `bus_hourly_delays`, exists only on the live database. Its refresh job uses a 3 day start offset and no end offset.
+`hourly_delays` still exists. Its refresh job matches `schema.sql`: start offset 3 hours, end offset 1 minute, every 5 minutes. A second continuous aggregate, `bus_hourly_delays`, exists only on the live database. Its refresh job uses a 3 day start offset and an end offset of 0.
 
 `users` on the live database has the Stripe columns from migration `004`, plus `clerk_user_id`, `polar_customer_id`, `polar_subscription_id`, and `polar_state_updated_at`. Those four are not in this branch. Image migrations `009_clerk_auth.sql` and `010_polar_billing.sql` are the likely source. Inference. The column names match those filenames, and the SQL files were not copied out in full.
 
@@ -201,20 +201,20 @@ Other live tables that this branch does not create, with ordinary-table sizes wh
 | Context | `weather_hourly`, `weather_stations`, `weather_warnings`, `weather_archive_progress`, `traffic_sites`, `traffic_site_weekly`, `traffic_site_yearly`, `traffic_daily_class`, `traffic_bulk_days` | `weather_hourly` 373 MB. `traffic_daily_class` 286 MB |
 | Billing | `billing_webhook_events` | Empty parent, 16 KB |
 
-Image migrations `011` through `025` are present under `/app/migrations` and absent from `migrations/` here. They cover Clerk, Polar, the bus schema, shapes, archive tables, working tables, legacy retirement, histograms, published performance, the 2 day rail compression, archive hash compaction, vacuum, rail and bus alerts, segment delay, and weather and traffic.
+Image migrations `009` through `025` are present under `/app/migrations` and absent from `migrations/` here. They cover Clerk, Polar, the bus schema, shapes, archive tables, working tables, legacy retirement, histograms, published performance, the 2 day rail compression, archive hash compaction, vacuum, rail and bus alerts, segment delay, and weather and traffic.
 
 ## Dedup, archive, and compaction
 
 ### Rail dedup in this branch
 
-`daemon.py` strips `<Servertime>` and `<Querytime>` with `_TIMESTAMP_RE` before hashing. Those tags change on every response. The hash is MD5.
+Hashes are MD5 via `stable_hash`. `_TIMESTAMP_RE` strips `<Servertime>` and `<Querytime>` in one place, the station-board hash in `fetch_all_station_boards`. The other hashes do not use it.
 
 | Layer | What is hashed | Function |
 | --- | --- | --- |
-| Whole train list | Cleaned current-trains XML | `fetch_trains` |
-| Whole HACON response, then each train | Cleaned HACON XML, then a per-train fingerprint | `fetch_hacon` |
-| One station board | Cleaned board XML | `fetch_all_station_boards` |
-| One train at one station | Status, lateness, location, due-in, expected times | `_insert_station_events` |
+| Whole train list | Sorted `code:lat:lon` strings. A status or message change alone does not count | `fetch_trains` |
+| Whole HACON response, then each train | The raw response, then a per-train fingerprint | `fetch_hacon` |
+| One station board | Board XML after the timestamp strip | `fetch_all_station_boards` |
+| One train at one station | Status, lateness, last location, and expected arrival and departure. Due-in is stored and is not in the fingerprint | `_insert_station_events` |
 | One journey | Stops for a `train_code` and `train_date` | `_fetch_train_movements` |
 
 `cleanup_stale_hashes` drops memory of journeys and station rows whose trains are no longer in the active set. It does not delete database rows.
@@ -245,7 +245,7 @@ The repository layout and the restore rules are in `/home/semyon/server-stacks/d
 
 ### Backblaze B2, daily at 04:30
 
-The user timer `irish-rail-offsite-backup.timer` fires at 04:30. It runs `/home/semyon/server-stacks/backups/scripts/irish-rail-offsite-backup.sh`. The script mirrors `/home/semyon/data/irish-rail/bus-gtfs` onto the NAS, copies the newest `daily` restic snapshot from the NAS repository to a B2 restic repository, and snapshots the GTFS mirror with the tag `gtfs`. It then forgets B2 snapshots using 14 daily, 8 weekly, 12 monthly, and 3 yearly copies. Credentials stay in the restic password files named by that script. They are not copied here.
+The user timer `irish-rail-offsite-backup.timer` fires at 04:30. It runs `/home/semyon/server-stacks/backups/scripts/irish-rail-offsite-backup.sh`. The script mirrors `/home/semyon/data/irish-rail/bus-gtfs` onto the NAS, copies the newest `daily` restic snapshot from the NAS repository to a B2 restic repository, and snapshots the GTFS mirror with the tag `gtfs`. It then forgets B2 snapshots using 14 daily, 8 weekly, 12 monthly, and 3 yearly copies. The script reads a restic password file and sources a separate env file for the B2 account. Neither value is copied here.
 
 ### What this repository still says
 
@@ -261,7 +261,7 @@ The user timer `irish-rail-offsite-backup.timer` fires at 04:30. It runs `/home/
 | --- | --- | --- |
 | `/graphql` | GET | Playground |
 | `/graphql` | POST | Query, after the rate limit |
-| `/chat` | POST | `api/src/chat.rs`, same rate limit |
+| `/chat` | POST | `api/src/chat.rs`. 401 with no user, 403 for `free`, then the same rate limit |
 | `/auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/session`, `/auth/me` | as routed | `api/src/auth/handlers.rs` |
 | `/billing/checkout`, `/billing/portal`, `/billing/limits`, `/billing/usage` | as routed | `api/src/billing/handlers.rs` |
 | `/billing/webhook` | POST | Stripe signature check in that same file |
@@ -312,7 +312,7 @@ The public name in both compose files is `https://traein.semyon.ie`.
 
 Production is not `docker compose up` from this repository.
 
-`/home/semyon/server-stacks/irish-rail/README.md` says to run a one-off daemon container so migrations apply, then start `daemon`, `api`, and `dashboard` with `--no-build`. It says not to recreate `irish_rail_db` until the PostgreSQL 18 volume mount is repaired. The live data directory is the anonymous volume, not the named volume `stack.yaml` declares. Read that README before recreating anything.
+`/home/semyon/server-stacks/irish-rail/README.md`, dated 12 September 2026, says to run a one-off daemon container so migrations apply, then start `daemon`, `api`, and `dashboard` with `--no-build`. That README still describes the PostgreSQL 18 volume repair as pending and the data as an anonymous volume. On 27 November 2026 the running `irish_rail_db` mounts the named volume `irish-rail-nabber_postgres_data` at `/var/lib/postgresql`, which is the path `stack.yaml` declares. Read both before recreating the database container. The README is behind the container.
 
 `stack.yaml` also defines `migrate`, `bus-daemon`, and a fixed `edge` subnet. `docker-compose.yml` in this repository has none of those. Its daemon does not set `SKIP_DB_MIGRATIONS`. The production daemon does, so schema changes are applied by the one-off migrate container instead of by every daemon start.
 
@@ -324,7 +324,7 @@ GitHub Actions, `.github/workflows/ci.yml`, runs on pull requests and on pushes 
 
 On this branch, for rail data the running site does not already have:
 
-1. Poll it from `daemon.py`. Add the task in `run` next to the existing `schedule_task` calls. Keep dedup beside the other hashes, and strip volatile timestamps before hashing.
+1. Poll it from `daemon.py`. Add the task in `run` next to the existing `schedule_task` calls. Match the hash to the feed. Station boards strip `<Servertime>` and `<Querytime>` before hashing. Train positions hash `code:lat:lon`. HACON hashes the raw response.
 2. Store it in a new file under `migrations/`. `docker-entrypoint.sh` applies `schema.sql` and then every file in that directory, in name order. Prefer a new migration over editing `schema.sql` once a database already exists. The production entry path is the one-off migrate container, and this branch's daemon image still migrates on startup.
 3. Read it from a resolver in `api/src/schema/`. Add the type to the merged query in `api/src/schema/mod.rs` only if it is a new query object. Clamp numeric arguments the way `api/src/schema/bounds.rs` does.
 4. Show it from `dashboard/src/pages` and add a route in `dashboard/src/App.tsx`. If the browser calls a new API prefix, add a `location` in `dashboard/nginx.conf`. The current proxy only forwards GraphQL, auth, billing, and chat.
