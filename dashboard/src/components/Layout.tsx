@@ -1,122 +1,293 @@
-import { useEffect, useState } from "react";
-import { Link, NavLink, Outlet } from "react-router-dom";
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 
 import { useAuth } from "../auth/useAuth";
+import { useTheme } from "../theme";
+import { transportLinks, transportModeForPath, transportModePath } from "./transportNavigation";
+import { BrandMark, Icon } from "./ui";
+import HelpDialog from "./HelpDialog";
+import { telemetry, telemetryRoute } from "../utils/telemetry";
 
-const clockFormat = new Intl.DateTimeFormat("en-IE", {
-  timeZone: "Europe/Dublin",
-  hour: "2-digit",
-  minute: "2-digit",
-  second: "2-digit",
-  hour12: false,
-});
-
-function DublinClock() {
-  const [now, setNow] = useState(() => new Date());
-
-  useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(id);
-  }, []);
-
-  return (
-    <span className="live-clock" aria-label="Dublin time">
-      {clockFormat.format(now)} DUBLIN
-    </span>
-  );
+function subscribeConnection(onChange: () => void) {
+  window.addEventListener("online", onChange);
+  window.addEventListener("offline", onChange);
+  return () => {
+    window.removeEventListener("online", onChange);
+    window.removeEventListener("offline", onChange);
+  };
 }
 
-const links = [
-  { to: "/", label: "Live map", short: "MAP" },
-  { to: "/stations", label: "Stations", short: "STN" },
-  { to: "/analytics", label: "Live network", short: "LIVE" },
-  { to: "/history", label: "History & graphs", short: "HIST" },
-  { to: "/chat", label: "Assistant", short: "OPS" },
-  { to: "/pricing", label: "Pricing", short: "PLN" },
-];
-
-function RailMark() {
-  return (
-    <svg viewBox="0 0 32 32" aria-hidden="true" className="h-8 w-8">
-      <rect x="5" y="3" width="22" height="23" rx="5" fill="currentColor" />
-      <path d="M10 9h12v8H10z" fill="#07110d" />
-      <path d="m11 29 3-4m7 4-3-4M10 21h12" stroke="currentColor" strokeWidth="2" />
-      <circle cx="11" cy="21" r="1.5" fill="#07110d" />
-      <circle cx="21" cy="21" r="1.5" fill="#07110d" />
-    </svg>
-  );
+function initials(name: string) {
+  const parts = name.split(/[\s@.]+/).filter(Boolean);
+  return (parts[0]?.[0] ?? "?").toUpperCase() + (parts[1]?.[0] ?? "").toUpperCase();
 }
+
+const popoverSupported =
+  typeof HTMLElement !== "undefined" && Object.hasOwn(HTMLElement.prototype, "popover");
 
 export default function Layout() {
-  const { user, loading } = useAuth();
+  const { pathname } = useLocation();
+  const online = useSyncExternalStore(
+    subscribeConnection,
+    () => navigator.onLine,
+    () => true,
+  );
+  const { user, signedIn, loading, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
+  const name = user ? user.display_name || user.email : "";
+  const pathMode = transportModeForPath(pathname);
+  const [lastTransportMode, setLastTransportMode] = useState(pathMode ?? "rail");
+  const transportMode = pathMode ?? lastTransportMode;
+  const isAdmin = user?.role === "admin";
+  const links = transportLinks[transportMode];
+  const layoutRef = useRef<HTMLDivElement>(null);
+  const navRef = useRef<HTMLElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuId = useId();
+
+  useEffect(() => {
+    const nav = navRef.current;
+    const active = nav?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (nav && active) {
+      nav.scrollLeft =
+        active.offsetLeft - nav.offsetLeft - (nav.clientWidth - active.clientWidth) / 2;
+    }
+  }, [isAdmin, pathname, transportMode]);
+  useEffect(() => {
+    const layout = layoutRef.current;
+    const viewport = window.visualViewport;
+    if (!layout || !viewport) return;
+
+    // iOS can shrink the visual viewport without resizing CSS viewport units
+    const resize = () => {
+      if (viewport.scale === 1) {
+        layout.style.setProperty("--visual-viewport-height", `${viewport.height}px`);
+      }
+    };
+    resize();
+    viewport.addEventListener("resize", resize);
+    return () => viewport.removeEventListener("resize", resize);
+  }, []);
+
+  const [helpOpen, setHelpOpen] = useState(false);
+  const previousPath = useRef(pathname);
+  useEffect(() => {
+    telemetry.count("screen_view", telemetryRoute(pathname));
+    if (previousPath.current !== pathname) document.getElementById("main-content")?.focus();
+    previousPath.current = pathname;
+  }, [pathname]);
+
+  if (pathMode && pathMode !== lastTransportMode) {
+    setLastTransportMode(pathMode);
+  }
+
+  const [fallbackOpen, setFallbackOpen] = useState(false);
+  // the fallback menu has no light dismiss, so close it on any navigation
+  const [menuPath, setMenuPath] = useState(pathname);
+  if (menuPath !== pathname) {
+    setMenuPath(pathname);
+    setFallbackOpen(false);
+  }
+  const closeMenu = () => {
+    menuRef.current?.hidePopover?.();
+    setFallbackOpen(false);
+  };
+  const primaryLinks = (
+    <>
+      {links.map((link) => (
+        <NavLink
+          key={link.to}
+          to={link.to}
+          // detail pages keep their section highlighted, the mode roots match exactly
+          end={link.to === "/" || link.to === "/buses"}
+          className={({ isActive }) => `nav-link${isActive ? " is-active" : ""}`}
+        >
+          <Icon name={link.icon} />
+          <span>{link.label}</span>
+          {link.paid ? <span className="paid-label">Paid</span> : null}
+        </NavLink>
+      ))}
+      {isAdmin ? (
+        <NavLink
+          to="/insights"
+          className={({ isActive }) => `nav-link${isActive ? " is-active" : ""}`}
+        >
+          <Icon name="activity" />
+          <span>Insights</span>
+        </NavLink>
+      ) : null}
+    </>
+  );
+  const utilityLinks = (
+    <>
+      <NavLink
+        to="/pricing"
+        aria-label="Pricing"
+        onClick={closeMenu}
+        className={({ isActive }) => `utility-link${isActive ? " is-active" : ""}`}
+      >
+        <Icon name="tag" />
+        <span>Pricing</span>
+      </NavLink>
+      <button
+        type="button"
+        className="btn btn-quiet btn-sm"
+        onClick={() => {
+          closeMenu();
+          setHelpOpen(true);
+        }}
+      >
+        Help
+      </button>
+    </>
+  );
+  const accountLinks = (
+    <>
+      {loading ? null : user ? (
+        <Link
+          to="/account"
+          onClick={closeMenu}
+          className="account-link"
+          title={name}
+          aria-label={`Account for ${name}`}
+        >
+          <span className="avatar" aria-hidden="true">
+            {initials(name)}
+          </span>
+          <span className="header-account-name hidden max-w-40 truncate pr-2 lg:inline">
+            {name}
+          </span>
+        </Link>
+      ) : signedIn ? (
+        <button
+          type="button"
+          onClick={() => {
+            closeMenu();
+            void logout();
+          }}
+          className="btn btn-quiet btn-sm"
+        >
+          Sign out
+        </button>
+      ) : (
+        <>
+          <Link to="/login" onClick={closeMenu} className="btn btn-quiet btn-sm">
+            Log in
+          </Link>
+          <Link to="/register" onClick={closeMenu} className="btn btn-primary btn-sm">
+            Create free account
+          </Link>
+        </>
+      )}
+    </>
+  );
 
   return (
-    <div className="app-shell flex h-screen flex-col">
-      <header className="ops-header">
-        <Link to="/" className="brand-lockup" aria-label="Railwatch operations home">
-          <span className="text-[var(--rail-green)]">
-            <RailMark />
-          </span>
-          <span>
-            <span className="block text-[10px] font-semibold uppercase tracking-[0.24em] text-[var(--rail-muted)]">
-              Irish rail network
-            </span>
-            <span className="block text-base font-bold uppercase tracking-[0.08em] text-white">
-              Railwatch <span className="font-normal text-[var(--rail-green)]">Ops</span>
-            </span>
+    <div ref={layoutRef} className="app-layout flex h-dvh flex-col">
+      <a
+        href="#main-content"
+        className="skip-link"
+        onClick={() => document.getElementById("main-content")?.focus()}
+      >
+        Skip to main content
+      </a>
+      <header className="app-header" data-mode={transportMode}>
+        <Link
+          to={transportMode === "bus" ? "/buses" : "/"}
+          className="brand"
+          aria-label={`traein ${transportMode} home`}
+        >
+          <BrandMark />
+          <span className="brand-copy">
+            <span className="brand-word">traein</span>
+            <span className="brand-sub">Irish public transport, live</span>
           </span>
         </Link>
 
-        <nav className="ops-nav" aria-label="Primary navigation">
-          {links.map((link) => (
-            <NavLink
-              key={link.to}
-              to={link.to}
-              end={link.to === "/"}
-              className={({ isActive }) => `ops-nav-link ${isActive ? "is-active" : ""}`}
-            >
-              <span className="nav-code">{link.short}</span>
-              <span>{link.label}</span>
-            </NavLink>
-          ))}
+        <nav className="transport-modes" aria-label="Transport mode">
+          <Link
+            to={transportModePath(pathname, "rail")}
+            className={`transport-mode${transportMode === "rail" ? " is-active" : ""}`}
+            data-transport="rail"
+            aria-current={transportMode === "rail" ? "true" : undefined}
+          >
+            Rail
+          </Link>
+          <Link
+            to={transportModePath(pathname, "bus")}
+            className={`transport-mode${transportMode === "bus" ? " is-active" : ""}`}
+            data-transport="bus"
+            aria-current={transportMode === "bus" ? "true" : undefined}
+          >
+            Bus
+          </Link>
         </nav>
 
-        <div className="ml-auto flex items-center gap-4">
-          <div className="system-state hidden sm:flex">
-            <span className="status-lamp" />
-            <span>
-              <strong>System live</strong>
-              <small>Feeds updating</small>
-            </span>
-          </div>
-          {loading ? null : user ? (
-            <Link to="/account" className="operator-link">
-              {user.display_name || user.email}
-            </Link>
+        <nav ref={navRef} className="nav desktop-nav" aria-label="Primary">
+          {primaryLinks}
+        </nav>
+
+        <div className="header-actions">
+          <div className="desktop-actions">{utilityLinks}</div>
+          <button
+            type="button"
+            className="icon-btn header-theme-toggle"
+            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+            aria-pressed={theme === "dark"}
+            title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+            onClick={toggleTheme}
+          >
+            <Icon name={theme === "dark" ? "sun" : "moon"} />
+          </button>
+          <div className="desktop-actions">{accountLinks}</div>
+          {popoverSupported ? (
+            <button
+              type="button"
+              className="btn btn-quiet mobile-menu-toggle"
+              popoverTarget={menuId}
+            >
+              Menu
+            </button>
           ) : (
-            <div className="flex items-center gap-2">
-              <Link to="/login" className="operator-link hidden md:block">
-                Log in
-              </Link>
-              <Link to="/register" className="access-button">
-                Get access
-              </Link>
-            </div>
+            // safari before 17 has no popover, so toggle a class instead
+            <button
+              type="button"
+              className="btn btn-quiet mobile-menu-toggle"
+              aria-controls={menuId}
+              aria-expanded={fallbackOpen}
+              onClick={() => setFallbackOpen((open) => !open)}
+            >
+              Menu
+            </button>
           )}
+          <div
+            id={menuId}
+            ref={menuRef}
+            className={`mobile-menu${fallbackOpen ? " is-open" : ""}`}
+            popover={popoverSupported ? "auto" : undefined}
+            onClick={(event) => {
+              if (event.target instanceof Element && event.target.closest("a"))
+                setFallbackOpen(false);
+            }}
+          >
+            {utilityLinks}
+            {accountLinks}
+          </div>
         </div>
       </header>
 
-      <div className="ops-strip" aria-label="System status">
-        <span>CONTROL DESK 01</span>
-        <span className="strip-divider" />
-        <span>ALL-IRELAND NETWORK</span>
-        <span className="ml-auto hidden sm:inline">LIVE SERVICE MONITOR</span>
-        <DublinClock />
-      </div>
-
-      <main className="min-h-0 flex-1">
+      {!online ? (
+        <p role="status" className="connection-notice">
+          You’re offline. Displayed transport data is last loaded. Reconnect to refresh.
+        </p>
+      ) : null}
+      <main id="main-content" tabIndex={-1} className="min-h-0 min-w-0 flex-1">
         <Outlet />
       </main>
+      <nav className="mobile-nav" aria-label="Primary" data-mode={transportMode}>
+        {primaryLinks}
+      </nav>
+      {helpOpen ? <HelpDialog onClose={() => setHelpOpen(false)} /> : null}
     </div>
   );
 }

@@ -241,7 +241,23 @@ SELECT add_continuous_aggregate_policy('hourly_delays',
 -- GRANTS (For safety)
 -- ============================================================================
 
-GRANT CONNECT ON DATABASE ireland_public TO irish_data;
-GRANT USAGE ON SCHEMA public TO irish_data;
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO irish_data;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO irish_data;
+-- The migrator may use a disposable database/user in CI. Quote the actual
+-- connection identity instead of hard-coding production names.
+DO $$
+BEGIN
+    EXECUTE format(
+        'GRANT CONNECT ON DATABASE %I TO %I',
+        current_database(),
+        current_user
+    );
+    EXECUTE format('GRANT USAGE ON SCHEMA public TO %I', current_user);
+    EXECUTE format(
+        'GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO %I',
+        current_user
+    );
+    EXECUTE format(
+        'GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO %I',
+        current_user
+    );
+END
+$$;

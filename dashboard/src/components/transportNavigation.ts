@@ -1,0 +1,53 @@
+import type { IconName } from "./ui";
+
+export type TransportMode = "rail" | "bus";
+
+export interface TransportLink {
+  to: string;
+  label: string;
+  icon: IconName;
+  paid?: boolean;
+}
+
+const railPaths = ["/stations", "/analytics", "/history", "/chat"];
+
+export const transportLinks: Record<TransportMode, TransportLink[]> = {
+  rail: [
+    { to: "/", label: "Live", icon: "map" },
+    { to: "/stations", label: "Stations", icon: "pin" },
+    { to: "/analytics", label: "Network", icon: "activity", paid: true },
+    { to: "/history", label: "History", icon: "clock", paid: true },
+    { to: "/chat", label: "Assistant", icon: "chat", paid: true },
+  ],
+  bus: [
+    { to: "/buses", label: "Live", icon: "map" },
+    { to: "/buses/stops", label: "Stops", icon: "pin" },
+    { to: "/buses/routes", label: "Routes", icon: "bus" },
+    { to: "/buses/network", label: "Network", icon: "activity" },
+    { to: "/buses/history", label: "History", icon: "clock" },
+  ],
+};
+
+export function transportModeForPath(pathname: string): TransportMode | null {
+  if (pathname === "/buses" || pathname.startsWith("/buses/")) return "bus";
+  if (
+    pathname === "/" ||
+    railPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`))
+  ) {
+    return "rail";
+  }
+  return null;
+}
+
+export function transportModePath(pathname: string, mode: TransportMode): string {
+  if (pathname === "/stations" || pathname === "/buses/stops") {
+    return mode === "bus" ? "/buses/stops" : "/stations";
+  }
+  if (pathname === "/analytics" || pathname === "/buses/network") {
+    return mode === "bus" ? "/buses/network" : "/analytics";
+  }
+  if (pathname === "/history" || pathname === "/buses/history") {
+    return mode === "bus" ? "/buses/history" : "/history";
+  }
+  return mode === "bus" ? "/buses" : "/";
+}

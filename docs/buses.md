@@ -1,0 +1,484 @@
+# Bus data
+
+The bus collector adds NTA GTFS schedules, realtime trip updates and current vehicle positions beside the existing Irish Rail feed. It does not replace or rename the rail tables.
+
+## Sources
+
+| Data | URL | Access | Refresh |
+|---|---|---|---|
+| Matching GTFS schedule | `https://www.transportforireland.ie/transitData/Data/GTFS_Realtime.zip` | public | daily |
+| TripUpdates | `https://api.nationaltransport.ie/gtfsr/v2/gtfsr?format=json` | `x-api-key` | alternating, normally about every two minutes |
+| Vehicles | `https://api.nationaltransport.ie/gtfsr/v2/Vehicles?format=json` | `x-api-key` | alternating, normally about every two minutes |
+| Alerts | `https://api.nationaltransport.ie/gtfsr/v2/Alerts?format=json` | `x-api-key` | one slot every 10 minutes, set `NTA_ALERTS_URL=` to turn off |
+
+The collector keeps only routes whose GTFS `route_type` is `3` or `11`, or the extended bus/coach types `200–209`, `700–716` and `800`, plus their agencies, trips, stops, stop times, predictions and vehicle positions. The NTA exposes trip updates and vehicle positions through separate operations, but its fair-usage policy permits only one realtime API request per token every 60 seconds. The collector therefore alternates the operations within one shared request budget. With the one-second safety margin, each kind normally refreshes about every 122 seconds.
+
+The NTA describes its live feed as covering services provided by Dublin Bus, Bus Éireann and Go-Ahead Ireland. The matching static schedule covers a broader bus network, so a route appearing in the schedule does not by itself mean realtime positions are available for it.
+
+NTA data uses CC BY 4.0. Public views must name the NTA, link to the source and say that the data is supplied as is. The dashboard bus page includes this notice. Review the NTA's commercial-use wording before placing bus data behind a paid plan.
+
+## Service alerts
+
+`/gtfsr/v2/Alerts` is standard GTFS-Realtime ServiceAlerts for Dublin Bus, Bus Éireann, Go-Ahead, Luas and some Irish Rail notices. It takes one slot of the shared one-request-a-minute budget at most every 10 minutes, counting failed attempts, so trip updates and vehicles lose about one refresh in ten. `/gtfsr/v2/ServiceAlerts` is a 404.
+
+Alerts land in `bus_service_alerts`, keyed by NTA's entity id (`ID-<creation time>`), falling back to header, first start and agencies when an alert has none, so edits update the row and bump `revisions`. NTA marks open-ended alerts with an end in the year 3000, stored as `ends_at = NULL`. NTA sets `cause` and `effect` to `UNKNOWN` on every alert, so `category` comes from the text: disruption, diversion, stop_change, delay, works, timetable or other. Route and stop ids belong to the row's `feed_version_id`.
+
+## Segment delay
+
+`bus_segment_delay_hourly` holds delay picked up between consecutive stops, per service date, scheduled hour, and stop pair. A trip is folded in when it leaves `bus_stop_live`, 30 minutes after its last update, in the same statement that deletes it. NTA sends delays without times, so each stop uses the last delay predicted for it, and run times are the timetable run from `bus_stop_times` plus the delay gained. Legs that gain more than 30 minutes, or that would arrive before they left, are prediction resets and are dropped.
+
+Rows are keyed by stop pair, not timetable version: NTA publishes a new version most days but keeps stop ids, so `feed_version_id` is only the newest version seen, for names and coordinates. A timetable's stop times are kept until its last live trip has been rolled up, so trips running when a new timetable lands still count.
+
+Cancelled trips and skipped stops are left out. So is any leg the bus was not due to finish until more than 5 minutes after the feed last listed the trip, since a trip that vanishes early leaves forecasts for legs it never ran. When the daily timetable switch lands, running trips keep a frozen copy under the old version. A leg in that copy is skipped when the active version is still tracking its starting stop, since the active version will count it from there. The check runs after stops are paired, so the old copy keeps the legs the new version can no longer see.
+
+After the trip key fix ships, rows written under the old keys roll up within about 30 minutes, some of them several times. Delete that day's rows once, the morning after the deploy: `DELETE FROM bus_segment_delay_hourly WHERE service_date <= '<deploy date>'`. Nothing else reads the table yet. A collector outage longer than 30 minutes double counts the trips running through it: they are rolled up when their rows expire and again when they finish, because NTA keeps listing passed stops. Treat the hours around an outage with care.
+
+Trips are keyed on their trip id, service date and start time. NTA's trip-update entity ids are positions in each poll (`T577`, then `T576` a poll later), and keying on them split one trip into about 9 keys while lumping unrelated trips with the same start time under one. NTA's added trips carry no trip id, so they still fall back to the entity id and stay fragmented, but they never reach the segment rollup. Change detection ignores entity ids too, so a renumbered but unchanged prediction is not written again. Legs are also only formed within a single `trip_id`, so rows written under the old keys can't pair stops from two buses.
+
+Each stop's value is the last delay NTA predicted for it, not an observed time, so per-leg gains are noisy. Columns are sums (`trips`, `gain_sum_s`, `gain_pos_sum_s`, `gain_sq_sum`, `run_sum_s`, `sched_run_sum_s`) plus `gain_hist`, trip counts per signed gain bucket (edges -300, -120, -60, -30, 0, 30, 60, 120 and 300 s). Everything adds up across days and hours, so any window can be averaged at read time. On a live snapshot with trips separated properly, net gain averaged -1.4 s per leg and most legs sat within 30 s either way. Rank on net delay (`gain_sum_s`) over many trips and read medians from `gain_hist`. `gain_pos_sum_s` counts only increases, so it reads busy routes as worse than they are. History starts when this ships. The archive could backfill it but nothing does yet.
+
+## Why schedules are versioned
+
+NTA route, trip and stop IDs are internal join keys. They can change when the schedule is regenerated. Realtime rows are therefore tied to the exact static feed SHA-256 and `feed_version_id` that was active when the collector received them.
+
+Old feed versions remain in the database so historical departures still resolve to the right stop, route and operator. A new static feed becomes active only after its related rows load successfully in one transaction.
+
+## Tables
+
+```text
+transit_feed_versions
+  ├── bus_agencies
+  ├── bus_routes
+  ├── bus_trips
+  ├── bus_stops
+  ├── bus_stop_times
+  └── bus_shape_points
+
+bus_stop_observations
+  └── compressed archive of each changed stop prediction
+
+bus_stop_live
+  └── latest prediction per active trip and stop for departure boards
+
+bus_delay_samples
+  └── latest non-null delay per trip and stop for seven-day route statistics
+
+bus_trip_update_freshness
+  └── recent TripUpdate presence, relationship and last-seen time
+
+bus_trip_observations
+  └── compressed archive of trip presence at each successful poll
+
+bus_vehicle_positions
+  └── one current row per vehicle in the latest full-dataset Vehicles response
+
+bus_vehicle_observations
+  └── compressed archive of each full vehicle snapshot
+
+bus_delay_histogram
+  └── hourly counts of each reported prediction delay by network, route and stop
+
+bus_histogram_polls
+  └── poll receipts that prevent duplicate histogram counts after a retry
+
+bus_published_imports
+  └── each imported NTA published-performance snapshot, with its raw source responses
+
+bus_published_performance
+  └── published route-period statistics for each snapshot
+
+```
+
+The backfill copied every surviving legacy stop state and trip-presence row
+before the legacy table was retired. That table deduplicated repeated stop
+states, and an earlier retention job had already removed some older rows, so
+polls and changes missing from it cannot be reconstructed. New observations
+are archived as they arrive. The verified pre-retirement backup retains the
+legacy table for recovery.
+
+GTFS schedule times use integer seconds since the start of the service day. This preserves valid values beyond `24:00:00`, which PostgreSQL `TIME` cannot represent.
+
+## Runtime
+
+`bus_daemon.py` performs two independent jobs:
+
+1. Download and import the matching static feed when its SHA-256 changes.
+2. Reserve one shared realtime request slot, then alternate TripUpdates and Vehicles. TripUpdates appends changed stop states and records trip presence. Vehicles replaces the current vehicle snapshot and archives every vehicle seen in each poll.
+
+If an active static feed already exists, realtime polling starts during the
+startup static refresh and continues while that feed imports. A first install
+waits for its initial static feed before polling realtime data.
+
+The static import still runs when `NTA_API_KEY` is empty. Realtime collection stays disabled until the key is present. The key is sent only in the `x-api-key` header and must never appear in logs.
+
+The database-backed request reservation adds a one-second safety margin and applies across restarts or concurrent collectors sharing the database. Both operations use the same reservation, so replicas cannot turn the alternating schedule into extra NTA requests. The API reads the resulting database state and serves it to every user without calling NTA again.
+
+Differential feeds are rejected because absence only means removal in a full-dataset feed. TripUpdates changes only stop predictions and trip freshness; Vehicles changes only the vehicle snapshot. One operation never clears the other operation's data. Trip-level freshness lets boards retire removed or canceled trips without rewriting every unchanged stop prediction. The board reads `bus_stop_live`; the statistics page reads `bus_delay_samples` joined to recent trip freshness. Predictions and poll presence remain in the compressed observation tables after the live and statistics projections expire.
+
+The current NTA archive contains about 6.6 million bus stop-time rows. Route, trip and stop metadata remains versioned so historical IDs can still be interpreted, but stop times and shape points for inactive versions are removed after the replacement feed activates. Each successfully imported static ZIP is kept by content hash under `BUS_GTFS_ARCHIVE_DIRECTORY/versions` so the matching schedule can be restored; older versions that predate this archive may lack their ZIP. Stop prediction changes, trip observations and full vehicle snapshots have no retention limit. The observation hypertables compress after three hours; no bus or train history retention policy deletes old observations. Finite disks still need capacity monitoring as the archive grows.
+
+Configuration:
+
+| Variable | Default |
+|---|---|
+| `DATABASE_URL` | required |
+| `NTA_API_KEY` | empty, realtime disabled |
+| `NTA_GTFS_URL` | matching NTA static ZIP |
+| `NTA_TRIP_UPDATES_URL` | NTA v2 TripUpdates JSON endpoint |
+| `NTA_VEHICLES_URL` | NTA v2 Vehicles JSON endpoint |
+| `NTA_GTFSR_URL` | deprecated fallback for `NTA_TRIP_UPDATES_URL` |
+| `BUS_GTFS_ARCHIVE_DIRECTORY` | optional outside Docker; `/data/gtfs` in Compose |
+| `BUS_STATIC_REFRESH_SECONDS` | `86400` |
+| `BUS_REALTIME_INTERVAL_SECONDS` | `60`, shared by both operations; values below 60 are clamped |
+| `BUS_WRITE_LEGACY_STOP_UPDATES` | `0`; `1` is only for rollback to a database that still has the legacy table |
+
+## GraphQL
+
+```graphql
+busStops(search: String, limit: Int = 50)
+busRealtimeStatus
+busStopBoard(stopId: String!, limit: Int = 30)
+busRouteDelays(hours: Int = 24, limit: Int = 30)
+busVehicles(routeId: String, limit: Int = 2000)
+busLiveRouteShapes(limit: Int = 100)
+busScheduledRouteShapes(stopId: String, limit: Int = 24)
+busBunching
+busServiceNotices
+busDelayHistory(routeId: String, stopId: String, feedVersionId: Int, hours: Int = 24, resolution: BusHistoryResolution = HOUR)
+busRoutes(search: String, routeId: String, feedVersionId: Int, limit: Int = 60)
+busStopStats(hours: Int = 24, search: String, feedVersionId: Int, stopId: String, limit: Int = 100)
+busRouteStopDelays(routeId: String!, feedVersionId: Int!, limit: Int = 100)
+busJourneys(feedVersionId: Int!, routeId: String!, hours: Int = 24, limit: Int = 100)
+busJourneyStops(feedVersionId: Int!, routeId: String!, tripInstanceKey: String!, hours: Int = 72)
+busPublishedDataset
+busPublishedPerformance(importId: String!, search: String, operatorName: String, routeShortName: String, year: Int, limit: Int = 200, offset: Int = 0)
+```
+
+`busDelayHistory` derives hourly averages, p95 and on-time shares from the
+poll-weighted histogram. It counts unchanged predictions again when they are
+reported in a later poll, and is not a measure of actual arrivals. Choose at
+most one of `routeId` and `stopId`; either requires `feedVersionId` so schedule
+versions remain distinct. Missing polls remain gaps in the series. `HOUR`
+resolution covers up to 168 hours, longer windows must ask for `DAY`, whose
+buckets start at midnight UTC. History windows are described below.
+The existing `busRouteDelays` ranking has different semantics: its samples are
+the latest recorded delay per trip and stop, not one sample per poll.
+
+The list queries return an empty list before the first feed import. `busRealtimeStatus`
+reports the newest successful poll plus separate `vehiclesLastSuccessAt` and
+`tripUpdatesLastSuccessAt` timestamps. Its legacy `isLive` field means either
+feed succeeded in the last three minutes; the dashboard uses the source-specific
+times so fresh predictions cannot make stale vehicle positions appear live.
+Stops, boards, current vehicles, scheduled route shapes and up to 72 hours of
+route-delay history are public. Coffee, Pro and admin accounts may query up to
+seven days through the route-delay API.
+
+`busLiveRouteShapes` returns one line per shape used by a bus seen in the last five minutes, busiest first, up to 2,000. It stays empty until realtime collection succeeds. Each shape is simplified once per feed version to within 8 m (about a tenth of the original points) and kept in the API's memory for a day. A cold start reads about 700,000 points once, and later requests only read shapes not seen before. The dashboard asks for every live shape through the `polyline` field, a Google encoded polyline at five decimal places. In November 2026 that was 542 shapes in about 390 KB (230 KB gzipped), against 5.8 MB for the same shapes as `points`. `points` stays for existing API users.
+
+`busBunching` lists buses on the same shape and direction running within 400 m of each other although their trips start at least six minutes apart. Each bus is placed along its own simplified shape. It must be within 150 m of the line and more than 600 m from either end, so terminus layovers don't count. Both positions must be reported within 90 seconds of each other. Buses keep reporting a finished trip while they lay over or return to the depot, so only trips the timetable has running now count, allowing up to 45 minutes late. Neighbouring bunched buses are merged into one group, and `tripIds` matches `BusVehicle.tripId`. NTA stop predictions only cover about five stops per trip, which is too sparse to measure gaps at stops, so this uses positions.
+
+`busServiceNotices` returns NTA notices seen in the last 25 minutes whose active period covers now. The alerts feed also carries Irish Rail and Luas notices, so a notice must name a bus route, stop or agency from its feed version, and must not name any agency outside it.
+
+`busScheduledRouteShapes` does not depend on realtime. Without `stopId`, it returns representative directions from the most frequently scheduled routes in the active feed. With `stopId`, it returns representative directions for routes serving that stop. The API returns at most 40 shapes, samples each to at most 300 points, and keeps one common shape per route and direction. The dashboard requests 24. This gives the map useful route lines in static-only mode without sending the full national feed to the browser.
+
+Identical stop searches, boards, delay aggregates, vehicle snapshots and route shapes are coalesced and cached in the API. Non-empty scheduled geometry uses a 15-minute cache because it changes only when the static feed changes. Empty scheduled-shape results are evicted immediately, so a request made during the initial shape import cannot hide the completed import for 15 minutes.
+
+The live dashboard polls positions and selected-stop boards every 15 seconds.
+It fetches map geometry separately every 60 seconds, so a slow shape query does
+not delay positions. The network page refreshes route statistics every minute.
+These browser requests read our cached API and consume no additional NTA
+requests. The map transition ends at each reported position; it does not
+predict movement between upstream polls.
+
+## Checks
+
+```bash
+python -m unittest test_bus_daemon.py
+python -m py_compile bus_daemon.py
+
+cd api
+cargo test --all-targets
+
+cd ../dashboard
+vp check
+vp build
+```
+
+After starting the stack:
+
+```sql
+SELECT id, content_sha256, imported_at, is_active
+FROM transit_feed_versions
+ORDER BY imported_at DESC;
+
+SELECT COUNT(*) FROM bus_stops
+WHERE feed_version_id = (
+  SELECT id FROM transit_feed_versions WHERE is_active ORDER BY imported_at DESC LIMIT 1
+);
+
+SELECT COUNT(*) FROM bus_stop_observations
+WHERE fetched_at > NOW() - INTERVAL '10 minutes';
+
+SELECT COUNT(*), MAX(last_seen_at) FROM bus_vehicle_positions;
+
+SELECT endpoint, status, fetched_at, record_count
+FROM fetch_history
+WHERE endpoint IN ('nta_trip_updates', 'nta_vehicles')
+ORDER BY fetched_at DESC
+LIMIT 10;
+```
+
+The last query should show both realtime endpoints alternating, with consecutive requests at least 60 seconds apart.
+
+## History windows
+
+Every history query is capped at 72 hours for public requests. Coffee, Pro and
+admin accounts get longer windows only where the query stays cheap:
+
+| Query | Public | Paid |
+|---|---|---|
+| `busDelayHistory` | 72 hours | 90 days, daily beyond 7 days |
+| `busStopStats` | 72 hours | 72 hours |
+| `busJourneys`, `busJourneyStops` | 72 hours | 7 days |
+
+The limits come from `EXPLAIN (ANALYZE, BUFFERS)` on a local TimescaleDB built
+to production's volume, in October 2026. The public API reported a median of
+about 293,000 counted predictions an hour, and a simulation of the collector's
+histogram rule put that at roughly 200,000 histogram rows an hour across about
+6,400 network, route and stop scopes. The dataset used 181,000 rows an hour
+for 31 days
+and a further 334 days for the measured scopes, with every other scope kept in
+each chunk so segment counts matched. The archive held 58 days for the busiest
+route at about 4,400 changed predictions an hour. Chunks older than the
+production compression windows were compressed.
+
+The local stop rankings took about four times as long as the same uncached
+requests to production (6.3 s against 1.5 s for 24 hours, 18.8 s against
+4.7 s for 72 hours), so the estimates below divide local times by four. The
+busiest scope sets each limit, since anyone can open it.
+
+| Query and scope | Window | Local | Production estimate |
+|---|---|---|---|
+| Delay history, network or busiest route | 7 days hourly | 1.8 s | 0.5 s |
+| | 30 days daily | 2.7 s | 0.7 s |
+| | 90 days daily | 8.6 s | 2 s |
+| | 1 year daily | 34 s | 8 s |
+| Delay history, median route or stop | 1 year daily | 2 to 4 s | under 1 s |
+| Stop rankings, every stop | 72 hours | 18.8 s | 4.7 s measured |
+| | 7 days | 39 s | 10 s |
+| Journeys, busiest route | 7 days | 3.9 s | 1 s |
+| | 30 days | 17 s | 4 s |
+
+A year of delay history would exceed the 15-second statement timeout on the
+local data, and stop rankings already cost seconds at 72 hours, so neither is
+offered. Daily delay history refreshes every 15 minutes in the dashboard
+rather than every minute. A daily continuous aggregate per scope would make a
+year cheap if it is ever needed.
+
+The archive is written into hourly chunks and kept indefinitely. A cutoff
+written as `NOW() - interval` can't exclude chunks while planning, so a 24-hour
+journeys query spent 9.7 s planning across 1,392 chunks, and a prepared
+statement's sixth execution spent 9 s building a generic plan. History queries
+therefore bind an absolute cutoff and run with
+`plan_cache_mode = force_custom_plan`, which brought that planning down to
+about 50 ms.
+
+### Archive layout
+
+Each compressed hourly chunk merges into one chunk per day
+(`compress_chunk_time_interval = '1 day'`), so a year is about 365 chunks
+rather than 8,760. `update_hash` in the stop and vehicle archives is the first
+8 bytes of the state's SHA-256 stored as a `BIGINT`. The full hex hash is
+random text that doesn't compress, and it was 71% of each compressed stop
+chunk. The collector still compares full hex hashes in memory and in
+`bus_stop_live`, and converts only what it archives.
+
+On one real day (6 November 2026) the compact layout measured:
+
+| Archive | Rows | Hourly chunks, hex hash | Daily chunks, bigint hash |
+|---|---|---|---|
+| Stop observations | 8.4M | 678 MB | 235 MB |
+| Vehicle observations | 526k | 90 MB | 57 MB |
+| Trip observations | 1.25M | 79 MB | 76 MB |
+
+Migration 020 sets this layout on a new, empty install. A populated archive is
+rebuilt by `scripts/compact_bus_archive.py` while the collector keeps running.
+Rows never change once written, so the script copies closed hours from the
+live table into `<archive>_compact`, checking a whole-row checksum for each
+hour, and compresses each finished day. The swap then locks both tables, copies
+the rows from the last few minutes and renames them, which took under a second
+in testing. The collector reads the column type at the start of each write
+and switches to the bigint form by itself. A write already waiting on the lock
+can fail once and is retried on the next poll.
+
+### Running the compaction
+
+Before copying the archive, confirm a current, verified production backup is
+available. See [Backups and recovery](deployment.md#backups-and-recovery).
+
+```bash
+docker exec -i irish_bus_daemon python - --expected-db ireland_public \
+    --phase copy < scripts/compact_bus_archive.py
+docker exec -i irish_bus_daemon python - --expected-db ireland_public \
+    --phase swap < scripts/compact_bus_archive.py
+# check the history pages, then
+docker exec -i irish_bus_daemon python - --expected-db ireland_public \
+    --phase drop < scripts/compact_bus_archive.py
+```
+
+Each phase resumes where it stopped and can be rerun. `--archive` limits a run
+to one table and `--limit-hours` stops the copy early. Progress lives in
+`bus_storage_backfill_progress` under `compact:<archive>`. Until the drop
+phase, `<archive>_legacy` keeps the original rows. Drop refuses to run if the
+new table holds fewer rows from before the swap.
+
+### Working-table upkeep
+
+`bus_delay_samples` and `bus_trip_update_freshness` keep seven days. Expiry
+takes the oldest 5,000 expired trips at a time and checks them against the
+trip archive only within their own time range. The earlier correlated check
+decompressed every archive chunk older than a week (5.7 s planning and 167 s
+per batch in November 2026), ran as a parallel query and failed on the
+database container's 64 MB `/dev/shm`. Most runs failed, so the table held
+9.5 days and 14 GB. Expiry now runs without parallel workers, and each pass
+keeps taking batches for up to two minutes, so a backlog after downtime clears
+within a few runs. Migration 021 vacuums the working tables after 2% of a
+table is dead rather than the default 20%.
+
+Space freed this way is reused but not returned. A fresh primary key on
+`bus_delay_samples` takes about 114 bytes a row against 225 in production
+after the backlog, so once expiry has caught up, rebuild the bloated keys
+without blocking writes:
+
+```sql
+REINDEX INDEX CONCURRENTLY bus_delay_samples_pkey;
+REINDEX INDEX CONCURRENTLY bus_trip_update_freshness_pkey;
+REINDEX INDEX CONCURRENTLY bus_stop_live_pkey;
+```
+
+## Published NTA performance
+
+The NTA publishes route statistics for its PSO bus contracts on a
+[public dashboard](https://www.nationaltransport.ie/public-transport-services/public-transport-contracts/operator-performance/pso-bus-performance-dashboard/pso-bus-performance-dashboard/).
+`import_bus_performance.py` copies them into `bus_published_performance`, and
+`/buses/published` shows them with search, contract and year filters and a
+per-route trend. The bus history and route pages link to it.
+
+These are reporting-period aggregates, not observations. Each record covers one
+route in one contract for one of the NTA's 13 four-week periods. Low-frequency
+routes report punctuality and departure counts, high-frequency routes report
+excess passenger waiting time, and both report planned, operated and lost
+kilometres. The NTA's punctuality window runs from one minute early to five
+minutes 59 seconds late, so it is not comparable with the five-minute target
+used for collected predictions. Nothing is written to the realtime tables or
+`bus_delay_histogram`.
+
+The importer reads three bulk tables from the dashboard's public
+publish-to-web endpoint. It does not use the NTA realtime key or its request
+budget. That endpoint is undocumented, so the importer refuses any response
+whose columns, row layout, periods or metric ranges differ from what it
+expects, and any truncated page. A failed run changes nothing. Missing metrics
+stay null, and a period with no departures is not reported as 0% on time. The
+EWT table labels the Bus Éireann DAC contract "Bus Éireann", which is mapped
+back to "Bus Éireann DAC". The raw responses keep the original labels.
+
+Each snapshot is identified by a hash of its normalised records. Replaying the
+same snapshot inserts nothing. A changed snapshot is stored beside the earlier
+ones and becomes the active one in the same transaction, so the page never
+shows a partial import. Earlier snapshots stay in the database for comparison.
+
+### Running an import
+
+The import is manual. It reads no database credentials. It writes a SQL file
+that you review and then apply.
+
+1. Prepare the SQL on any machine with `requirements.txt` installed. Source
+   responses are cached in the directory you give, and `--refresh` downloads a
+   new snapshot instead of reusing them.
+
+   ```bash
+   python3 import_bus_performance.py \
+     --directory ~/nta-published-cache \
+     --refresh \
+     --output /tmp/nta-published.sql
+   ```
+
+   It prints the record count, contracts and first and last periods. The first
+   import in September 2026 had about 11,500 records for 443 route contracts,
+   from 2024 P1. Stop if the numbers look wrong.
+
+2. Apply it to production. Migration 018 creates the tables during deploy, so
+   they already exist.
+
+   ```bash
+   docker exec -i irish_rail_db \
+     psql -X -v ON_ERROR_STOP=1 -U irish_data -d ireland_public \
+     < /tmp/nta-published.sql
+   ```
+
+   The file runs in one transaction with a 120-second timeout and checks its
+   own record count before committing.
+
+3. The page updates within five minutes, when the API cache expires.
+
+To return to an earlier snapshot, change which row in `bus_published_imports`
+has `is_active` set. At most one may be active.
+
+### Tests
+
+```bash
+python3 -m unittest test_bus_performance_import
+```
+
+The database replay test runs only against a disposable Postgres container
+that you name. It never reads `DATABASE_URL`.
+
+```bash
+docker run -d --name nta-published-test -e POSTGRES_PASSWORD=test postgres:18
+BUS_PUBLISHED_TEST_CONTAINER=nta-published-test \
+  python3 -m unittest test_bus_performance_import
+docker rm -f nta-published-test
+```
+
+## Official references
+
+- [GTFS `shapes.txt` reference](https://gtfs.org/documentation/schedule/reference/#shapestxt)
+- [NTA GTFS dataset](https://data.gov.ie/dataset/nta-gtfs)
+- [NTA GTFS-Realtime migration and ID guidance](https://www.nationaltransport.ie/news/attention-developers-upgrade-to-gtfs-realtime-api/)
+- [NTA fair-usage policy](https://developer.nationaltransport.ie/usagepolicy)
+
+## Persistent bulk archive and regional coverage
+
+The database already stores the imported national schedule and current realtime
+snapshots. API requests read that state rather than calling NTA for each visitor.
+The bus collector keeps each successfully imported ZIP under
+`BUS_GTFS_ARCHIVE_DIRECTORY/versions`, named by its content SHA-256. It also
+atomically updates the latest copy for each configured source URL. Failed imports
+leave those files alone. The complete ZIP retains
+calendar files and other source tables even when the importer does not use them.
+An upstream outage leaves the imported database schedule available. The collector
+does not activate an older archive automatically, because its IDs may no longer
+match current realtime data.
+
+Regional bus and coach route types are accepted on subsequent new feed imports,
+alongside ordinary buses. Existing imported versions remain immutable. A separate
+operator ZIP must not replace the matching realtime schedule simply to add routes:
+its IDs may collide or fail to match NTA's live feed. Additional independent feeds
+need separate source/version handling before they can be combined safely.
+
+Route types: [published extended GTFS types](https://developers.google.com/transit/gtfs/reference/extended-route-types).
+
+The matching ZIP inspected on 13 September 2026 contained 382 bus routes:
+197 Bus Éireann, 5 Bus Éireann Waterford, 116 Dublin Bus and 64 Go-Ahead Ireland.
+All used route type 3, so accepting extended types does not add routes to that
+particular archive. It prepares the importer for regional/coach feeds using those
+codes; it does not create live coverage where the operator publishes none.
+
+NTA's [download catalogue](https://www.transportforireland.ie/transitData/PT_Data.html)
+also lists [all operators](https://www.transportforireland.ie/transitData/Data/GTFS_All.zip),
+[Local Link](https://www.transportforireland.ie/transitData/Data/GTFS_Local_Link.zip),
+[Citylink](https://www.transportforireland.ie/transitData/Data/GTFS_Citylink.zip),
+Aircoach, JJ Kavanagh, Wexford Bus and smaller operators as separate schedule
+archives. These are candidates for additional scheduled coverage, not evidence of
+additional realtime positions. They are not automatically imported alongside the
+matching realtime schedule by this collector.

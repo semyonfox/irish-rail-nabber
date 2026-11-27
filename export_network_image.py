@@ -33,8 +33,8 @@ def create_matplotlib_image(G):
 
         subprocess.run(
             ["python3", "-m", "pip", "install", "-q", "matplotlib"],
-            cwd="/home/semyon/code/personal/irish-rail-nabber/venv",
-            env={"VIRTUAL_ENV": "/home/semyon/code/personal/irish-rail-nabber/venv"},
+            cwd="/home/semyon/code/owned/tools/irish-rail-nabber/venv",
+            env={"VIRTUAL_ENV": "/home/semyon/code/owned/tools/irish-rail-nabber/venv"},
         )
         import matplotlib.pyplot as plt
         import matplotlib.patches as mpatches

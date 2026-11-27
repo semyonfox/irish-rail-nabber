@@ -2,17 +2,16 @@
 # Irish Rail Database Backup Script
 # Hourly backups (keep 6) + Daily backups (keep indefinitely)
 
-set -euo pipefail
+set -e -o pipefail
 
 # Configuration
 # Note: Database is in Docker container, use docker exec to connect
 DB_HOST="localhost"
 DB_PORT="5432"
 DB_USER="irish_data"
-DB_PASSWORD="secure_password"
 DB_NAME="ireland_public"
 DB_CONTAINER="irish_rail_db"
-BACKUP_DIR="/home/semyon/code/personal/irish-rail-nabber/backups"
+BACKUP_DIR="/home/semyon/code/owned/tools/irish-rail-nabber/backups"
 HOURLY_DIR="$BACKUP_DIR/hourly"
 DAILY_DIR="$BACKUP_DIR/daily"
 LOG_FILE="$BACKUP_DIR/backup.log"
@@ -27,10 +26,11 @@ log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
 }
 
-backup_database() {
+backup_database() (
     local backup_type=$1
     local backup_dir=$2
     local timestamp=$(date '+%Y%m%d_%H%M%S')
+    local filename max_files backup_file temp_file size
     
     if [ "$backup_type" = "hourly" ]; then
         filename="ireland_public_${timestamp}.sql.gz"
@@ -40,41 +40,37 @@ backup_database() {
         max_files=999  # keep all daily backups
     fi
     
-    local backup_file="$backup_dir/$filename"
-    local temp_file
-    temp_file=$(mktemp "$backup_dir/.backup-XXXXXX")
+    backup_file="$backup_dir/$filename"
     
+    mkdir -p -- "$backup_dir"
     log "Starting $backup_type backup: $filename"
     
     # Perform the dump via Docker exec
     log "Connecting via docker exec to $DB_CONTAINER..."
-    if ! docker exec "$DB_CONTAINER" pg_dump \
+    temp_file=$(mktemp -- "$backup_dir/.$filename.XXXXXX")
+    trap 'rm -f -- "$temp_file"' EXIT
+
+    if docker exec "$DB_CONTAINER" pg_dump \
         -h "$DB_HOST" \
         -p "$DB_PORT" \
         -U "$DB_USER" \
         -d "$DB_NAME" \
         --no-password \
-        --format=plain \
-        | gzip -9 > "$temp_file"; then
-        rm -f "$temp_file"
-        log "${RED}✗ $backup_type backup FAILED: $filename${NC}"
-        return 1
-    fi
-    mv "$temp_file" "$backup_file"
-    
-    log "Backup file created, verifying..."
-    
-    if [ -f "$backup_file" ]; then
-        size=$(du -h "$backup_file" | cut -f1)
-        log "${GREEN}✓ $backup_type backup successful: $filename ($size)${NC}"
+        --format=plain | gzip -9 > "$temp_file" &&
+        mv -fT -- "$temp_file" "$backup_file"; then
+        trap - EXIT
     else
+        local status=$?
         log "${RED}✗ $backup_type backup FAILED: $filename${NC}"
-        return 1
+        return "$status"
     fi
+
+    size=$(du -h "$backup_file" | cut -f1)
+    log "${GREEN}✓ $backup_type backup successful: $filename ($size)${NC}"
     
     # Cleanup old backups (keep only the last N)
     cleanup_old_backups "$backup_dir" "$max_files"
-}
+)
 
 cleanup_old_backups() {
     local backup_dir=$1
@@ -98,22 +94,21 @@ cleanup_old_backups() {
 
 # Main execution
 main() {
-    mkdir -p "$HOURLY_DIR" "$DAILY_DIR"
-    case "${1:-hourly}" in
-        hourly) backup_database "hourly" "$HOURLY_DIR" ;;
-        daily) backup_database "daily" "$DAILY_DIR" ;;
-        all)
-            backup_database "hourly" "$HOURLY_DIR"
-            backup_database "daily" "$DAILY_DIR"
-            ;;
-        *)
-            echo "Usage: $0 [hourly|daily|all]" >&2
-            return 2
-            ;;
-    esac
+    if [ "$1" = "hourly" ] || [ -z "$1" ]; then
+        backup_database "hourly" "$HOURLY_DIR"
+    fi
+    
+    if [ "$1" = "daily" ]; then
+        backup_database "daily" "$DAILY_DIR"
+    fi
+    
+    if [ "$1" = "all" ]; then
+        backup_database "hourly" "$HOURLY_DIR"
+        backup_database "daily" "$DAILY_DIR"
+    fi
     
     log "${GREEN}Backup process complete${NC}"
 }
 
 # Run main function
-main "${1:-}"
+main "$1"

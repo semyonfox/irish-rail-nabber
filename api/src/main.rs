@@ -2,6 +2,7 @@ mod auth;
 mod billing;
 mod chat;
 mod db;
+mod geometry;
 mod models;
 mod rate_limit;
 mod schema;
@@ -18,10 +19,12 @@ use axum::{
     Extension, Router,
 };
 use std::path::Path;
-use tower_http::cors::CorsLayer;
+use tower_http::{cors::CorsLayer, limit::RequestBodyLimitLayer};
 
 use models::AuthUser;
 use state::{AppState, QueryCache};
+
+const MAX_GRAPHQL_BODY_BYTES: usize = 128 * 1024;
 
 async fn graphql_handler(
     State(state): State<AppState>,
@@ -63,6 +66,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_env_filter("irish_rail_api=info")
         .init();
 
+    let client_ip_config = rate_limit::ClientIpConfig::from_env()?;
+
     let pool = db::create_pool().await;
     tracing::info!("connected to database");
 
@@ -83,16 +88,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .allow_credentials(true);
 
     let auth_routes = Router::new()
-        .route("/register", post(auth::handlers::register))
-        .route("/login", post(auth::handlers::login))
-        .route("/refresh", post(auth::handlers::refresh))
-        .route("/logout", post(auth::handlers::logout))
+        .route("/config", get(auth::handlers::config))
         .route("/session", get(auth::handlers::session))
         .route("/me", get(auth::handlers::me));
 
     let billing_routes = Router::new()
-        .route("/checkout", post(billing::handlers::checkout))
-        .route("/portal", post(billing::handlers::portal))
+        .route(
+            "/checkout",
+            post(billing::handlers::checkout).layer(axum_middleware::from_fn_with_state(
+                app_state.clone(),
+                rate_limit::billing_checkout_rate_limit,
+            )),
+        )
+        .route(
+            "/portal",
+            post(billing::handlers::portal).layer(axum_middleware::from_fn_with_state(
+                app_state.clone(),
+                rate_limit::billing_portal_rate_limit,
+            )),
+        )
         .route("/limits", get(billing::handlers::limits))
         .route("/usage", get(billing::handlers::usage));
 
@@ -100,6 +114,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let graphql_routes = Router::new()
         .route("/graphql", get(graphql_playground).post(graphql_handler))
+        .layer(RequestBodyLimitLayer::new(MAX_GRAPHQL_BODY_BYTES))
         .layer(axum_middleware::from_fn_with_state(
             app_state.clone(),
             rate_limit::graphql_rate_limit,
@@ -115,7 +130,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nest("/billing", billing_routes)
         .route("/billing/webhook", post(billing::handlers::webhook))
         .route("/health", get(health))
-        .layer(axum_middleware::from_fn(auth::middleware::auth_middleware))
+        .layer(axum_middleware::from_fn_with_state(
+            app_state.clone(),
+            auth::middleware::auth_middleware,
+        ))
+        .layer(Extension(client_ip_config))
         .layer(cors)
         .with_state(app_state);
 
@@ -123,7 +142,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("listening on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await?;
 
     Ok(())
 }

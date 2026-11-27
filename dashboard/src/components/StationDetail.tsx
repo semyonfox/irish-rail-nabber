@@ -1,7 +1,9 @@
 import { STATION_BOARD } from "../graphql/queries";
 import { usePollingQuery } from "../utils/usePollingQuery";
-import { delayColor, formatTime } from "../utils/format";
-import type { MapStationSelection } from "./TrainMap";
+import { formatTime, shortDelay } from "../utils/format";
+import type { RailStation } from "./TrainMap";
+import { DelayPill, Empty, MiniStat, Sheet } from "./ui";
+import RequestError from "./RequestError";
 
 interface StationEvent {
   trainCode: string;
@@ -24,11 +26,12 @@ interface StationBoardData {
 }
 
 interface Props {
-  station: MapStationSelection;
+  station: Pick<RailStation, "stationCode" | "stationDesc"> &
+    Partial<Pick<RailStation, "stationType" | "isDart" | "latitude" | "longitude">>;
   onClose: () => void;
 }
 
-function stationTypeLabel(station: MapStationSelection) {
+function stationTypeLabel(station: Props["station"]) {
   if (station.isDart) return "DART";
   if (station.stationType === "M") return "Mainline";
   if (station.stationType === "S") return "Suburban";
@@ -62,17 +65,15 @@ function dueLabel(dueIn: number | null) {
   if (dueIn == null) return "-";
   if (dueIn < 0) return "Left";
   if (dueIn === 0) return "Due";
-  return `${dueIn}m`;
+  return `${dueIn} min`;
 }
 
-function delayLabel(delay: number | null) {
-  if (delay == null) return "N/A";
-  if (delay <= 0) return "RT";
-  return `+${delay}m`;
+function routeText(event: StationEvent) {
+  return `${event.origin || "—"} → ${event.destination || "—"}`;
 }
 
 export default function StationDetail({ station, onClose }: Props) {
-  const [{ data, fetching }] = usePollingQuery<StationBoardData>({
+  const [{ data, fetching, error }, retry] = usePollingQuery<StationBoardData>({
     query: STATION_BOARD,
     variables: { stationCode: station.stationCode, limit: 18 },
     pollInterval: 10000,
@@ -95,125 +96,116 @@ export default function StationDetail({ station, onClose }: Props) {
   const worstDelay = board.reduce((max, event) => Math.max(max, event.lateMinutes ?? 0), 0);
 
   return (
-    <div className="fixed inset-y-0 right-0 z-50 w-full overflow-auto border-l border-[var(--rail-border)] bg-[var(--rail-surface)] p-4 shadow-xl sm:w-96">
-      <div className="mb-5 flex items-start justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold uppercase text-[var(--rail-green)]">
-            {station.stationCode}
-          </p>
-          <h2 className="text-lg font-bold text-white">{station.stationDesc}</h2>
-          <p className="text-sm text-[var(--rail-muted)]">
-            {stationTypeLabel(station)} · {board.length} current board rows
-          </p>
+    <Sheet
+      label="station details"
+      onClose={onClose}
+      eyebrow={
+        <>
+          <span className="chip">{station.stationCode}</span>
+          {stationTypeLabel(station)}
+        </>
+      }
+      title={station.stationDesc}
+      subtitle={
+        <span role="status">
+          {!data
+            ? fetching
+              ? "Loading departures…"
+              : "Departures unavailable"
+            : `${board.length} services on the ${error ? "last loaded" : "latest"} board`}
+        </span>
+      }
+    >
+      {error ? (
+        <RequestError
+          bare
+          error={error}
+          title={
+            data
+              ? "Board updates unavailable. Showing last loaded data."
+              : "Station board unavailable"
+          }
+          onRetry={() => retry({ requestPolicy: "network-only" })}
+        />
+      ) : null}
+      {fetching && !data ? <Empty>Loading departures…</Empty> : null}
+      {data ? (
+        <div className="grid grid-cols-2 gap-2">
+          <MiniStat label="Due in 10 min" value={dueSoon.length} />
+          <MiniStat label="Worst delay" value={shortDelay(worstDelay)} />
+          <MiniStat
+            label="Delayed"
+            value={delayed.length}
+            tone={delayed.length > 0 ? "warn" : undefined}
+          />
+          <MiniStat
+            label="Severe"
+            value={severe.length}
+            tone={severe.length > 0 ? "bad" : undefined}
+          />
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="px-2 py-1.5 text-sm text-[var(--rail-muted)] hover:bg-[var(--rail-bg)] hover:text-white"
-          aria-label="Close station panel"
-        >
-          X
-        </button>
-      </div>
+      ) : null}
 
-      <div className="mb-4 grid grid-cols-2 gap-2 text-sm">
-        <div className="border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3">
-          <div className="text-xs text-[var(--rail-muted)]">Due inside 10m</div>
-          <div className="text-xl font-semibold text-white">{dueSoon.length}</div>
-        </div>
-        <div className="border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3">
-          <div className="text-xs text-[var(--rail-muted)]">Delayed</div>
-          <div className="text-xl font-semibold text-[var(--rail-warn)]">{delayed.length}</div>
-        </div>
-        <div className="border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3">
-          <div className="text-xs text-[var(--rail-muted)]">Severe</div>
-          <div className="text-xl font-semibold text-[var(--rail-red)]">{severe.length}</div>
-        </div>
-        <div className="border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3">
-          <div className="text-xs text-[var(--rail-muted)]">Worst delay</div>
-          <div className="text-xl font-semibold text-white">+{worstDelay}m</div>
-        </div>
-      </div>
-
-      {nextEvent && (
-        <div className="mb-4 border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3">
-          <div className="mb-1 text-xs uppercase text-[var(--rail-muted)]">Next movement</div>
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="truncate text-sm font-semibold text-white">
-                {nextEvent.trainCode} · {eventKind(nextEvent)} {eventTime(nextEvent)}
-              </div>
-              <div className="truncate text-xs text-[var(--rail-muted)]">
-                {nextEvent.origin || "-"} to {nextEvent.destination || "-"}
-              </div>
-            </div>
-            <div className="shrink-0 text-right">
-              <div className="text-sm font-semibold text-white">{dueLabel(nextEvent.dueIn)}</div>
-              <div className="text-xs" style={{ color: delayColor(nextEvent.lateMinutes) }}>
-                {delayLabel(nextEvent.lateMinutes)}
-              </div>
-            </div>
+      {nextEvent ? (
+        <div className="rounded-2xl bg-brand-soft p-4">
+          <div className="section-label !text-brand">
+            <span>Next movement</span>
+            <span className="font-semibold">{dueLabel(nextEvent.dueIn)}</span>
           </div>
-          {nextEvent.lastLocation && (
-            <div className="mt-2 truncate text-xs text-[var(--rail-muted)]">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-baseline gap-3">
+              <span className="font-mono text-[26px] font-semibold tracking-[-0.03em]">
+                {eventTime(nextEvent)}
+              </span>
+              <div className="min-w-0">
+                <div className="break-words font-semibold">{routeText(nextEvent)}</div>
+                <div className="code">
+                  {nextEvent.trainCode} · {eventKind(nextEvent) === "Dep" ? "departs" : "arrives"}
+                </div>
+              </div>
+            </div>
+            <DelayPill minutes={nextEvent.lateMinutes} />
+          </div>
+          {nextEvent.lastLocation ? (
+            <div className="mt-2 break-words text-[12.5px] text-ink-2">
               {nextEvent.lastLocation}
             </div>
-          )}
+          ) : null}
         </div>
-      )}
+      ) : null}
 
-      <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-white">Live board</h3>
-        {fetching && <span className="text-xs text-[var(--rail-muted)]">Updating</span>}
-      </div>
-
-      <div className="space-y-2">
-        {board.length === 0 && !fetching && (
-          <p className="border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3 text-sm text-[var(--rail-muted)]">
-            No live board rows in the latest poll window.
-          </p>
-        )}
+      <div>
+        <div className="section-label">
+          <span>Live board · most delayed first</span>
+          {fetching ? <span className="code">Updating…</span> : null}
+        </div>
+        {board.length === 0 && !fetching && !error ? (
+          <Empty className="!min-h-24">No live board rows in the latest poll window.</Empty>
+        ) : null}
         {sortedBoard.map((event) => {
           const scheduled = event.scheduledArrival || event.scheduledDeparture;
           const expected = event.expectedArrival || event.expectedDeparture;
-          const delay = event.lateMinutes;
-
           return (
-            <div
-              key={`${event.trainCode}-${scheduled}-${expected}`}
-              className="border border-[var(--rail-border)] bg-[var(--rail-bg)]/70 p-3 hover:border-[var(--rail-border-strong)]"
-            >
-              <div className="mb-1 flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold text-white">
-                    {event.trainCode} · {eventKind(event)} {eventTime(event)}
-                  </div>
-                  <div className="truncate text-xs text-[var(--rail-muted)]">
-                    {event.origin || "-"} to {event.destination || "-"}
-                  </div>
+            <div key={`${event.trainCode}-${scheduled}-${expected}`} className="board-row">
+              <span className="board-time">{eventTime(event)}</span>
+              <div className="min-w-0">
+                <div className="break-words text-[14.5px] font-semibold">{routeText(event)}</div>
+                <div className="break-words text-[12.5px] text-muted">
+                  <span className="code">{event.trainCode}</span> · Due {dueLabel(event.dueIn)}
+                  {event.lastLocation ? ` · ${event.lastLocation}` : ""}
                 </div>
-                <span
-                  className="shrink-0 text-xs font-semibold"
-                  style={{ color: delayColor(delay) }}
-                >
-                  {delayLabel(delay)}
-                </span>
               </div>
-              <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-[var(--rail-muted)]">
-                <span>Sched {formatTime(scheduled)}</span>
-                {expected && <span>Exp {formatTime(expected)}</span>}
-                {event.dueIn != null && <span>Due {dueLabel(event.dueIn)}</span>}
-                {event.lastLocation && <span>{event.lastLocation}</span>}
-                {event.status && <span>{event.status}</span>}
-              </div>
+              <DelayPill minutes={event.lateMinutes} />
             </div>
           );
         })}
       </div>
 
-      <div className="mt-4 text-xs text-[var(--rail-muted)]">
-        {station.latitude.toFixed(4)}, {station.longitude.toFixed(4)}
-      </div>
-    </div>
+      {station.latitude != null && station.longitude != null ? (
+        <div className="code">
+          {station.latitude.toFixed(4)}, {station.longitude.toFixed(4)}
+        </div>
+      ) : null}
+    </Sheet>
   );
 }

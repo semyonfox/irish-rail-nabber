@@ -9,9 +9,81 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  repository-hygiene:
+    name: Repository hygiene
+    runs-on: ubuntu-latest
+    outputs:
+      api: ${{ steps.changes.outputs.api }}
+      dashboard: ${{ steps.changes.outputs.dashboard }}
+      python: ${{ steps.changes.outputs.python }}
+      mobile: ${{ steps.changes.outputs.mobile }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Select affected checks
+        id: changes
+        shell: bash
+        run: |
+          api=true
+          dashboard=true
+          python=true
+          mobile=true
+          changed_files=$(mktemp)
+          trap 'rm -f "$changed_files"' EXIT
+
+          # only narrow checks against a verified pull request merge
+          if [[ "$GITHUB_EVENT_NAME" == pull_request && "$GITHUB_REF" =~ ^refs/pull/[0-9]+/merge$ ]] &&
+             [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]] &&
+             git rev-parse --verify HEAD^2 >/dev/null 2>&1 &&
+             git diff --no-renames --name-only -z HEAD^1 HEAD > "$changed_files"; then
+            api=false
+            dashboard=false
+            python=false
+            mobile=false
+            while IFS= read -r -d '' path; do
+              if [[ "$path" == docs/*.md || ( "$path" != */* && "$path" == *.md ) ]]; then
+                continue
+              fi
+              # compileall checks Python sources throughout the repository
+              if [[ "$path" == *.py ]]; then
+                python=true
+              fi
+              case "$path" in
+                api/*) api=true ;;
+                dashboard/*) dashboard=true ;;
+                mobile/*) mobile=true ;;
+                *.py|requirements.txt) python=true ;;
+                *) api=true; dashboard=true; python=true; mobile=true ;;
+              esac
+            done < "$changed_files"
+          fi
+
+          {
+            echo "api=$api"
+            echo "dashboard=$dashboard"
+            echo "python=$python"
+            echo "mobile=$mobile"
+          } >> "$GITHUB_OUTPUT"
+      - name: Reject tracked production env files
+        run: |
+          if git ls-files --error-unmatch .env.production >/dev/null 2>&1; then
+            echo "::error::.env.production must not be tracked. Use .env.production.example plus deployment secrets."
+            exit 1
+          fi
+      - name: Validate deploy contract
+        run: bash scripts/validate-deploy-contract.sh
+
   api:
     name: Rust API
+    needs: repository-hygiene
+    if: needs.repository-hygiene.outputs.api == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -34,6 +106,8 @@ jobs:
 
   dashboard:
     name: Dashboard
+    needs: repository-hygiene
+    if: needs.repository-hygiene.outputs.dashboard == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -42,18 +116,59 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Set up Vite+
-        uses: voidzero-dev/setup-vp@v1
+        uses: voidzero-dev/setup-vp@v1.19.0
         with:
           cache: true
+          # The action otherwise performs an unpinned, implicit install before
+          # our explicit lockfile-backed install below.
+          working-directory: dashboard
+          run-install: false
       - name: Install dependencies
-        run: vp install
+        run: vp install --frozen-lockfile
       - name: Check
         run: vp check
+      - name: Test
+        run: vp test run
       - name: Build
         run: vp build
 
+  mobile:
+    name: Mobile app
+    needs: repository-hygiene
+    if: needs.repository-hygiene.outputs.mobile == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: mobile/package.json
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: mobile/pnpm-lock.yaml
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Type check
+        run: pnpm tsc --noEmit
+      - name: Lint
+        run: pnpm expo lint
+      - name: Expo doctor
+        run: pnpm dlx expo-doctor
+
   python:
-    name: Python scripts
+    name: Python scripts (${{ matrix.python }})
+    strategy:
+      matrix:
+        python: ['3.11', '3.15']
+    needs: repository-hygiene
+    if: needs.repository-hygiene.outputs.python == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -61,9 +176,11 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: ${{ matrix.python }}
           cache: pip
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Compile Python sources
         run: python -m compileall -q .
+      - name: Test transit ingestion and published import
+        run: python -m unittest test_bus_daemon.py test_rail_movements.py test_bus_performance_import.py

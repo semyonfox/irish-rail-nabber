@@ -9,23 +9,43 @@ echo "Severity 2 Schema Migration"
 echo "=========================================="
 
 cd "$(dirname "$0")"
+: "${DATABASE_URL:?set DATABASE_URL before running this migration}"
+
+python3 << 'PYPREFLIGHT'
+import os
+import psycopg
+
+with psycopg.connect(os.environ["DATABASE_URL"], connect_timeout=10) as conn:
+    with conn.cursor() as cur:
+        cur.execute("SELECT 1")
+PYPREFLIGHT
+
+daemon_stopped=false
+restart_daemon() {
+    if [ "$daemon_stopped" = true ]; then
+        docker start irish_rail_daemon >/dev/null
+    fi
+}
+trap restart_daemon EXIT
 
 # 1. Stop daemon (release locks)
 echo -e "\n[1/5] Stopping daemon to release database locks..."
-docker-compose stop daemon
+docker stop irish_rail_daemon >/dev/null
+daemon_stopped=true
 sleep 3
 echo "✅ Daemon stopped"
 
 # 2. Run migration
 echo -e "\n[2/5] Applying schema fixes and migrations..."
 python3 << 'PYMIGRATION'
+import os
 import psycopg
 import sys
 
 try:
     print("Connecting to localhost:9898...")
     conn = psycopg.connect(
-        "postgresql://irish_data:secure_password@localhost:9898/ireland_public",
+        os.environ["DATABASE_URL"],
         connect_timeout=10
     )
     
@@ -81,9 +101,10 @@ PYMIGRATION
 # 3. Verify schema changes
 echo -e "\n[3/5] Verifying schema changes..."
 python3 << 'PYVERIFY'
+import os
 import psycopg
 
-conn = psycopg.connect("postgresql://irish_data:secure_password@localhost:9898/ireland_public")
+conn = psycopg.connect(os.environ["DATABASE_URL"])
 
 with conn.cursor() as cur:
     # Check stations columns
@@ -134,13 +155,14 @@ PYVERIFY
 
 # 4. Restart daemon
 echo -e "\n[4/5] Restarting daemon with latest code..."
-docker-compose start daemon
+docker start irish_rail_daemon >/dev/null
+daemon_stopped=false
 sleep 5
 echo "✅ Daemon started"
 
 # 5. Verify daemon is running
 echo -e "\n[5/5] Verifying daemon health..."
-if docker-compose ps daemon | grep -q "Up"; then
+if [ "$(docker inspect -f '{{.State.Running}}' irish_rail_daemon)" = true ]; then
     echo "✅ Daemon is running"
 else
     echo "❌ Daemon failed to start - check logs below"
@@ -149,4 +171,4 @@ fi
 echo -e "\n=========================================="
 echo "Migration complete! Showing daemon logs..."
 echo "=========================================="
-docker-compose logs --tail=30 daemon
+docker logs --tail=30 irish_rail_daemon

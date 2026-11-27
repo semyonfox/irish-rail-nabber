@@ -1,16 +1,32 @@
 import StationTable from "../components/StationTable";
+import { Card, PageHeader } from "../components/ui";
+import { useState } from "react";
+import StationDetail from "../components/StationDetail";
 
 export default function Stations() {
+  const [station, setStation] = useState<{ stationCode: string; stationDesc: string } | null>(null);
   return (
-    <div className="h-full overflow-auto p-4 md:p-6">
-      <div className="mx-auto max-w-7xl">
-        <div className="term-panel overflow-hidden">
-          <div className="term-panel-head">
-            Station performance
-            <small>Delay statistics per station · click column headers to sort</small>
-          </div>
-          <StationTable />
-        </div>
+    <div className="page stations-page">
+      <div className="page-inner">
+        <PageHeader
+          eyebrow="Stations"
+          title={
+            <>
+              Station <em>performance</em>
+            </>
+          }
+          description="Search by name or code, then select a station to open departures. The table shows delay statistics for the selected window."
+        />
+        <Card index={1}>
+          <StationTable onStationSelect={setStation} />
+        </Card>
+        {station ? (
+          <StationDetail
+            key={station.stationCode}
+            station={station}
+            onClose={() => setStation(null)}
+          />
+        ) : null}
       </div>
     </div>
   );

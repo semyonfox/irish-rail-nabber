@@ -399,10 +399,7 @@ def add_component_bridges(
 
 
 def get_database_url():
-    return os.getenv(
-        "DATABASE_URL",
-        "postgresql://irish_data:secure_password@server:9898/ireland_public",
-    )
+    return os.environ["DATABASE_URL"]
 
 
 def load_service_evidence(station_codes):

@@ -1,16 +1,16 @@
 import { useMemo, useState } from "react";
+import { flexRender, type SortingState } from "@tanstack/react-table";
 import {
-  createColumnHelper,
-  flexRender,
   getCoreRowModel,
   getSortedRowModel,
-  useReactTable,
-  type SortingState,
-} from "@tanstack/react-table";
+  legacyCreateColumnHelper,
+  useLegacyTable,
+} from "@tanstack/react-table/legacy";
 import { STATION_DELAY_STATS } from "../graphql/queries";
 import { usePollingQuery } from "../utils/usePollingQuery";
-import { formatPct, delayColor } from "../utils/format";
+import { formatPct } from "../utils/format";
 import RequestError from "./RequestError";
+import { DelayPill, Empty, Icon, SearchInput, Segmented } from "./ui";
 
 interface StationStats {
   stationCode: string;
@@ -25,62 +25,78 @@ interface StationDelayStatsData {
   stationDelayStats: StationStats[];
 }
 
-const col = createColumnHelper<StationStats>();
+const col = legacyCreateColumnHelper<StationStats>();
 
-const hoursOptions = [6, 24, 72, 168];
+const hoursOptions = [
+  { value: 6, label: "6 hours" },
+  { value: 24, label: "24 hours" },
+  { value: 72, label: "3 days" },
+  { value: 168, label: "7 days" },
+];
 
-export default function StationTable() {
+export default function StationTable({
+  onStationSelect,
+}: {
+  onStationSelect?: (station: Pick<StationStats, "stationCode" | "stationDesc">) => void;
+} = {}) {
   const [sorting, setSorting] = useState<SortingState>([{ id: "avgLateMinutes", desc: true }]);
   const [search, setSearch] = useState("");
   const [hours, setHours] = useState(24);
 
-  const [{ data, fetching, error }, retry] = usePollingQuery<StationDelayStatsData>({
+  const [{ data, fetching, error, operation }, retry] = usePollingQuery<StationDelayStatsData>({
     query: STATION_DELAY_STATS,
     variables: { hours, limit: 171 },
     pollInterval: 30000,
   });
 
   const columns = useMemo(
-    () => [
-      col.accessor("stationDesc", {
-        header: "Station",
-        cell: (info) => (
-          <span>
-            <span className="font-medium text-[var(--rail-text)]">{info.getValue()}</span>{" "}
-            <span className="text-xs text-[var(--rail-muted)]">
-              {info.row.original.stationCode}
+    () =>
+      col.columns([
+        col.accessor("stationDesc", {
+          header: "Station",
+          cell: (info) => (
+            <span className="flex items-center gap-2">
+              {onStationSelect ? (
+                <button
+                  type="button"
+                  className="station-board-link"
+                  aria-label={`Open ${info.getValue()} departures`}
+                  onClick={() => onStationSelect(info.row.original)}
+                >
+                  {info.getValue()}
+                </button>
+              ) : (
+                <span className="cell-main">{info.getValue()}</span>
+              )}
+              <span className="chip">{info.row.original.stationCode}</span>
             </span>
-          </span>
-        ),
-      }),
-      col.accessor("avgLateMinutes", {
-        header: "Avg delay",
-        cell: (info) => {
-          const v = info.getValue();
-          return (
-            <span className="tabular-nums" style={{ color: delayColor(v) }}>
-              {v.toFixed(1)} min
-            </span>
-          );
-        },
-      }),
-      col.accessor("maxLateMinutes", {
-        header: "Max delay",
-        cell: (info) => <span className="tabular-nums">{info.getValue()} min</span>,
-      }),
-      col.accessor("onTimePct", {
-        header: "On time %",
-        cell: (info) => <span className="tabular-nums">{formatPct(info.getValue())}</span>,
-      }),
-      col.accessor("totalEvents", {
-        header: "Events",
-        cell: (info) => <span className="tabular-nums">{info.getValue()}</span>,
-      }),
-    ],
-    [],
+          ),
+        }),
+        col.accessor("avgLateMinutes", {
+          header: "Average delay",
+          cell: (info) => <DelayPill minutes={info.getValue()} precise />,
+        }),
+        col.accessor("maxLateMinutes", {
+          header: "Worst delay",
+          cell: (info) => `+${info.getValue()} min`,
+        }),
+        col.accessor("onTimePct", {
+          header: "Within 5 min",
+          cell: (info) => formatPct(info.getValue()),
+        }),
+        col.accessor("totalEvents", {
+          header: "Stops observed",
+          cell: (info) => <span className="text-muted">{info.getValue().toLocaleString()}</span>,
+        }),
+      ]),
+    [onStationSelect],
   );
 
   const needle = search.trim().toLowerCase();
+  const loadedHours =
+    typeof operation?.variables?.hours === "number" ? operation.variables.hours : hours;
+  const pendingWindow = fetching && loadedHours !== hours;
+
   const rows = useMemo(() => {
     const all = data?.stationDelayStats ?? [];
     if (!needle) return all;
@@ -91,7 +107,7 @@ export default function StationTable() {
     );
   }, [data?.stationDelayStats, needle]);
 
-  const table = useReactTable({
+  const table = useLegacyTable({
     data: rows,
     columns,
     state: { sorting },
@@ -101,12 +117,13 @@ export default function StationTable() {
   });
 
   if (fetching && !data) {
-    return <div className="p-8 text-center text-[var(--rail-muted)]">Loading station data...</div>;
+    return <Empty>Loading station data…</Empty>;
   }
 
   if (error && !data) {
     return (
       <RequestError
+        bare
         error={error}
         onRetry={() => retry({ requestPolicy: "network-only" })}
         title="Station data unavailable"
@@ -116,66 +133,135 @@ export default function StationTable() {
 
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-2 border-b border-[var(--rail-border)] px-3 py-2">
-        <input
-          type="search"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Filter by station name or code"
-          className="term-control w-64 max-w-full"
-          aria-label="Filter stations"
+      {error ? (
+        <RequestError
+          bare
+          error={error}
+          title="Station updates unavailable. Showing last loaded data."
+          onRetry={() => retry({ requestPolicy: "network-only" })}
         />
-        <select
+      ) : null}
+      <div className="flex flex-wrap items-center gap-2 px-5 py-4">
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          placeholder="Search station name or code"
+          label="Filter stations"
+          className="w-full sm:w-72"
+        />
+        <Segmented
+          label="Statistics window"
+          options={hoursOptions}
           value={hours}
-          onChange={(event) => setHours(Number(event.target.value))}
-          className="term-control"
-          aria-label="Statistics window"
-        >
-          {hoursOptions.map((option) => (
-            <option key={option} value={option}>
-              Last {option >= 24 ? `${option / 24}d` : `${option}h`}
-            </option>
-          ))}
-        </select>
-        <span className="ml-auto text-xs text-[var(--rail-muted)]">
-          {rows.length} stations · sort by clicking headers
+          onChange={setHours}
+        />
+        <span className="ml-auto text-[13px] text-muted" role="status">
+          {pendingWindow
+            ? `Loading ${hours}-hour statistics. Showing ${loadedHours}-hour results.`
+            : `${rows.length} stations in the ${loadedHours}-hour results`}
         </span>
       </div>
-      <div className="overflow-auto">
-        <table className="term-table">
-          <thead>
+      <div className="px-4 pb-4 sm:hidden">
+        <label className="field-label" htmlFor="station-sort">
+          Sort stations
+        </label>
+        <select
+          id="station-sort"
+          className="control w-full"
+          value={
+            sorting[0] ? `${sorting[0].id}:${sorting[0].desc ? "desc" : "asc"}` : "stationDesc:asc"
+          }
+          onChange={(event) => {
+            const [id, direction] = event.target.value.split(":");
+            setSorting([{ id, desc: direction === "desc" }]);
+          }}
+        >
+          <option value="stationDesc:asc">Station name, A to Z</option>
+          <option value="stationDesc:desc">Station name, Z to A</option>
+          <option value="avgLateMinutes:desc">Average delay, highest first</option>
+          <option value="avgLateMinutes:asc">Average delay, lowest first</option>
+          <option value="maxLateMinutes:desc">Worst delay, highest first</option>
+          <option value="maxLateMinutes:asc">Worst delay, lowest first</option>
+          <option value="onTimePct:asc">Within 5 min, lowest first</option>
+          <option value="onTimePct:desc">Within 5 min, highest first</option>
+          <option value="totalEvents:desc">Stops observed, most first</option>
+          <option value="totalEvents:asc">Stops observed, fewest first</option>
+        </select>
+      </div>
+      <div
+        className="responsive-table-frame overflow-auto"
+        tabIndex={0}
+        role="region"
+        aria-label="Station performance table"
+        aria-busy={fetching}
+      >
+        <table role="table" className="data-table responsive-table min-w-[720px]">
+          <caption className="sr-only">
+            Station performance over {loadedHours} hours. Select a station to open departures.
+          </caption>
+          <thead role="rowgroup">
             {table.getHeaderGroups().map((hg) => (
-              <tr key={hg.id}>
-                {hg.headers.map((h) => (
-                  <th
-                    key={h.id}
-                    onClick={h.column.getToggleSortingHandler()}
-                    className="cursor-pointer hover:text-[var(--rail-text)]"
-                  >
-                    {flexRender(h.column.columnDef.header, h.getContext())}
-                    {{ asc: " ↑", desc: " ↓" }[h.column.getIsSorted() as string] ?? ""}
-                  </th>
-                ))}
+              <tr role="row" key={hg.id}>
+                {hg.headers.map((h) => {
+                  const sorted = h.column.getIsSorted();
+                  return (
+                    <th
+                      role="columnheader"
+                      scope="col"
+                      key={h.id}
+                      className={h.column.id === "stationDesc" ? "" : "num"}
+                      aria-sort={
+                        sorted === "asc" ? "ascending" : sorted === "desc" ? "descending" : "none"
+                      }
+                    >
+                      <span className="sm:hidden">
+                        {flexRender(h.column.columnDef.header, h.getContext())}
+                      </span>
+                      <button
+                        type="button"
+                        className="sort-btn hidden sm:inline-flex"
+                        onClick={h.column.getToggleSortingHandler()}
+                      >
+                        {flexRender(h.column.columnDef.header, h.getContext())}
+                        <Icon
+                          name={
+                            sorted === "asc" ? "sortUp" : sorted === "desc" ? "sortDown" : "sort"
+                          }
+                        />
+                      </button>
+                    </th>
+                  );
+                })}
               </tr>
             ))}
           </thead>
-          <tbody>
+          <tbody role="rowgroup">
             {table.getRowModel().rows.map((row) => (
-              <tr key={row.id}>
+              <tr role="row" key={row.id}>
                 {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
+                  <td
+                    role="cell"
+                    key={cell.id}
+                    data-label={
+                      cell.column.id === "stationDesc"
+                        ? undefined
+                        : typeof cell.column.columnDef.header === "string"
+                          ? cell.column.columnDef.header
+                          : cell.column.id
+                    }
+                    className={cell.column.id === "stationDesc" ? "" : "num"}
+                  >
+                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  </td>
                 ))}
               </tr>
             ))}
-            {!fetching && table.getRowModel().rows.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={columns.length}
-                  className="px-4 py-10 text-center text-[var(--rail-muted)]"
-                >
+            {table.getRowModel().rows.length === 0 ? (
+              <tr role="row">
+                <td role="cell" colSpan={columns.length} className="py-12 text-center text-muted">
                   {needle
-                    ? `No stations match "${search.trim()}"`
-                    : `No station performance records were returned for the selected window.`}
+                    ? `No stations match “${search.trim()}” in the loaded results.`
+                    : `No station performance records were returned for the ${loadedHours}-hour results.`}
                 </td>
               </tr>
             ) : null}

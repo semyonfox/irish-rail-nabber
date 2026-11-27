@@ -1,22 +1,45 @@
 # Dashboard
 
-React 19 SPA. Built and served with [Vite+](https://vitejs.dev/) under `dashboard/`. nginx in front for prod, Cloudflare Tunnel terminates TLS.
+React 19 SPA. Built and served with [Vite+](https://viteplus.dev/) under `dashboard/`. nginx in front for prod, Cloudflare Tunnel terminates TLS.
 
 ## Routes
 
 ```
 /                  LiveMap         public
 /stations          Stations        public
+/buses             Buses           public
 /login             LoginPage       public
 /register          RegisterPage    public
 /pricing           PricingPage     public
 /history           History         protected (coffee/pro)
 /account           AccountPage     protected (any signed-in user)
 /analytics         Analytics       protected + paid (coffee/pro)
+/insights          Insights        admin only
 /chat              Chat Assistant   protected + paid (uses live tools)
 ```
 
-`ProtectedRoute` redirects to `/login` if `useAuth()` reports no user; paid pages additionally check `user.role !== 'free'`.
+`ProtectedRoute` redirects signed-out visitors to `/login`. Routes marked `requirePaid` accept only `coffee`, `pro`, and `admin` roles and send other signed-in users to `/pricing`. The API repeats the entitlement check on every paid resolver and chat request.
+
+## Insights
+
+Service alerts lists rail and NTA notices by date and category. Rail delay, disruption and
+works notices can show average lateness during the measured window and in the two hours
+before the notice's stated start. The display gives the measured end time or labels a
+window capped at 24 hours. Averages cover all trains at the corridor stations. Every poll
+of a train on a station board counts as one reading. If impact processing finds that a
+notice was withdrawn or last seen before its stated start, the details say it was not seen after its start and no impact was measured.
+Other rail notice categories are marked as not measured.
+
+Delay stretches ranks directed stop pairs by net delay over the selected dates and Irish
+departure hours. Time recovered offsets time added and only stretches with positive net
+delay are ranked. The Delay added column shows the sum of increases separately. Map colours
+divide each stretch's net delay by the number of days with data for that stretch and hour
+band. Today counts as one day when partial data is available.
+
+Bus rows combine timetable versions and show the median gain bucket and the percentage of
+trips that gained at least two minutes of delay. Bus searches cover up to seven days
+until query times on production data have been measured. Rail searches cover up to 31 days. Rail rows show the mean and standard deviation.
+The rail view also ranks positive net delay picked up while stopped at stations.
 
 ## Layout
 
@@ -25,8 +48,8 @@ dashboard/src/
 ├── App.tsx                  Router root, AuthProvider, URQL Provider
 ├── main.tsx                 mount
 ├── auth/
-│   ├── AuthProvider.tsx     fetches /auth/me on mount, holds user
-│   ├── useAuth.ts           login / register / logout / refresh
+│   ├── AuthProvider.tsx     maps Clerk session to /auth/session account state
+│   ├── useAuth.ts           Clerk session + local account state
 │   ├── LoginPage.tsx
 │   ├── RegisterPage.tsx
 │   └── ProtectedRoute.tsx
@@ -34,8 +57,9 @@ dashboard/src/
 │   ├── PricingPage.tsx      plan cards, calls /billing/checkout
 │   └── AccountPage.tsx      current plan, link to portal
 ├── pages/
-│   ├── LiveMap.tsx          map + recentTrains subscription
+│   ├── LiveMap.tsx          map + polled liveTrains query
 │   ├── Stations.tsx         station list + per-station board
+│   ├── Buses.tsx            stop finder, live board + route delays
 │   └── Analytics.tsx        paid: delay history, percentiles
 ├── components/              shared UI primitives
 ├── graphql/
@@ -56,37 +80,38 @@ import { Client, cacheExchange, fetchExchange } from "urql";
 export const client = new Client({
   url: import.meta.env.VITE_GRAPHQL_URL || "/graphql",
   exchanges: [cacheExchange, fetchExchange],
-  fetchOptions: { credentials: "include" }, // send auth cookie
+  fetchOptions: { credentials: "include" }, // Clerk cookie fallback
 });
 ```
 
 REST calls (auth, billing) use the typed wrapper in `graphql/api.ts`:
 
 ```ts
-api.login(email, password)
-api.register(email, password, displayName)
-api.logout()
+api.config()
+api.session()
 api.me()
-api.checkout(priceId)
+api.checkout("coffee")
 api.portal()
 ```
 
-All requests include credentials so the httpOnly cookie is sent automatically.
+All requests attach the current Clerk bearer token. Credentials remain enabled for Clerk's first-party `__session` cookie fallback.
+
+The public bus page searches the active static GTFS snapshot and polls one GraphQL request each minute for the selected stop board, current vehicle positions, and route delay history over 6-, 24-, or 72-hour windows. The API serves cached database state while the collector alternates the upstream NTA TripUpdates and Vehicles operations within one shared request-per-minute budget. Vehicle dots use the latest accepted Vehicles snapshot; when that operation has no current positions, the stop search and static schedule remain available.
 
 ## Auth flow
 
-On boot, `AuthProvider` calls `GET /auth/me`. If the cookie is valid, the user is in context. If `/auth/me` returns 401, the provider calls `POST /auth/refresh` and retries once. Failed refresh = anonymous.
+On boot, `AuthProvider` loads the public Clerk key from `GET /auth/config`. Once Clerk resolves the browser session, it calls `GET /auth/session` to load the local plan role. Account provisioning or network failures appear as retryable errors with a sign-out escape instead of silently logging the user out. A keyed identity boundary clears the local user and URQL cache when the active Clerk user changes. Protected routes carry their path through the Clerk flow so a successful login returns to the requested page.
 
-On any 401 from a GraphQL or REST call after boot, the same single-flight refresh runs. See [auth-billing.md](auth-billing.md#token-rotation) for token lifetimes.
+Clerk rotates its own short-lived session token. Explicit account refreshes request a fresh bearer token before reloading the local role. See [auth-billing.md](auth-billing.md#clerk-sessions).
 
 ## Dev workflow
 
-The dashboard uses [Vite+](https://vitejs.dev/), wrapping pnpm, Vite, Vitest, and Oxlint behind one CLI. **Do not use pnpm directly** — let `vp` manage everything.
+The dashboard uses [Vite+](https://viteplus.dev/), wrapping pnpm, Vite, Vitest, and Oxlint behind one CLI. **Do not use pnpm directly** — let `vp` manage everything.
 
 ```bash
 cd dashboard
 vp install           # install deps
-vp dev               # local dev server (proxies /graphql, /auth, /billing to localhost:8000)
+vp dev               # local dev server (proxies API routes to localhost:8001)
 vp check             # format + lint + types
 vp test              # unit tests
 vp build             # production bundle
@@ -96,25 +121,26 @@ The full Vite+ cheat sheet is checked in at `dashboard/AGENTS.md`.
 
 ### Vite dev proxy
 
-`dashboard/vite.config.ts` proxies the API paths so cookies stay first-party:
+`dashboard/vite.config.ts` proxies the API paths so local development remains same-origin:
 
 ```ts
 server: {
   proxy: {
-    "/graphql": "http://localhost:8000",
-    "/auth":    "http://localhost:8000",
-    "/billing": "http://localhost:8000",
+    "/graphql": "http://localhost:8001",
+    "/auth":    "http://localhost:8001",
+    "/billing": "http://localhost:8001",
   },
 },
 ```
 
 ## Production
 
-The dashboard ships as a static bundle served by nginx (`dashboard/Dockerfile` builds with `vp build`, copies `dist/` into `nginx:alpine`). nginx proxies `/graphql`, `/auth`, `/billing` to the `api` service on the docker network and serves the SPA for everything else. The container sits behind Cloudflare Tunnel — see [deployment.md](deployment.md).
+The dashboard ships as a static bundle served by nginx (`dashboard/Dockerfile` builds with `vp build`, copies `dist/` into `nginx:alpine`). nginx proxies `/graphql`, `/auth`, `/billing`, and browser-facing `/api/chat` to the `api` service on the docker network; `/api/chat` is rewritten to API `/chat`. It serves the SPA for everything else. The container sits behind Cloudflare Tunnel — see [deployment.md](deployment.md).
 
 ## Related docs
 
 - [api.md](api.md) — the endpoints the dashboard calls
-- [auth-billing.md](auth-billing.md) — cookies, refresh, pricing pages
+- [auth-billing.md](auth-billing.md) — Clerk sessions, Polar billing and pricing pages
 - [chatbot.md](chatbot.md) — the `/chat` route's design
+- [buses.md](buses.md) — bus data sources and backend contract
 - [deployment.md](deployment.md) — Docker, nginx config, tunnel

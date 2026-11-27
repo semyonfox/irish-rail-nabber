@@ -9,31 +9,30 @@ Phase status reflects the current state of the codebase, not the original plan.
 - Irish Rail polling daemon, TimescaleDB hypertables ([docs/scraper.md](docs/scraper.md))
 - Dedup at four granularities, content-hash based ([docs/scraper.md#deduplication](docs/scraper.md#deduplication))
 - 90-day rolling window with 7-day compression
-- Single `docker compose up` deployment ([docs/deployment.md](docs/deployment.md))
+- Ordered Docker Compose deployment with schema-first migrations ([docs/deployment.md](docs/deployment.md))
 
 ## Phase 2 — API, auth, billing (in progress)
 
 **Done:**
 
 - Rust Axum service with async-graphql ([docs/api.md](docs/api.md))
-- Custom email/password auth, JWT + refresh rotation ([docs/auth-billing.md](docs/auth-billing.md))
-- Stripe integration end-to-end (checkout, portal, webhook)
+- Clerk production authentication with local plan roles ([docs/auth-billing.md](docs/auth-billing.md))
+- Polar checkout, customer portal and replay-safe entitlement webhooks
 - React 19 dashboard with live map, pricing page, account page ([docs/dashboard.md](docs/dashboard.md))
 - Cloudflare Tunnel deployment at [traein.semyon.ie](https://traein.semyon.ie)
+- Tiered API rate limits and paid rail assistant
 
 **Remaining:**
 
-- **Switch billing to Polar.sh** for VAT/tax handling ([docs/auth-billing.md#polar-flow](docs/auth-billing.md#polar-flow))
-- Per-resolver role gates on analytics fields
-- Rate limiting (1 k / 10 k / unlimited by tier)
+- Activate and verify Polar sandbox, then production products and webhooks ([docs/auth-billing.md#polarsh-flow](docs/auth-billing.md#polarsh-flow))
 - Public launch on r/ireland
 
 Target MRR after Phase 2 launch: **€100–250** (5–10 paying users).
 
 ## Phase 3 — AI chatbot and analytics
 
-- Build the chatbot service ([docs/chatbot.md](docs/chatbot.md))
-- Tool surface over GraphQL: `find_stations`, `station_board`, `delay_history`, `network_path`, `service_summary`
+- Add persistent multi-turn chat sessions and streaming responses ([docs/chatbot.md](docs/chatbot.md))
+- Extend the assistant with network-path and service-summary tools
 - Continuous aggregates for delay/punctuality (Timescale materialised views)
 - Predictive delay model fed by `train_movements` history
 
@@ -43,8 +42,9 @@ Target MRR: **€750**.
 
 Add datasets that justify the Pro tier on their own:
 
+- Bus static GTFS, minute-level TripUpdates, stop boards, and route delay history (implemented locally; NTA key and production rollout pending)
 - Dublin Bikes (7-year CSV import + 1-minute polling)
-- NTA GTFS-RT (buses + Luas, 30s)
+- NTA GTFS-RT for Luas
 - Met Éireann weather (15min)
 - EPA Air Quality (5min)
 - OPW Floods (15min)
@@ -83,7 +83,8 @@ Target users: indie devs, proptech, researchers, newsrooms.
 ```
 docker compose
 ├── db          timescaledb 2.25 / pg 18
-├── daemon      python 3.11 + asyncio
+├── daemon      python 3.14 + asyncio
+├── bus-daemon  python 3.14 + NTA GTFS
 ├── api         rust + axum + async-graphql
 ├── dashboard   react 19 + vite+ + tailwind
 └── cloudflared edge tunnel

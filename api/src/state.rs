@@ -3,26 +3,72 @@ use std::{sync::Arc, time::Duration};
 use moka::future::Cache;
 use sqlx::PgPool;
 
+use crate::geometry::LatLon;
+use crate::schema::bus_history::{
+    BusHistoryPoint, BusJourney, BusRoute, BusRouteStopDelay, BusStopStats,
+};
+use crate::schema::bus_live::{BusBunch, BusServiceNotice, ShapeKey};
+use crate::schema::bus_published::{BusPublishedDataset, BusPublishedPage};
 use crate::schema::types::{
+    BusDeparture, BusRealtimeStatus, BusRouteDelay, BusRouteShape, BusStop, BusVehicle,
     DelayHistoryPoint, NetworkSummary, RouteReliability, StationDelayStats,
 };
 use crate::schema::AppSchema;
 
 #[derive(Clone)]
 pub struct QueryCache {
+    pub bus_delay_history: Cache<String, Arc<Vec<BusHistoryPoint>>>,
+    pub bus_routes: Cache<String, Arc<Vec<BusRoute>>>,
+    pub bus_stop_stats: Cache<String, Arc<Vec<BusStopStats>>>,
+    pub bus_journeys: Cache<String, Arc<Vec<BusJourney>>>,
+    pub bus_journey_stops: Cache<String, Arc<Vec<BusRouteStopDelay>>>,
+    pub bus_route_stop_delays: Cache<String, Arc<Vec<BusRouteStopDelay>>>,
+    pub bus_published_dataset: Cache<(), Arc<Option<BusPublishedDataset>>>,
+    pub bus_published_performance: Cache<String, Arc<BusPublishedPage>>,
     pub delay_history: Cache<String, Arc<Vec<DelayHistoryPoint>>>,
     pub station_delay_stats: Cache<String, Arc<Vec<StationDelayStats>>>,
     pub network_summary: Cache<(), Arc<NetworkSummary>>,
     pub route_reliability: Cache<String, Arc<Vec<RouteReliability>>>,
+    pub bus_stops: Cache<String, Arc<Vec<BusStop>>>,
+    pub bus_stop_boards: Cache<String, Arc<Vec<BusDeparture>>>,
+    pub bus_route_delays: Cache<String, Arc<Vec<BusRouteDelay>>>,
+    pub bus_vehicles: Cache<String, Arc<Vec<BusVehicle>>>,
+    pub bus_live_route_shapes: Cache<i32, Arc<Vec<BusRouteShape>>>,
+    pub bus_scheduled_route_shapes: Cache<String, Arc<Vec<BusRouteShape>>>,
+    pub bus_shape_geometry: Cache<ShapeKey, Arc<Vec<LatLon>>>,
+    pub bus_bunching: Cache<(), Arc<Vec<BusBunch>>>,
+    pub bus_service_notices: Cache<(), Arc<Vec<BusServiceNotice>>>,
+    pub bus_realtime_status: Cache<(), Arc<BusRealtimeStatus>>,
 }
 
 impl QueryCache {
     pub fn new() -> Self {
         Self {
+            bus_delay_history: cache(Duration::from_secs(60), 256),
+            bus_routes: cache(Duration::from_secs(900), 256),
+            bus_stop_stats: cache(Duration::from_secs(60), 128),
+            bus_journeys: cache(Duration::from_secs(60), 128),
+            bus_journey_stops: cache(Duration::from_secs(60), 256),
+            bus_route_stop_delays: cache(Duration::from_secs(20), 256),
+            // snapshots only change when the import is rerun by hand
+            bus_published_dataset: cache(Duration::from_secs(300), 1),
+            bus_published_performance: cache(Duration::from_secs(300), 256),
             delay_history: cache(Duration::from_secs(300), 256),
             station_delay_stats: cache(Duration::from_secs(60), 32),
             network_summary: cache(Duration::from_secs(10), 1),
             route_reliability: cache(Duration::from_secs(60), 32),
+            bus_stops: cache(Duration::from_secs(900), 256),
+            bus_stop_boards: cache(Duration::from_secs(20), 1_024),
+            bus_route_delays: cache(Duration::from_secs(60), 128),
+            bus_vehicles: cache(Duration::from_secs(30), 128),
+            bus_live_route_shapes: cache(Duration::from_secs(30), 8),
+            bus_scheduled_route_shapes: cache(Duration::from_secs(900), 256),
+            // shapes are fixed per feed version, so this only bounds memory
+            // across a feed change. a day covers every shape a day's buses use
+            bus_shape_geometry: cache(Duration::from_secs(86_400), 20_000),
+            bus_bunching: cache(Duration::from_secs(30), 1),
+            bus_service_notices: cache(Duration::from_secs(60), 1),
+            bus_realtime_status: cache(Duration::from_secs(15), 1),
         }
     }
 }

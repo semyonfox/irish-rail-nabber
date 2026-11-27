@@ -5,6 +5,8 @@
 !requirements.txt
 !schema.sql
 !daemon.py
+!context_collector.py
+!bus_daemon.py
 !migrations/
 !docker-entrypoint.sh
 !Dockerfile
