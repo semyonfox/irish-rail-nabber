@@ -4,7 +4,7 @@ Single source of truth for irish-rail-nabber. Each doc owns one concern; cross-r
 
 ## Read order for a new contributor
 
-1. [architecture.md](architecture.md) — what the system is and how the pieces fit
+1. [ARCHITECTURE.md](ARCHITECTURE.md). What the system is, how the pieces fit, and where this branch differs from production. [architecture.md](architecture.md) only points there.
 2. [scraper.md](scraper.md) — the Python daemon that collects data
 3. [buses.md](buses.md) — the NTA GTFS and realtime bus collector
 4. [api.md](api.md) — the Rust GraphQL + REST API
@@ -31,5 +31,5 @@ Historical design specs and the step-by-step implementation plans that produced 
 
 ## Top-level pointers
 
-- [../README.md](../README.md) — project pitch and quick-start
+- [../README.md](../README.md). Project pitch and links into this folder. There is no quick-start section.
 - [../ROADMAP.md](../ROADMAP.md) — phases and revenue plan

@@ -1,12 +1,6 @@
 # Deployment
 
-The Jenkins candidate smoke test uses the temporary subnet `10.254.40.0/28`.
-It was checked against the server's Docker networks and host routes on
-14 September 2026. This avoids exhausted Docker default address pools; the
-pipeline removes the candidate network after each test. Recheck overlap when
-moving the job to another host. The production network is separate.
-
-The repository includes `docker-compose.yml` for development. Production runs `/home/semyon/server-stacks/irish-rail/stack.yaml` with its private `stack.env`, fronted by Cloudflare Tunnel at `traein.semyon.ie`. Cloud options are below.
+`docker-compose.yml` in this repository is the local service list. Production runs from `/home/semyon/server-stacks/irish-rail/stack.yaml`, which adds a bus daemon, a one-off migrate container, and a fixed edge network. The public name is still `traein.semyon.ie`. Read [ARCHITECTURE.md](ARCHITECTURE.md) before recreating the database container. The running database mounts the named volume at `/var/lib/postgresql`. The server-stacks README, dated 12 September 2026, still describes that repair as pending.
 
 For backups and disaster recovery procedures see [Recovery](#backups-and-recovery).
 
@@ -14,47 +8,40 @@ For backups and disaster recovery procedures see [Recovery](#backups-and-recover
 
 ```
 db            timescale/timescaledb:2.25.2-pg18      database
-migrate       irish-rail-nabber-daemon:latest        one-shot schema gate
 daemon        irish-rail-nabber-daemon:latest        Python scraper
-bus-daemon    irish-rail-nabber-daemon:latest        NTA bus collector
 api           irish-rail-nabber-api:latest           Rust Axum
 dashboard     irish-rail-nabber-dashboard:latest     nginx + static SPA
 cloudflared   cloudflare/cloudflared:latest          edge tunnel
 ```
 
-`db` is the only stateful service. Fresh PG18 stacks mount the named `postgres_data` volume at `/var/lib/postgresql`, which contains PG18's actual `PGDATA` directory. The one-shot `migrate` service must complete before either collector or the API starts, so bus startup does not depend on the unrelated Irish Rail healthcheck. The current production container predates the volume correction and must not be recreated until its anonymous volume is safely migrated. Everything else is stateless and can be rebuilt at will.
+`db` is the only stateful service (volume `postgres_data`). Everything else is stateless and can be rebuilt at will.
 
-Service responsibilities are described in [architecture.md](architecture.md#service-responsibilities).
+This list is `docker-compose.yml`. The running services are in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Env template
 
-Production env files must live in deployment secret storage, not in git. For the current server, start from `/home/semyon/server-stacks/irish-rail/stack.env.example`, save the populated file as `stack.env`, and keep it mode `600`. The repository's tracked `.env.production.example` is a safe reference for local or alternative deployments; never put real values in it. The production Compose command must always pass the private operator file with `--env-file`.
+`api/src/main.rs` loads `.env.local` and then `.env` through dotenvy when the process starts. `docker-compose.yml` does not load that file. It hard-codes the database user, password, and URL. `Jenkinsfile` sources `/home/semyon/jenkins/env/irish-rail-nabber.env` when that file exists. Production uses `/home/semyon/server-stacks/irish-rail/stack.env`. The block below is a name list for this branch, not the file the running stack loads.
 
 ```bash
-# database (use the same URL-encoded password in DATABASE_URL)
+# database (used by db, daemon, api)
 POSTGRES_USER=irish_data
-POSTGRES_PASSWORD=<strong-random-password>
+POSTGRES_PASSWORD=<strong-random>
 POSTGRES_DB=ireland_public
-DATABASE_URL=postgresql://irish_data:<url-encoded-password>@db:5432/ireland_public
-
-# NTA buses (obtain the key from the NTA developer portal)
-NTA_API_KEY=<private-api-key>
-NTA_GTFS_URL=https://www.transportforireland.ie/transitData/Data/GTFS_Realtime.zip
-NTA_TRIP_UPDATES_URL=https://api.nationaltransport.ie/gtfsr/v2/gtfsr?format=json
-NTA_VEHICLES_URL=https://api.nationaltransport.ie/gtfsr/v2/Vehicles?format=json
-# NTA_GTFSR_URL is a deprecated fallback for NTA_TRIP_UPDATES_URL.
-BUS_STATIC_REFRESH_SECONDS=86400
-BUS_REALTIME_INTERVAL_SECONDS=60
+DATABASE_URL=postgres://irish_data:<strong-random>@db:5432/ireland_public
 
 # auth
-CLERK_PUBLISHABLE_KEY=pk_live_...
-CLERK_SECRET_KEY=sk_live_...
+JWT_SECRET=<openssl rand -hex 32>
+JWT_ACCESS_EXPIRY=900
+JWT_REFRESH_EXPIRY=604800
+COOKIE_SECURE=true
 
-# tier limits
+# routing
+APP_URL=https://traein.semyon.ie
+CORS_ORIGINS=https://traein.semyon.ie
 API_RATE_LIMIT_FREE_TIER_LIMIT=25000
 API_RATE_LIMIT_COFFEE_TIER_LIMIT=100000
 API_RATE_LIMIT_UNLIMITED_ROLES=pro,admin
-API_RATE_LIMIT_IP_SALT=<strong-random-value>
+API_RATE_LIMIT_IP_SALT=rail-salt
 
 # chatbot LLM (OghmaNotes-compatible OpenAI-style endpoint)
 LLM_API_URL=https://api.moonshot.ai/v1
@@ -74,47 +61,39 @@ CHAT_TOOL_RESULT_MAX_CHARS=3500
 # CHAT_REQUEST_TIMEOUT_SECONDS=45
 # CHAT_MAX_TOKENS=1200
 
-# billing (Polar.sh — primary, see auth-billing.md)
-POLAR_CHECKOUT_ENABLED=false
-POLAR_ACCESS_TOKEN=polar_oat_...
-POLAR_WEBHOOK_SECRET=whsec_...
+# Polar variables are read by the running stack, not by this branch.
+POLAR_ACCESS_TOKEN=polar_at_...
+POLAR_WEBHOOK_SECRET=polar_wh_...
 POLAR_ORGANIZATION_ID=...
 POLAR_COFFEE_PRODUCT_ID=...
 POLAR_PRO_PRODUCT_ID=...
 POLAR_ENVIRONMENT=production
 
+# Stripe. This branch's api/src/billing/handlers.rs reads these names.
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+STRIPE_COFFEE_PRICE_ID=
+STRIPE_PRO_PRICE_ID=
+
 # edge
 CLOUDFLARE_TUNNEL_TOKEN=...
 ```
 
-Jenkins deploys the operator stack with `/home/semyon/server-stacks/irish-rail/stack.env`. It does not source the old Jenkins-specific env file. Keep all NTA, Clerk, Polar, LLM, rate-limit and tunnel values in the operator file instead of committing secrets.
+The Jenkins pipeline also loads `/home/semyon/jenkins/env/irish-rail-nabber.env` when present, matching the OghmaNotes deployment pattern. Put production `LLM_*` values there, or the fallback OpenAI-compatible names above, instead of committing secrets.
 
 Full description of each variable is in [auth-billing.md](auth-billing.md#polar-config-env) and [api.md](api.md#environment).
 
-## Proxy trust for anonymous quotas
-
-The API ignores forwarded client addresses by default. Set
-`API_RATE_LIMIT_TRUSTED_PROXIES` only after assigning stable addresses to the
-immediate proxies and restricting their ingress to the trusted tunnel boundary.
-The value is a comma-separated list of exact IP addresses, with no CIDR ranges.
-Forward it into the API container through the operator stack. Without this
-setting, anonymous visitors share the proxy's quota. See
-[API proxy trust](api.md#anonymous-rate-limits-behind-proxies) for header rules.
-
-## Existing production rollout
+## First-time setup
 
 ```bash
-cd /home/semyon/server-stacks/irish-rail
-test -r stack.env
-chmod 600 stack.env
-test "$(docker inspect -f '{{.State.Health.Status}}' irish_rail_db)" = healthy
-timeout 120 docker compose --env-file stack.env -f stack.yaml run --rm --no-deps migrate
-docker compose --env-file stack.env -f stack.yaml up -d --no-build --no-deps daemon bus-daemon api dashboard
+git clone <repo>
+cd irish-rail-nabber
+cp .env.local.example .env.local       # if present; otherwise use the template above
+docker compose pull
+docker compose up -d
 sleep 30
-docker compose --env-file stack.env -f stack.yaml logs --tail=50
+docker compose logs --tail=50
 ```
-
-This is the existing-production rollout path. Create `stack.env` from `stack.env.example` only during initial setup; never overwrite the existing private production file during a rollout. Do not recreate the PG18 database container until its legacy anonymous data volume has been backed up and migrated to the corrected named-volume mount.
 
 Verify the daemon is collecting and the API is up using the checklist in [testing.md](testing.md).
 
@@ -122,13 +101,13 @@ Verify the daemon is collecting and the API is up using the checklist in [testin
 
 ### nftables blocks the docker bridge
 
-If the daemon container cannot reach the upstream API but the host can, the cause is almost always host nftables dropping outbound TCP from the docker bridge subnet. Symptom: DNS resolves, every TCP connect times out, including to non-Irish hosts (try `docker exec daemon curl https://google.com`).
+If the daemon container cannot reach the upstream API but the host can, the cause is almost always host nftables dropping outbound TCP from the docker bridge subnet. Symptom: DNS resolves, and every TCP connect times out. The container name is `irish_rail_daemon`. This branch's `Dockerfile` installs postgresql-client and does not install curl.
 
 Fix options ranked by quality:
 
 1. **Best**: add an nftables rule allowing the docker bridge subnet outbound. Survives docker upgrades, keeps container isolation.
 2. **Good**: tell docker to manage nftables: `"iptables": false` in `/etc/docker/daemon.json`, then restart docker.
-3. **Quick fix**: `network_mode: host` on the daemon in `docker-compose.yml`. Currently deployed. Breaks isolation but works while option 1 is pending.
+3. **Quick fix**: `network_mode: host` on the daemon in `docker-compose.yml`. It is not set in this repository or in `stack.yaml`. On 27 November 2026 the running daemon used network `irish-rail-nabber_default`.
 
 ### Cloudflare Tunnel
 
@@ -156,82 +135,39 @@ See [ROADMAP.md](../ROADMAP.md) for revenue phasing.
 
 ## Backups and recovery
 
-The private operator runbook holds emergency procedures. The production layout below is the current source of truth.
+`backup-db.sh` in this repository writes hourly and daily gzip dumps on the host. It is not the job that runs in production. There is no `recover.sh` in this repository.
 
-### Backup schedule
+Production has two copies.
 
-- `/etc/cron.d/server-stacks-backups` runs the Irish Rail backup at `02:00` daily.
-- It writes a custom-format PostgreSQL archive and matching cluster-globals SQL file under `/mnt/media/backups/irish-rail/postgres/daily/`, checks the archive catalog, then imports both into the encrypted NAS restic repository.
-- The repository keeps its snapshots indefinitely; there is no automatic hourly backup or expiration policy.
-- The repository's `backup-db.sh` uses a different legacy gzip/plain-SQL layout. It is not the production backup job or a recovery source of truth.
+- **02:00 daily.** `/etc/cron.d/server-stacks-backups` runs `/home/semyon/server-stacks/backups/scripts/irish-rail-db-backup.sh`. That writes a custom-format dump and a globals dump on the NAS, checks the dump with `pg_restore --list`, then archives the raw files into the NAS restic repository and deletes only verified originals.
+- **04:30 daily.** The user timer `irish-rail-offsite-backup.timer` runs `/home/semyon/server-stacks/backups/scripts/irish-rail-offsite-backup.sh`. That copies the newest NAS snapshot to Backblaze B2 and snapshots the bus GTFS archive. B2 retention is 14 daily, 8 weekly, 12 monthly, and 3 yearly copies.
 
-### Targets
+Restore rules, including the instruction to rehearse only on a disposable database, are in `/home/semyon/server-stacks/docs/backup/IRISH_RAIL_REPOSITORY.md`. Do not restore into `ireland_public`.
 
-| Metric | Target | Current |
-|--------|--------|---------|
-| RPO (max data loss) | < 1 h | Daily backups currently exceed this target; alerting still needs proof |
-| RTO (recovery time) | < 15 min | Fresh full restore took about 2 h 20 min on the NAS on 2026-09-24; target unmet |
-
-### Restore rehearsal
-
-Do not rehearse against `ireland_public`. Restore into a disposable PostgreSQL 18 and TimescaleDB instance with the same extension version, using the PostgreSQL 18 client in that container. Timescale requires its pre/post-restore functions and does not support parallel `pg_restore` for this workflow. The production backup job removes the raw dump after verifying its encrypted restic snapshot; retrieve the verified daily archive with `restic dump` before using the example below, or pipe that output directly to `pg_restore`.
-
-```bash
-ssh semyon@server
-BACKUP=/path/to/retrieved/verified-daily-archive.dump
-
-# Run these against a disposable target, never irish_rail_db.
-docker exec restore_test createdb -U irish_data ireland_public_restore_test
-docker exec restore_test psql -v ON_ERROR_STOP=1 -U irish_data \
-  -d ireland_public_restore_test \
-  -c 'CREATE EXTENSION IF NOT EXISTS timescaledb; SELECT timescaledb_pre_restore();'
-docker exec -i restore_test pg_restore --exit-on-error --no-owner --no-privileges \
-  -U irish_data -d ireland_public_restore_test < "$BACKUP"
-docker exec restore_test psql -v ON_ERROR_STOP=1 -U irish_data \
-  -d ireland_public_restore_test \
-  -c 'SELECT timescaledb_post_restore(); ANALYZE;'
-```
-
-Then run the verification queries from [testing.md](testing.md), record elapsed time, and remove only the explicitly named disposable target after review. See Timescale's [logical backup and restore procedure](https://docs.timescale.com/self-hosted/latest/backup-and-restore/logical-backup/) for the extension-specific contract.
-
-### Monthly test
-
-There is no automated restore-rehearsal command yet. On 2026-09-24, restic
-snapshot `0e81dc1c9c5648042491b40061f0d103de96dc7093e86a786ce35441246f5412`
-restored in full to an isolated NAS PostgreSQL 18 / TimescaleDB 2.25.2 instance.
-`pg_restore --exit-on-error` and TimescaleDB pre/post-restore passed. The
-restored legacy bus table reached ID `77,477,251`, train history was present,
-and all public constraints were valid. The bus-table retirement migration was
-also rehearsed on that copy. The matching cluster-globals file replayed in a
-separate disposable instance; the only error was the expected attempt to
-recreate its bootstrap `irish_data` role. The full database restore took about
-2 h 20 min, so the 15-minute recovery target is not met.
+Service responsibilities in the running stack are in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Logs
 
 - `docker compose logs <service> --tail=200` for each container.
 - Daemon uses JSON log driver, 10MB × 3 files retained.
-- API logs through `tracing` to stdout (`RUST_LOG=irish_rail_api=info`).
+- API logs through `tracing` to stdout. The filter is hard-coded as `irish_rail_api=info` in `api/src/main.rs`. `RUST_LOG` is not read.
 
 ## Migrations
 
 Migrations are SQL files under `migrations/`, applied in numeric order. Apply on demand:
 
 ```bash
-docker exec -i irish_rail_db psql -v ON_ERROR_STOP=1 -U irish_data -d ireland_public \
+docker exec -i irish_rail_db psql -U irish_data -d ireland_public \
   < migrations/<NNN>_<name>.sql
 ```
 
-Run migrations before switching the API image. New API code may query a column added by the same release, so starting API and daemon together can create a temporary 500-error window. The Jenkins deployment runs the candidate daemon once with `/bin/true`, waits for every SQL file to succeed, and only then recreates the services.
-
-`schema.sql` (in the daemon image) idempotently creates the initial set on first boot. Anything past the initial schema is a numbered migration. The daemon invokes `psql` with `ON_ERROR_STOP`, so a failed statement aborts deployment instead of being reported as complete.
+On this branch, `docker-entrypoint.sh` applies `schema.sql` and then every migration on every daemon start. Production sets `SKIP_DB_MIGRATIONS` on the long-running daemon and applies migrations from the one-off migrate container. See [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Related docs
 
-- [architecture.md](architecture.md) — service topology
+- [ARCHITECTURE.md](ARCHITECTURE.md). Service topology.
 - [scraper.md](scraper.md) — known networking issues, daemon behaviour
-- [buses.md](buses.md) — NTA access, collector limits, and bus verification
 - [api.md](api.md) — Rust service env
-- [auth-billing.md](auth-billing.md) — Clerk and Polar environment
+- [auth-billing.md](auth-billing.md) — Polar/Stripe env
 - [testing.md](testing.md) — post-deploy verification
 - [../ROADMAP.md](../ROADMAP.md) — when to scale up
