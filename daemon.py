@@ -143,6 +143,8 @@ GROUP BY c.codes, w.label
 # rail segment rollups. a service day is final once its late trains have
 # finished, so a day is rolled up from 04:00 the next morning
 RAIL_SEGMENT_DAYS_PER_RUN = 3
+# bump when the rollup SQL changes, days rolled up by an older version are redone
+RAIL_SEGMENT_LOGIC = 2
 RAIL_SEGMENT_LOOKBACK_DAYS = 400
 
 # seconds late from two time-of-day values, wrapped into +-12h so a 23:58
@@ -197,8 +199,11 @@ FROM (
       AND sd IS NOT NULL AND ad IS NOT NULL
       AND nsa IS NOT NULL AND naa IS NOT NULL
 ) segs
--- an hour gained between neighbouring stations is a bad actual, not a stretch
-WHERE abs(gain) <= 3600 AND sched_run <= 21600 AND sched_run + gain >= 0
+-- an hour gained between neighbouring stations is a bad actual, not a stretch.
+-- the clocks are to the second, so a run of 0 is an arrival the feed copied
+-- from the previous departure (Ashtown, Pelletstown and Broombridge on the
+-- Maynooth line, every train since June 2026), not a measurement
+WHERE abs(gain) <= 3600 AND sched_run <= 21600 AND sched_run + gain > 0
 GROUP BY hour_local, from_code, to_code
 """
 
@@ -213,9 +218,14 @@ FROM (
     SELECT location_code, EXTRACT(HOUR FROM sd)::smallint AS hour_local,
            {_LATE.format(a="ad", s="sd")} - {_LATE.format(a="aa", s="sa")} AS gain,
            {_RUN.format(a="sa", b="sd")} AS sched_dwell
-    FROM rail_calls
+    FROM (
+        SELECT *, lag(ad) OVER (PARTITION BY train_code ORDER BY location_order) AS prev_ad
+        FROM rail_calls
+    ) with_previous
     WHERE location_type = 'S'
       AND sa IS NOT NULL AND sd IS NOT NULL AND aa IS NOT NULL AND ad IS NOT NULL
+      -- a copied arrival would count the run from the previous station as dwell
+      AND aa IS DISTINCT FROM prev_ad
 ) calls
 WHERE abs(gain) <= 3600 AND sched_dwell <= 3600 AND sched_dwell + gain >= 0
 GROUP BY hour_local, location_code
@@ -1613,11 +1623,11 @@ class IrishRailDaemon:
                        ) d
                        WHERE NOT EXISTS (
                            SELECT 1 FROM rail_segment_rollup_days r
-                           WHERE r.service_date = d::date
+                           WHERE r.service_date = d::date AND r.logic >= %s
                        )
                        ORDER BY d DESC
                        LIMIT %s""",
-                    (RAIL_SEGMENT_LOOKBACK_DAYS, RAIL_SEGMENT_DAYS_PER_RUN),
+                    (RAIL_SEGMENT_LOOKBACK_DAYS, RAIL_SEGMENT_LOGIC, RAIL_SEGMENT_DAYS_PER_RUN),
                 )
             ).fetchall()
             # end the implicit transaction so each day below commits on its own
@@ -1639,11 +1649,12 @@ class IrishRailDaemon:
                     segments = await conn.execute(RAIL_SEGMENT_INSERT_SQL, params)
                     await conn.execute(RAIL_DWELL_INSERT_SQL, params)
                     await conn.execute(
-                        """INSERT INTO rail_segment_rollup_days (service_date, legs)
-                           VALUES (%s, %s)
+                        """INSERT INTO rail_segment_rollup_days (service_date, legs, logic)
+                           VALUES (%s, %s, %s)
                            ON CONFLICT (service_date) DO UPDATE SET
-                               legs = EXCLUDED.legs, computed_at = NOW()""",
-                        (service_date, segments.rowcount),
+                               legs = EXCLUDED.legs, logic = EXCLUDED.logic,
+                               computed_at = NOW()""",
+                        (service_date, segments.rowcount, RAIL_SEGMENT_LOGIC),
                     )
                 logger.info(f"rail segments {service_date}: {segments.rowcount} segment-hours")
 
