@@ -887,6 +887,24 @@ class VehiclePositionPersistenceTests(unittest.IsolatedAsyncioTestCase):
             }
         )
 
+    def test_a_position_at_zero_zero_is_no_fix(self) -> None:
+        position = parse_vehicle_positions(
+            {
+                "entity": {
+                    "id": "vehicle-entity",
+                    "vehicle": {
+                        "trip": {"tripId": "trip", "routeId": "route"},
+                        "vehicle": {"id": "vehicle"},
+                        "position": {"latitude": 0, "longitude": 0},
+                    },
+                }
+            }
+        )[0]
+
+        self.assertIsNone(position.latitude)
+        self.assertIsNone(position.longitude)
+        self.assertEqual(position.trip_id, "trip")
+
     async def test_unchanged_refreshes_and_a_b_a_updates_current_row(self) -> None:
         daemon = NtaBusDaemon("unused")
         pool = _RecordingPool()

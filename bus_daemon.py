@@ -863,6 +863,10 @@ def _parse_vehicle_position_entity(
     )
     latitude = _optional_float(_get(position, "latitude"))
     longitude = _optional_float(_get(position, "longitude"))
+    # Dublin Bus sends 0, 0 for a vehicle without a fix, hundreds of buses at
+    # once on 26 November 2026. the rest of the entity is still current
+    if latitude == 0 and longitude == 0:
+        latitude = longitude = None
     bearing = _optional_float(_get(position, "bearing"))
     speed = _optional_float(_get(position, "speed"))
     current_stop_sequence = _optional_int(_get(vehicle_position, "currentStopSequence"))
