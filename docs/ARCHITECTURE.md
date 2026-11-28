@@ -170,7 +170,7 @@ The parent `pg_total_relation_size` of those four tables is a few dozen kilobyte
 
 Live compression jobs for those four tables use `compress_after` of 2 days and run every 12 hours, which is what migration 019 asks for.
 
-`hourly_delays` still exists. Its refresh job matches `schema.sql`: start offset 3 hours, end offset 1 minute, every 5 minutes. A second continuous aggregate, `bus_hourly_delays`, exists only on the live database. Its refresh job uses a 3 day start offset and an end offset of 0.
+`hourly_delays` still exists. Its refresh job matches `schema.sql`: start offset 3 hours, end offset 1 minute, every 5 minutes.
 
 `users` on the live database has the Stripe columns from migration `004`, plus `clerk_user_id`, `polar_customer_id`, `polar_subscription_id`, and `polar_state_updated_at`. Those four come from `migrations/009_clerk_auth.sql` and `migrations/010_polar_billing.sql`.
 
@@ -186,7 +186,6 @@ Live sizes on 27 November 2026 for tables created by migrations `009` through `0
 | Bus working set | `bus_delay_samples`, `bus_trip_update_freshness`, `bus_stop_live`, `bus_vehicle_positions` | `bus_delay_samples` 12 GB. Freshness about 1.0 GB |
 | Bus archive hypertables | `bus_stop_observations`, `bus_vehicle_observations`, `bus_trip_observations`, and the matching `*_legacy` hypertables | Current archive chunks are mostly compressed. Legacy tables still have more than a thousand chunks each |
 | Bus rollups | `bus_segment_delay_hourly`, `bus_published_performance`, `bus_delay_histogram` | Segment rollup about 81 MB |
-| Orphaned, live database only | `bus_route_poll_stats`, `bus_hourly_delays`, `bus_realtime_feeds` | Written by a September 2026 build that never reached `main`. The last rows are from 17 September. Nothing reads them |
 | Rail extras | `rail_service_alerts`, `rail_segment_delay_hourly`, `rail_dwell_delay_hourly`, `rail_segment_rollup_days` | Segment rollup about 80 MB |
 | Context | `weather_hourly`, `weather_stations`, `weather_warnings`, `weather_archive_progress`, `traffic_sites`, `traffic_site_weekly`, `traffic_site_yearly`, `traffic_daily_class`, `traffic_bulk_days` | `weather_hourly` 373 MB. `traffic_daily_class` 286 MB |
 | Billing | `billing_webhook_events` | Empty parent, 16 KB |
