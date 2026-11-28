@@ -173,6 +173,8 @@ If `pre_avg_late` is well above `pre_baseline_avg_late`, delays were already bui
 
 `rail_segment_rollup_days` records which days are done. The hourly task works newest first and backfills up to 400 days, three a run.
 
+Irish Rail copies the previous departure as the arrival at Ashtown, Pelletstown and Broombridge on some Maynooth line trains, so those hops would read as 0 second runs and their running time would show up as dwell at the next station. A leg with a 0 second run and a stop whose arrival equals the previous departure are left out. Actual times are to the second and no other pair ever records a 0 second run. `rail_segment_rollup_days.logic` records which version of the rollup produced a day. Raising `RAIL_SEGMENT_LOGIC` in `daemon.py` makes the hourly task redo older days, newest first.
+
 ### Audit
 
 ```sql
