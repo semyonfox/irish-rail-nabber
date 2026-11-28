@@ -157,10 +157,13 @@ busPublishedPerformance(importId: String!, search: String, operatorName: String,
 `busDelayHistory` derives hourly averages, p95 and on-time shares from the
 poll-weighted histogram. It counts unchanged predictions again when they are
 reported in a later poll, and is not a measure of actual arrivals. Choose at
-most one of `routeId` and `stopId`; either requires `feedVersionId` so schedule
-versions remain distinct. Missing polls remain gaps in the series. `HOUR`
-resolution covers up to 168 hours, longer windows must ask for `DAY`, whose
-buckets start at midnight UTC. History windows are described below.
+most one of `routeId` and `stopId`. `routeId` requires `feedVersionId`
+because NTA renumbered route ids in November 2026. Stop ids have stayed the
+same in every feed since September, so stop history and `busStopStats` combine
+all feeds by stop id and ignore `feedVersionId`. A stop's name and returned
+`feedVersionId` come from the latest feed it appears in. Missing polls remain
+gaps in the series. `HOUR` resolution covers up to 168 hours, longer windows
+must ask for `DAY`, whose buckets start at midnight UTC. History windows are described below.
 The existing `busRouteDelays` ranking has different semantics: its samples are
 the latest recorded delay per trip and stop, not one sample per poll.
 
