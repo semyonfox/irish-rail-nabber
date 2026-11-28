@@ -18,7 +18,8 @@
 
 - The live observations are not quality controlled. The archive replaces them hour by hour when it lands, never the other way round. The archive runs to the end of the previous month, and the live feed only covers today and yesterday, so the rest of the current month fills in next month.
 - Live `reportTime` is read as Irish local time. Archive dates are UTC. Both are stored as `timestamptz`.
-- Wind is in knots in both feeds, going by Met Éireann's metadata. The live Dublin Airport feed is empty, so Casement and Phoenix Park cover Dublin live.
+- Wind is in knots in both feeds, going by Met Éireann's metadata. Dublin Airport's live slug is `dublinairport`. `dublin-airport` answers with an empty list rather than an error.
+- The live feed marks missing values with `-`, `-99` or `N/A`. These are stored as null.
 - The archive import starts at `WEATHER_ARCHIVE_FROM` (default 2013-06-01, the first TII counts). Each station is about 117k hours and takes about a minute.
 - TII reports speeds in millimetres per second. They are stored in km/h.
 - TII only exposes a rolling seven-day window per site, not hourly counts. One snapshot a day builds history, and `source_days` says which days a snapshot covered, since a site with gaps reaches further back. The per-site hourly dashboards are behind reCAPTCHA and are not used.
