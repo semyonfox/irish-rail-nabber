@@ -1,8 +1,10 @@
 """Rebuild the bus observation archive in its compact layout.
 
 update_hash becomes the bigint the collector writes once the column is bigint,
-and compressed hourly chunks merge into daily ones. The archive is insert-only,
-so closed hours are copied while the collector keeps writing to the old table.
+and compressed hourly chunks merge into daily ones. Stop observations that
+repeat the previous state of the same stop on the same trip are left out. The
+archive is insert-only, so closed hours are copied while the collector keeps
+writing to the old table.
 The swap then locks both tables for the last few minutes of rows only.
 
 Phases, each resumable and safe to rerun:
@@ -34,6 +36,20 @@ SETTLE = timedelta(minutes=10)
 STEP = timedelta(hours=1)
 LOCK_ATTEMPTS = 10
 
+# until November 2026 the trip key and change hash included NTA's entity id,
+# which is renumbered every poll, so about 87% of archived stop rows repeat
+# the stop's previous state. the copy keeps the first row of each run. rows
+# are compared per dated trip and stop sequence because the old trip keys
+# split one trip into a key per poll. polls are minutes apart, so a row whose
+# predecessor is further back than this is kept rather than compared
+REPEAT_LOOKBACK = timedelta(minutes=15)
+STOP_TRIP = ("feed_version_id", "trip_id", "service_date", "stop_sequence")
+STOP_STATE = (
+    "route_id", "vehicle_id", "stop_id", "schedule_relationship",
+    "trip_schedule_relationship", "arrival_time", "departure_time",
+    "arrival_delay_seconds", "departure_delay_seconds",
+)
+
 
 @dataclass(frozen=True)
 class Archive:
@@ -41,6 +57,7 @@ class Archive:
     time_column: str
     identity: tuple[str, ...]
     hashed: bool
+    drops_repeats: bool = False
 
     @property
     def compact(self) -> str:
@@ -54,6 +71,10 @@ class Archive:
     def progress(self) -> str:
         return f"compact:{self.name}"
 
+    @property
+    def copied_rows(self) -> str:
+        return f"compact:{self.name}:rows"
+
 
 # identities match the collector's ON CONFLICT targets
 ARCHIVES = {
@@ -64,6 +85,7 @@ ARCHIVES = {
             "fetched_at",
             ("fetched_at", "feed_version_id", "update_hash"),
             True,
+            drops_repeats=True,
         ),
         Archive(
             "bus_vehicle_observations",
@@ -179,21 +201,29 @@ def prepare(conn: psycopg.Connection, archive: Archive) -> None:
                    updated_at = NOW()""",
             (archive.progress, start),
         )
+        conn.execute(
+            """INSERT INTO bus_storage_backfill_progress (name, last_id, target_id, as_of)
+               VALUES (%s, 0, 0, NULL)
+               ON CONFLICT (name) DO UPDATE SET last_id = 0, updated_at = NOW()""",
+            (archive.copied_rows,),
+        )
     print(f"{archive.name}: created {archive.compact} from {start}", flush=True)
 
 
 def copy_range(
     conn: psycopg.Connection, archive: Archive, start: datetime, end: datetime | None
 ) -> int:
-    """Copy [start, end) and check that both sides hold the same rows.
+    """Copy the kept rows of [start, end) and check both sides hold the same rows.
 
     Runs inside the caller's transaction. The checksum covers every column, so
     a lost row, a duplicate or a wrong hash conversion fails the step.
     """
 
     names = [name for name, _ in columns(conn, archive.compact)]
-    source = [
-        sql.SQL(HASH_SQL.format("{}")).format(sql.Identifier(name))
+    converted = [
+        sql.SQL(HASH_SQL.format("{}") + " AS {}").format(
+            sql.Identifier(name), sql.Identifier(name)
+        )
         if archive.hashed and name == "update_hash"
         else sql.Identifier(name)
         for name in names
@@ -204,33 +234,72 @@ def copy_range(
         window = sql.SQL("{} AND {} < %(end)s").format(window, time_column)
     params = {"start": start, "end": end}
 
+    if archive.drops_repeats:
+        # reads back a little before start so the first rows of the window
+        # still see their predecessor
+        params["lookback"] = start - REPEAT_LOOKBACK
+        lookback = sql.SQL("{} >= %(lookback)s").format(time_column)
+        if end is not None:
+            lookback = sql.SQL("{} AND {} < %(end)s").format(lookback, time_column)
+        state = sql.SQL("ROW({})").format(sql.SQL(", ").join(map(sql.Identifier, STOP_STATE)))
+        kept = sql.SQL(
+            """SELECT {converted} FROM (
+                   SELECT *, {state} IS NOT DISTINCT FROM lag({state}) OVER (
+                       PARTITION BY {trip} ORDER BY {time}
+                   ) AS repeats
+                   FROM {source} WHERE {lookback}
+               ) observed
+               WHERE {window} AND NOT (trip_id IS NOT NULL AND repeats)"""
+        ).format(
+            converted=sql.SQL(", ").join(converted),
+            state=state,
+            trip=sql.SQL(", ").join(map(sql.Identifier, STOP_TRIP)),
+            time=time_column,
+            source=sql.Identifier(archive.name),
+            lookback=lookback,
+            window=window,
+        )
+    else:
+        kept = sql.SQL("SELECT {} FROM {} WHERE {}").format(
+            sql.SQL(", ").join(converted), sql.Identifier(archive.name), window
+        )
+
     written = conn.execute(
-        sql.SQL("INSERT INTO {} ({}) SELECT {} FROM {} WHERE {}").format(
+        sql.SQL("INSERT INTO {} ({}) {}").format(
             sql.Identifier(archive.compact),
             sql.SQL(", ").join(map(sql.Identifier, names)),
-            sql.SQL(", ").join(source),
-            sql.Identifier(archive.name),
-            window,
+            kept,
         ),
         params,
     ).rowcount
 
-    def checksum(table: str, select: list[sql.Composable]) -> tuple[int, int]:
+    def checksum(rows: sql.Composable) -> tuple[int, int]:
         return conn.execute(
             sql.SQL(
                 "SELECT count(*), COALESCE(sum(hashtextextended(ROW({})::text, 0)), 0) "
-                "FROM {} WHERE {}"
-            ).format(sql.SQL(", ").join(select), sql.Identifier(table), window),
+                "FROM ({}) copied"
+            ).format(sql.SQL(", ").join(map(sql.Identifier, names)), rows),
             params,
         ).fetchone()
 
-    expected = checksum(archive.name, source)
-    actual = checksum(archive.compact, [sql.Identifier(name) for name in names])
+    expected = checksum(kept)
+    actual = checksum(
+        sql.SQL("SELECT {} FROM {} WHERE {}").format(
+            sql.SQL(", ").join(map(sql.Identifier, names)),
+            sql.Identifier(archive.compact),
+            window,
+        )
+    )
     if written != expected[0] or actual != expected:
         raise RuntimeError(
             f"{archive.name} {start}..{end}: copied {written}, "
             f"source {expected}, compact {actual}"
         )
+    conn.execute(
+        """UPDATE bus_storage_backfill_progress
+           SET last_id = last_id + %s, updated_at = NOW() WHERE name = %s""",
+        (written, archive.copied_rows),
+    )
     return written
 
 
@@ -351,19 +420,28 @@ def drop(conn: psycopg.Connection, archive: Archive) -> None:
     if swapped is None:
         raise RuntimeError(f"{archive.name}: not swapped yet")
 
-    def count(table: str) -> int:
-        return conn.execute(
-            sql.SQL("SELECT count(*) FROM {} WHERE {} < %s").format(
-                sql.Identifier(table), sql.Identifier(archive.time_column)
-            ),
-            (swapped,),
-        ).fetchone()[0]
-
-    legacy_rows, compact_rows = count(archive.legacy), count(archive.name)
-    if compact_rows < legacy_rows:
-        raise RuntimeError(
-            f"{archive.name}: {compact_rows} rows before the swap, legacy has {legacy_rows}"
+    # the legacy table stopped taking rows at the swap, so every copied row is
+    # at or before its last time and anything later came from the collector
+    copied = conn.execute(
+        sql.SQL("SELECT count(*) FROM {} WHERE {} <= (SELECT max({}) FROM {})").format(
+            sql.Identifier(archive.name),
+            sql.Identifier(archive.time_column),
+            sql.Identifier(archive.time_column),
+            sql.Identifier(archive.legacy),
         )
+    ).fetchone()[0]
+    recorded = conn.execute(
+        "SELECT last_id FROM bus_storage_backfill_progress WHERE name = %s",
+        (archive.copied_rows,),
+    ).fetchone()
+    if recorded is None or copied != recorded[0]:
+        raise RuntimeError(
+            f"{archive.name}: {copied} copied rows, the copy recorded "
+            f"{recorded[0] if recorded else 'none'}"
+        )
+    legacy_rows = conn.execute(
+        sql.SQL("SELECT count(*) FROM {}").format(sql.Identifier(archive.legacy))
+    ).fetchone()[0]
     with conn.transaction():
         conn.execute(sql.SQL("DROP TABLE {}").format(sql.Identifier(archive.legacy)))
     print(f"{archive.name}: dropped {archive.legacy} ({legacy_rows} rows)", flush=True)
@@ -391,6 +469,9 @@ def main() -> None:
         if not conn.execute("SELECT pg_try_advisory_lock(2026110801)").fetchone()[0]:
             raise RuntimeError("another archive compaction is running")
         conn.execute("SET work_mem = '64MB'")
+        # parallel workers share the container's 64 MB /dev/shm and have
+        # failed on it before, see the working-table upkeep notes
+        conn.execute("SET max_parallel_workers_per_gather = 0")
         for name in args.archive or ARCHIVES:
             archive = ARCHIVES[name]
             if args.phase == "copy":
