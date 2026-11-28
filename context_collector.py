@@ -74,7 +74,7 @@ class WeatherStation:
 # live slugs matched to archive station numbers and coordinates from
 # clidata.met.ie StationDetails.csv
 WEATHER_STATIONS = (
-    WeatherStation(532, "dublin-airport", "Dublin Airport", 53.42778, -6.24083),
+    WeatherStation(532, "dublinairport", "Dublin Airport", 53.42778, -6.24083),
     WeatherStation(3723, "casement", "Casement", 53.30556, -6.43889),
     WeatherStation(175, "phoenix-park", "Phoenix Park", 53.36361, -6.34972),
     WeatherStation(1075, "roches-point", "Roches Point", 51.79306, -8.24444),
@@ -108,11 +108,12 @@ WEATHER_STATIONS = (
 
 
 def _number(value: object) -> Optional[float]:
-    """Met Éireann pads numbers with spaces and uses '-' or blanks for missing"""
+    """Met Éireann pads numbers with spaces and uses '-', blanks or -99 for
+    missing. -99 is out of range for every field the live feed reports"""
     if value is None or isinstance(value, bool):
         return None
     text = str(value).strip()
-    if not text or text in {"-", "n/a"}:
+    if not text or text.lower() in {"-", "n/a", "-99"}:
         return None
     try:
         return float(text)
@@ -132,7 +133,9 @@ def parse_live_observations(station_id: int, payload: object) -> list[tuple]:
             ).replace(tzinfo=DUBLIN)
         except (TypeError, ValueError):
             continue
-        description = str(item.get("weatherDescription") or "").strip() or None
+        description = str(item.get("weatherDescription") or "").strip()
+        if description.lower() in {"", "n/a"}:
+            description = None
         rows.append(
             (
                 station_id,

@@ -25,6 +25,15 @@ class WeatherParsingTests(unittest.TestCase):
         self.assertIsNone(row[5])
         self.assertEqual(row[7], 98.0)
 
+    def test_live_missing_value_codes_are_not_stored(self) -> None:
+        malin = {"date": "25-11-2026", "reportTime": "03:00", "temperature": "-",
+                 "humidity": "-99", "weatherDescription": "N/A"}
+        (row,) = parse_live_observations(1575, [malin])
+
+        self.assertIsNone(row[2])
+        self.assertIsNone(row[7])
+        self.assertIsNone(row[10])
+
     def test_archive_columns_follow_the_header_not_a_fixed_order(self) -> None:
         header = parse_archive_header(
             "date,ind,rain,ind,temp,ind,wetb,dewpt,vappr,rhum,msl,ind,wdsp,ind,wddir,ww,w,sun,vis,clht,clamt\n"
