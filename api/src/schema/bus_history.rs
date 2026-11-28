@@ -179,12 +179,16 @@ impl BusHistoryQuery {
         if route_id.is_some() && stop_id.is_some() {
             return Err(Error::new("Choose either a route or a stop"));
         }
-        if (route_id.is_some() || stop_id.is_some()) && feed_version_id.is_none() {
-            return Err(Error::new(
-                "feedVersionId is required with routeId or stopId",
-            ));
+        if route_id.is_some() && feed_version_id.is_none() {
+            return Err(Error::new("feedVersionId is required with routeId"));
         }
-        let feed_version_id = feed_version_id.map(validate_feed_version).transpose()?;
+        // NTA keeps stop ids across its daily feeds while route ids get
+        // renumbered, so a stop's history spans every feed
+        let feed_version_id = if stop_id.is_some() {
+            None
+        } else {
+            feed_version_id.map(validate_feed_version).transpose()?
+        };
 
         let hours = history_hours(ctx, hours, HistoryKind::Delays);
         if resolution == BusHistoryResolution::Hour && hours > HOURLY_RESOLUTION_MAX_HOURS {
@@ -301,7 +305,11 @@ impl BusHistoryQuery {
         ctx: &Context<'_>,
         #[graphql(default = 24)] hours: i32,
         search: Option<String>,
-        feed_version_id: Option<i64>,
+        #[graphql(
+            name = "feedVersionId",
+            deprecation = "stop stats span every feed, the stop id is enough"
+        )]
+        _feed_version_id: Option<i64>,
         stop_id: Option<String>,
         #[graphql(default = 100)] limit: i32,
     ) -> Result<Vec<BusStopStats>> {
@@ -310,12 +318,10 @@ impl BusHistoryQuery {
         let stop_id = stop_id
             .map(|id| validate_identifier(id, "stopId"))
             .transpose()?;
-        if stop_id.is_some() && feed_version_id.is_none() {
-            return Err(Error::new("feedVersionId is required with stopId"));
-        }
-        let feed_version_id = feed_version_id.map(validate_feed_version).transpose()?;
+        // stop ids carry over between NTA's daily feeds, so stats group by stop
+        // across feeds and name each stop from the latest feed it appears in
         let limit = limit.clamp(1, 200);
-        let key = format!("{hours}:{search:?}:{feed_version_id:?}:{stop_id:?}:{limit}");
+        let key = format!("{hours}:{search:?}:{stop_id:?}:{limit}");
         let pool = ctx.data::<PgPool>()?.clone();
         let result = ctx
             .data::<QueryCache>()?
@@ -323,29 +329,33 @@ impl BusHistoryQuery {
             .try_get_with(key, async move {
                 let mut tx = history_transaction(&pool).await?;
                 let rows = sqlx::query_as::<_, BusStopStats>(
-                    "SELECT histogram.feed_version_id, histogram.scope_id AS stop_id,
-                            COALESCE(stop.stop_name, histogram.scope_id) AS stop_name,
-                            (SUM(histogram.delay_seconds::numeric * histogram.sample_count) / SUM(histogram.sample_count))::float8 AS avg_delay_seconds,
-                            bus_histogram_percentile(array_agg(histogram.delay_seconds), array_agg(histogram.sample_count), 0.95) AS p95_delay_seconds,
-                            MAX(histogram.delay_seconds)::int4 AS max_delay_seconds,
-                            (100.0 * COALESCE(SUM(histogram.sample_count) FILTER (WHERE histogram.delay_seconds BETWEEN -60 AND 300), 0) / SUM(histogram.sample_count))::float8 AS on_time_pct,
-                            SUM(histogram.sample_count)::bigint AS sample_count
-                     FROM bus_delay_histogram histogram
+                    "WITH stats AS (
+                         SELECT scope_id AS stop_id, MAX(feed_version_id) AS feed_version_id,
+                                (SUM(delay_seconds::numeric * sample_count) / SUM(sample_count))::float8 AS avg_delay_seconds,
+                                bus_histogram_percentile(array_agg(delay_seconds), array_agg(sample_count), 0.95) AS p95_delay_seconds,
+                                MAX(delay_seconds)::int4 AS max_delay_seconds,
+                                (100.0 * COALESCE(SUM(sample_count) FILTER (WHERE delay_seconds BETWEEN -60 AND 300), 0) / SUM(sample_count))::float8 AS on_time_pct,
+                                SUM(sample_count)::bigint AS sample_count
+                         FROM bus_delay_histogram
+                         WHERE scope_kind = 'stop'
+                           AND bucket >= time_bucket(INTERVAL '1 hour', $1::timestamptz)
+                           AND ($3::text IS NULL OR scope_id = $3)
+                         GROUP BY scope_id
+                     )
+                     SELECT stats.feed_version_id, stats.stop_id,
+                            COALESCE(stop.stop_name, stats.stop_id) AS stop_name,
+                            stats.avg_delay_seconds, stats.p95_delay_seconds, stats.max_delay_seconds,
+                            stats.on_time_pct, stats.sample_count
+                     FROM stats
                      LEFT JOIN bus_stops stop
-                        ON stop.feed_version_id = histogram.feed_version_id
-                       AND stop.stop_id = histogram.scope_id
-                     WHERE histogram.scope_kind = 'stop'
-                       AND histogram.bucket >= time_bucket(INTERVAL '1 hour', $1::timestamptz)
-                       AND ($2::text IS NULL OR stop.stop_name ILIKE $2 OR histogram.scope_id ILIKE $2)
-                       AND ($3::bigint IS NULL OR histogram.feed_version_id = $3)
-                       AND ($4::text IS NULL OR histogram.scope_id = $4)
-                     GROUP BY histogram.feed_version_id, histogram.scope_id, stop.stop_name
-                     ORDER BY avg_delay_seconds DESC, histogram.feed_version_id, histogram.scope_id
-                     LIMIT $5",
+                        ON stop.feed_version_id = stats.feed_version_id
+                       AND stop.stop_id = stats.stop_id
+                     WHERE ($2::text IS NULL OR stop.stop_name ILIKE $2 OR stats.stop_id ILIKE $2)
+                     ORDER BY stats.avg_delay_seconds DESC, stats.stop_id
+                     LIMIT $4",
                 )
                 .bind(history_cutoff(hours))
                 .bind(search)
-                .bind(feed_version_id)
                 .bind(stop_id)
                 .bind(i64::from(limit))
                 .fetch_all(&mut *tx)
