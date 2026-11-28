@@ -305,8 +305,13 @@ Migration 020 sets this layout on a new, empty install. A populated archive is
 rebuilt by `scripts/compact_bus_archive.py` while the collector keeps running.
 Rows never change once written, so the script copies closed hours from the
 live table into `<archive>_compact`, checking a whole-row checksum for each
-hour, and compresses each finished day. The swap then locks both tables, copies
-the rows from the last few minutes and renames them, which took under a second
+hour, and compresses each finished day. The stop archive copy also leaves out
+rows that repeat the previous state of the same stop on the same dated trip.
+Until November 2026 NTA's per-poll entity id was part of the trip key and the
+change hash, so about 87% of stop rows were such repeats (6.6M of 7.6M on
+15 October). Trip presence at each poll stays in the trip archive. The swap
+then locks both tables, copies the rows from the last few minutes and renames
+them, which took under a second
 in testing. The collector reads the column type at the start of each write
 and switches to the bigint form by itself. A write already waiting on the lock
 can fail once and is retried on the next poll.
@@ -328,9 +333,11 @@ docker exec -i irish_bus_daemon python - --expected-db ireland_public \
 
 Each phase resumes where it stopped and can be rerun. `--archive` limits a run
 to one table and `--limit-hours` stops the copy early. Progress lives in
-`bus_storage_backfill_progress` under `compact:<archive>`. Until the drop
-phase, `<archive>_legacy` keeps the original rows. Drop refuses to run if the
-new table holds fewer rows from before the swap.
+`bus_storage_backfill_progress` under `compact:<archive>`, and the number of
+copied rows under `compact:<archive>:rows`. Until the drop phase,
+`<archive>_legacy` keeps the original rows. Drop refuses to run unless the new
+table holds exactly the recorded number of copied rows up to the last legacy
+row.
 
 ### Working-table upkeep
 
