@@ -185,7 +185,8 @@ Live sizes on 27 November 2026 for tables created by migrations `009` through `0
 | Bus timetable | `bus_agencies`, `bus_routes`, `bus_trips`, `bus_stops`, `bus_stop_times`, `bus_shape_points`, `transit_feed_versions` | `bus_stop_times` 5.4 GB, `bus_trips` 3.4 GB, `bus_shape_points` 2.8 GB, `bus_stops` 189 MB |
 | Bus working set | `bus_delay_samples`, `bus_trip_update_freshness`, `bus_stop_live`, `bus_vehicle_positions` | `bus_delay_samples` 12 GB. Freshness about 1.0 GB |
 | Bus archive hypertables | `bus_stop_observations`, `bus_vehicle_observations`, `bus_trip_observations`, and the matching `*_legacy` hypertables | Current archive chunks are mostly compressed. Legacy tables still have more than a thousand chunks each |
-| Bus rollups | `bus_segment_delay_hourly`, `bus_published_performance`, `bus_delay_histogram`, `bus_route_poll_stats`, `bus_hourly_delays` | Segment rollup about 81 MB |
+| Bus rollups | `bus_segment_delay_hourly`, `bus_published_performance`, `bus_delay_histogram` | Segment rollup about 81 MB |
+| Orphaned, live database only | `bus_route_poll_stats`, `bus_hourly_delays`, `bus_realtime_feeds` | Written by a September 2026 build that never reached `main`. The last rows are from 17 September. Nothing reads them |
 | Rail extras | `rail_service_alerts`, `rail_segment_delay_hourly`, `rail_dwell_delay_hourly`, `rail_segment_rollup_days` | Segment rollup about 80 MB |
 | Context | `weather_hourly`, `weather_stations`, `weather_warnings`, `weather_archive_progress`, `traffic_sites`, `traffic_site_weekly`, `traffic_site_yearly`, `traffic_daily_class`, `traffic_bulk_days` | `weather_hourly` 373 MB. `traffic_daily_class` 286 MB |
 | Billing | `billing_webhook_events` | Empty parent, 16 KB |
@@ -214,7 +215,7 @@ Coordinates outside Ireland, and the upstream `0,0` pair, are stored as NULL by 
 
 `bus_daemon.py` skips a realtime stop update when its state hash is unchanged. The comment there says unchanged states were about three quarters of archived rows before that filter. The same file compacts `update_hash` to the first 8 bytes of the SHA-256, stored as a bigint, when the column already has that type.
 
-`migrations/014_bus_observation_archive.sql` creates `bus_stop_observations`, `bus_vehicle_observations`, and `bus_trip_observations`, and compresses them after 3 hours. Live jobs for the first three current archive hypertables use `compress_after` of 3 hours and run every 30 minutes. `bus_delay_histogram` and `bus_route_poll_stats` compress after 7 days.
+`migrations/014_bus_observation_archive.sql` creates `bus_stop_observations`, `bus_vehicle_observations`, and `bus_trip_observations`, and compresses them after 3 hours. Live jobs for the first three current archive hypertables use `compress_after` of 3 hours and run every 30 minutes. `bus_delay_histogram` compresses after 7 days.
 
 `migrations/020_bus_archive_compaction.sql` converts `update_hash` from text to bigint only while the archive table is empty. If the table already has rows, the comment says `scripts/compact_bus_archive.py` rebuilds it. That script is in this repository. It is not copied into `/app` by `Dockerfile`. The same migration sets `compress_chunk_time_interval` to 1 day when the setting is still null.
 
