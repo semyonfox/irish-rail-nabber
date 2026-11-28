@@ -45,7 +45,7 @@ export default function StationTable({
 
   const [{ data, fetching, error, operation }, retry] = usePollingQuery<StationDelayStatsData>({
     query: STATION_DELAY_STATS,
-    variables: { hours, limit: 171 },
+    variables: { hours, limit: 200 },
     pollInterval: 30000,
   });
 

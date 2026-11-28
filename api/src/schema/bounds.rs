@@ -16,8 +16,9 @@ pub(crate) const STATION_BOARD_LIMIT: (i32, i32) = (1, 200);
 pub(crate) const TRAIN_HISTORY_HOURS: (i32, i32) = (1, 168);
 /// `hourlyDelays.hours` and `stationDelayStats.hours`: one hour through one week.
 pub(crate) const ANALYTICS_HOURS: (i32, i32) = (1, 168);
-/// `stationDelayStats.limit`: 1 through 100 stations.
-pub(crate) const STATION_DELAY_STATS_LIMIT: (i32, i32) = (1, 100);
+/// `stationDelayStats.limit`: 1 through 200, above the 171 stations Irish Rail lists,
+/// so the station table can search every station rather than the 100 most delayed
+pub(crate) const STATION_DELAY_STATS_LIMIT: (i32, i32) = (1, 200);
 /// `routeReliability.hours`: one hour through 30 days.
 pub(crate) const ROUTE_RELIABILITY_HOURS: (i32, i32) = (1, 720);
 /// `routeReliability.minTrains`: require between 1 and 20 trains.

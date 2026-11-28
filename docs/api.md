@@ -200,7 +200,7 @@ bypass the service's query-cost limits:
 | `trainHistory.hours` | 1–168 |
 | `hourlyDelays.hours` | 1–168 |
 | `stationDelayStats.hours` | 1–168 |
-| `stationDelayStats.limit` | 1–100 |
+| `stationDelayStats.limit` | 1–200 |
 | `routeReliability.hours` | 1–720 |
 | `routeReliability.minTrains` | 1–20 |
 | `busStops.limit` | 1–200 |
